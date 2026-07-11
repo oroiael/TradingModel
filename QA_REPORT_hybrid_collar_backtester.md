@@ -1,7 +1,19 @@
 # QA/QC Report — `hybrid_collar_backtester.py`
 
 **Date:** 2026-07-11
-**Verdict:** The script runs and follows the broad shape of the intended strategy (Monday 09:35 entry / weekly call writing, Friday 15:55 evaluation, rally-triggered put rolls, 10% profit sweep to vault). **However, its P&L and cash accounting are materially wrong — results are inflated — and most option prices in a real run will come from a crude synthetic pricer, not your ThetaData file.** Backtest output in its current form should not be used to judge the strategy.
+
+> **RESOLUTION UPDATE:** the fixes recommended in §4 (and the correctness items in §1–§3) have now been
+> applied directly to `hybrid_collar_backtester.py` in this branch: pure cash-flow ledger accounting,
+> contracts snapped to listed expirations/strikes with fallback-rate reporting, roll trigger measured from
+> the current put strike, first/last-trading-day-of-week scheduling (holiday-safe), put expiry rolls,
+> commissions + spread haircuts, MTM equity curve with CAGR / max drawdown / Sharpe / buy-and-hold
+> benchmark, and hard failures on missing/bad data. The two `qa/` scripts were converted into regression
+> tests that now **assert** correct behavior (ledger identity to the penny, independent P&L re-derivation,
+> exactly one put roll) and both pass. The findings below document the *original* file as reviewed.
+> Strategy-level recommendations in §5 (OTM strike selection, IV filters, etc.) were deliberately NOT
+> applied — they change the strategy rather than fix it, and remain open for a decision.
+
+**Verdict (original file as reviewed):** The script runs and follows the broad shape of the intended strategy (Monday 09:35 entry / weekly call writing, Friday 15:55 evaluation, rally-triggered put rolls, 10% profit sweep to vault). **However, its P&L and cash accounting are materially wrong — results are inflated — and most option prices in a real run will come from a crude synthetic pricer, not your ThetaData file.** Backtest output in its current form should not be used to judge the strategy.
 
 Two of the critical findings were verified empirically with reproducible synthetic-data tests (see `qa/` directory):
 

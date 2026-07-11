@@ -1,15 +1,23 @@
-"""QA harness scenario 2: entry week at $100, then every later week price is
-$120 on Monday morning and $115 on Friday afternoon. Friday is always +15% vs
-entry (>= 10% hurdle) but below the $120 call strike, so the position is never
+"""QA regression test: put-roll trigger discipline.
+
+Scenario: entry week at $100 (Friday dips to $99 so no assignment), then every
+later week price is $120 on Monday morning and $115 on Friday afternoon.
+Friday is always below the $120 weekly call strike, so the position is never
 called away.
 
-Expected (buggy) result: the put is rolled EVERY Friday forever -- including
-"rolls" from strike 115 to the identical strike 115 -- because the rally
-baseline is measured from the original entry price and never resets (QA report
-finding 1.4). Each roll pays a fresh 7-day extension in pure churn cost while
-the reported Cycle_PnL never reflects it (finding 1.3).
+Correct behavior (rally measured from the CURRENT put strike, baseline resets
+after each roll):
+  * Friday of week 2: 115 >= 100 * 1.10 -> roll put 100 -> 115. Exactly once.
+  * Every later Friday: 115 < 115 * 1.10 -> no roll. No same-strike churn.
+
+The original engine measured the rally from the original entry price forever
+and rolled the put from strike 115 to the identical strike 115 every single
+Friday (~$800/week of churn) - see QA_REPORT_hybrid_collar_backtester.md, 1.4.
 """
-import sys, os, tempfile
+import os
+import sys
+import tempfile
+
 import pandas as pd
 
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -40,9 +48,20 @@ if __name__ == "__main__":
     os.chdir(WORKDIR)  # keep the engine's CSV log out of the repo
     eng = HybridCollarBacktester(options_path=os.path.join(WORKDIR, "nope.csv"),
                                  intraday_path=path, initial_capital=100000.0,
-                                 rally_threshold_pct=0.10)
+                                 rally_threshold_pct=0.10,
+                                 require_options_data=False)
     eng.run_simulation()
 
     df = pd.DataFrame(eng.trade_logs)
     print(df[['Date', 'SOXL_5min_Trigger_Price', 'Status', 'Put_Strike', 'Put_Exp',
               'Cycle_PnL', 'Trading_Balance', 'Roll_Action']].to_string(index=False))
+
+    rolls = int(df['Roll_Action'].str.contains("ROLLED PUT UP").sum())
+    assert rolls == 1, f"expected exactly 1 rally roll, got {rolls} (baseline-reset regression)"
+    assert not df['Status'].str.contains("CALLED AWAY").any(), "position should never be called away"
+    assert df['Put_Strike'].iloc[0] == 100.0 and df['Put_Strike'].iloc[-1] == 115.0, \
+        f"put strike path wrong: {df['Put_Strike'].tolist()}"
+    strikes_after_roll = df['Put_Strike'].iloc[2:].unique().tolist()
+    assert strikes_after_roll == [115.0], f"same-strike churn detected: {strikes_after_roll}"
+
+    print("\nPASS: put rolled exactly once (100 -> 115), baseline reset, no same-strike churn.")
