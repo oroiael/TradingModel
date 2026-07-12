@@ -1,38 +1,35 @@
-"""QA harness 1: the 'Base Risk' loss cap fabricates P&L on crash exits.
+"""QA regression 1: losses are reported in full (no 'Base Risk' clamp) and
+position sizing uses the true structural risk of the 6-leg position.
+
+Original bug: lines 149-150 clamped every losing trade to -(income width -
+credit), erasing the 1x3 backspread's loss trough (measured: a crash the
+engine's own model priced at -$1,020/contract was booked at -$410), and
+sizing divided by that same understated figure (54 contracts instead of 15).
 
 Scenario: standard entry on 2024-01-02 (DTE 31). On 2024-01-31 (2 DTE left)
 SOXL prints an intraday low of 81, breaching the 90 short strike -> the
-engine's CRASH (TRIPWIRE) path fires.
+CRASH (TRIPWIRE) path fires with the 3 long 80-puts still OTM.
 
-The engine's own crash model produces (per contract):
-  income leg : 1.50 - 3*1.50                    = -3.00
-  hedge legs : 3*BS(81,80) - BS(81,90) at 52% IV, 2 DTE  (deeply negative:
-               with 2 days left the 3 long 80-puts are still OTM while the
-               short 90-put is ~$9 ITM)
-  total      : ~ -$1,022 per contract
-
-But line 149-150 then clamps every losing trade to -'Base Risk' = -$410,
-where Base Risk covers ONLY the income spread (width - credit). The hedge's
-own loss trough simply vanishes from the books.
-
-Expected (buggy) result: engine reports exactly -Base Risk * contracts,
-~2.5x smaller than the loss its own model computed. It also shows the true
-expiration payoff of the combined 6-leg structure at S=80 is -$1,410 per
-contract, i.e. actual worst-case risk is ~3.4x 'Base Risk' -- so the 15%
-position sizing is really risking ~50% of the account per trade.
+Fixed behavior verified here:
+  * contracts are sized on the combined worst-case payoff (~$1,447.80/ct,
+    the S=80 trough), not the $410 income-spread width -> 15 contracts;
+  * the reported loss matches an independent recomputation of the engine's
+    crash model and is NOT clamped at -$410/contract;
+  * the income stop fills at max(3x credit, EOD spread cost) and the hedge
+    is marked at the EOD price (quote if present, else shocked-IV model).
 """
+import math
+
 import pandas as pd
 
 from fha_common import D0, entry_chain, put_row, run_engine
 
-from final_hedged_audit import black_scholes_put
+from final_hedged_audit import black_scholes_put, structure_max_loss
 
 E = "2024-02-02"          # DTE 31 from D0
 CRASH = "2024-01-31"      # 2 DTE remaining
 
 rows = entry_chain(E)
-# quotes for the income legs on the crash day (needed to get past the
-# missing-quote gate; the tripwire branch itself never reads them)
 rows += [
     put_row(CRASH, E, 90, 9.20, -0.95, iv=0.90, spot=82.0),
     put_row(CRASH, E, 85, 4.60, -0.85, iv=0.90, spot=82.0),
@@ -45,39 +42,37 @@ trade = res.iloc[0]
 assert trade["Reason"] == "CRASH (TRIPWIRE)", trade["Reason"]
 contracts = int(trade["Contracts"])
 
-# ---- independently recompute what the engine's OWN crash model produced ----
-net_credit_realized = 1.50 - 0.30 - 6 * 0.05          # 0.90
-base_risk = (5.0 - net_credit_realized) * 100          # $410 / contract
+# ---- independent recomputation of sizing and crash P&L ----
+per_leg = 0.05 + 0.65 / 100.0
+friction_rt = 2 * 6 * per_leg                                  # 0.678
+max_risk = structure_max_loss(90, 85, 90, 80, 3, 1.50, 0.30, friction_rt) * 100
+want_contracts = math.floor(150000 * 0.15 / max_risk)
 
+# income: EOD spread cost 9.20-4.60=4.60 is worse than the 4.50 stop -> 4.60
+income_pnl = 1.50 - max(1.50 * 3.0, 9.20 - 4.60)
+# hedge: sell leg has a real quote (9.20); buy leg is model-marked at the
+# EOD price with the vega-shocked entry IV
 t = max(1, (pd.Timestamp(E) - pd.Timestamp(CRASH)).days) / 365.0
-shocked_iv = 0.40 * 1.30
-hedge_value = 3 * black_scholes_put(81.0, 80.0, t, 0.05, shocked_iv) \
-    - black_scholes_put(81.0, 90.0, t, 0.05, shocked_iv)
-income_pnl = 1.50 - 1.50 * 3.0                         # -3.00
-model_pnl_per_contract = (income_pnl + (hedge_value - 0.30) - 0.30) * 100
+hb = black_scholes_put(82.0, 80.0, t, 0.05, 0.40 * 1.30)
+hedge_pnl = (3 * hb - 9.20) - 0.30
+want_pnl = (income_pnl + hedge_pnl - friction_rt) * 100 * contracts
 
-reported = trade["Total Net PnL ($)"]
-capped = -base_risk * contracts
+old_base_risk = (5.0 - 0.90) * 100   # the pre-fix income-only figure
 
-print(f"contracts                        : {contracts}")
-print(f"engine's own crash-model P&L     : {model_pnl_per_contract:>12,.2f} /contract")
-print(f"'Base Risk' cap                  : {-base_risk:>12,.2f} /contract")
-print(f"engine REPORTED                  : {reported:>12,.2f} total")
-print(f"engine's model actually computed : {model_pnl_per_contract * contracts:>12,.2f} total")
-print(f"loss silently erased by the cap  : "
-      f"{model_pnl_per_contract * contracts - capped:>12,.2f}")
+print(f"structural max risk          : {max_risk:>12,.2f} /contract "
+      f"(vs old 'Base Risk' {old_base_risk:,.2f})")
+print(f"contracts sized              : {contracts} (pre-fix engine: 54)")
+print(f"engine reported P&L          : {trade['Total Net PnL ($)']:>12,.2f}")
+print(f"independent recomputation    : {want_pnl:>12,.2f}")
+print(f"per-contract loss            : {trade['Total Net PnL ($)'] / contracts:>12,.2f} "
+      f"(old cap would have clamped at {-old_base_risk:,.2f})")
 
-assert model_pnl_per_contract < -base_risk, "scenario should exceed the cap"
-assert abs(reported - capped) < 0.01, (
-    f"expected clamped {capped:,.2f}, engine reported {reported:,.2f}")
+assert contracts == want_contracts, (contracts, want_contracts)
+assert abs(max_risk - trade["Max Risk/Ct ($)"]) < 0.01
+assert abs(trade["Total Net PnL ($)"] - want_pnl) < 1.0, (
+    f"expected {want_pnl:,.2f}, got {trade['Total Net PnL ($)']:,.2f}")
+# the loss must exceed the old income-only cap -> proves the clamp is gone
+assert trade["Total Net PnL ($)"] / contracts < -old_base_risk
 
-# ---- structural max risk vs 'Base Risk' (expiration payoff at S = 80) ----
-s = 80.0
-inc = 1.50 - (max(0, 90 - s) - max(0, 85 - s))                # -3.50
-hdg = (3 * max(0, 80 - s) - max(0, 90 - s)) - 0.30            # -10.30
-true_worst = (inc + hdg - 0.30) * 100                          # -1,410
-print(f"\nexpiration payoff at S=80        : {true_worst:>12,.2f} /contract "
-      f"({abs(true_worst) / base_risk:.1f}x the 'Base Risk' used for sizing)")
-
-print("\nCONFIRMED: losses beyond the income-spread width are silently "
-      "clamped, and position sizing uses a max-risk figure ~3.4x too small.")
+print("\nPASS: losses are reported uncapped and sizing uses the combined "
+      "structure's true worst case.")

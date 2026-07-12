@@ -3,7 +3,27 @@
 **Date:** 2026-07-12
 **Verdict:** The script implements the intended shape of the strategy — a 30–60 DTE, $5-wide, ~20Δ/5Δ SOXL put credit spread (income engine) plus a 1×3 put ratio backspread (PRB hedge), with an intraday strike-touch tripwire, 35% take-profit, 15%-of-balance sizing, and a 10% profit sweep to a cash vault. **However, it does not faithfully account for what that structure would actually make or lose.** Four defects were verified empirically with reproducible synthetic-data tests (see `qa/qa_fha_*.py`); the two worst ones each mis-state a single trade's P&L by **$27,000–$33,000 on a $150,000 account**, always in a direction that flatters the strategy or hides risk. Backtest output in its current form should not be used to judge the strategy or to size real capital.
 
-Verified findings (each test is standalone: `cd qa && python3 qa_fha_<name>_test.py`):
+---
+
+## Resolution (2026-07-12) — fixes implemented
+
+All items in section 4 are now implemented in `final_hedged_audit.py` on this branch, and the four `qa/qa_fha_*.py` harnesses have been flipped from bug demonstrations into **regression tests that assert the fixed behavior** (all passing):
+
+1. **Loss cap removed** — losses are reported in full; a loud warning prints if a realized loss ever exceeds the structural max (possible pre-expiry via vol marks), but the number is never rewritten.
+2. **Structural risk sizing** — `structure_max_loss()` evaluates the combined 6-leg expiration payoff at its strike kinks and sizing divides by that. On the test chain this is $1,447.80/contract vs the old $410 → 15 contracts instead of 54.
+3. **Tripwire reordered above the quote gate** — it needs only the intraday low, so quote-gap days can no longer disable the stop-loss. Gap days now only skip the TP/EOD-stop *decision* (and are counted/reported).
+4. **No silent $0 marks** — `put_value()` marks every leg as real quote → intrinsic (at/after expiry) → Black-Scholes with the day's IV or the entry IV; every mark source is counted and a data-coverage line prints in the summary.
+5. **Delta convention normalized at load** (`delta = -abs(delta)` for puts) — both vendor conventions now produce identical backtests.
+6. **Full friction** — slippage *and* $0.65/contract commissions on every executed leg, both sides; expired legs settle with no exit friction. The entry filter and structural risk both use round-trip friction.
+7. **Daily mark-to-market equity curve** (written to `SOXL_Final_Hedged_Equity_Curve.csv`) — max drawdown is now daily-MTM, and the summary adds CAGR, annualized Sharpe, SOXL buy-and-hold benchmark, and open-at-end trades marked to market in final equity.
+8. **Unified crash model** — income stop fills at `max(3× credit, EOD spread cost)`; hedge legs marked at the EOD price using real quotes when present, else vega-shocked model marks. Added the previously missing **EOD value stop** (`STOP-LOSS (EOD)`) so `stop_loss_mult` behaves as named.
+9. **Hardened loaders** — required-column validation with explicit errors, duplicate-key detection, percent-vs-decimal IV auto-detection, robust IBKR datetime parsing, and a missing-lows warning.
+
+Deliberately unchanged (flagged, not bugs): the hedge sell leg may still coincide with the income short strike (the structural risk math now prices that correctly; see 1.6 and strategy note 5.2), the sweep/vault mechanics, and the strategy parameters themselves. Sections 1–3 below document the original defects as found.
+
+---
+
+Verified findings as originally measured (the harnesses now assert the fixed behavior; run with `cd qa && python3 qa_fha_<name>_test.py`):
 
 | Test | Finding | Measured effect |
 |---|---|---|
@@ -95,4 +115,4 @@ These are suggestions to *test*, not assertions — the current engine cannot an
 
 ---
 
-*Reproduction: `cd qa && python3 qa_fha_losscap_test.py && python3 qa_fha_tripwire_gap_test.py && python3 qa_fha_zeroquote_slippage_test.py && python3 qa_fha_deltasign_test.py` (requires only `pandas`). Each script builds its own synthetic option/intraday CSVs in a temp directory, runs `FinalAuditSimulator` unmodified, and asserts the buggy behavior.*
+*Reproduction: `cd qa && python3 qa_fha_losscap_test.py && python3 qa_fha_tripwire_gap_test.py && python3 qa_fha_zeroquote_slippage_test.py && python3 qa_fha_deltasign_test.py` (requires only `pandas`). Each script builds its own synthetic option/intraday CSVs in a temp directory, runs `FinalAuditSimulator` unmodified, and asserts the FIXED behavior (they originally asserted the bugs; see the Resolution section and git history).*

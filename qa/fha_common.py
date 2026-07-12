@@ -12,10 +12,15 @@ spot = 100, expiration E chosen so DTE is inside the (30, 60) window:
   strike 85  close 1.50  delta -0.05   -> income LONG leg ($5 wide, credit 1.50)
   strike 80  close 1.10  delta -0.03   -> hedge BUY leg x3 (net hedge cost 0.30)
 
-With those quotes the engine computes:
-  net_credit_realized = 1.50 - 0.30 - 6*0.05 = 0.90
-  Base Risk           = (5.00 - 0.90) * 100  = $410 / contract
-  contracts           = floor(150000 * 0.15 / 410) = 54
+With those quotes the (fixed) engine computes:
+  round-trip friction   = 2 * 6 legs * ($0.05 slip + $0.65/100 comm) = 0.678
+  net_credit_realized   = 1.50 - 0.30 - 0.678 = 0.522
+  structural max risk   = worst combined payoff, at S=80:
+                          income 1.50-5.00, hedge -10.00-0.30, -0.678 friction
+                          = $1,447.80 / contract
+  contracts             = floor(150000 * 0.15 / 1447.80) = 15
+(The pre-fix engine sized on income-width-only "Base Risk" of $410 -> 54
+contracts, ~3.5x oversized.)
 """
 import os
 import sys

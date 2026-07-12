@@ -1,25 +1,18 @@
-"""QA harness 4: the hedge-leg selection depends on the SIGN convention of
-the delta column, while the income-leg selection does not.
+"""QA regression 4: the delta sign convention of the input file no longer
+changes the backtest.
 
-Income legs use `daily_puts['delta'].abs()` (convention-agnostic), but the
-hedge sell leg minimizes `(delta - (-0.20)).abs()` on the SIGNED delta.
-Options vendors ship put deltas either negative (OPRA/ORATS style) or as
-positive magnitudes.
-
-With positive put deltas, the value closest to -0.20 is simply the SMALLEST
-delta in the chain -- i.e. the deepest-OTM (lowest) strike listed. The
-hedge-buy legs must then be at strikes BELOW that, of which there are none,
-so `prb_buy_cands` is always empty and NO TRADE CAN EVER BE ENTERED.
+Original bug: income legs used `abs(delta)` but the hedge sell leg matched
+signed -0.20, so a vendor file with positive put deltas made 'closest to
+-0.20' resolve to the deepest-OTM strike in the chain -- below which no buy
+strikes exist -- and the entire backtest silently produced zero trades.
 
 Scenario: two runs on byte-identical market data except for the sign of the
-delta column. Same prices, same strikes, same everything.
+delta column.
 
-Expected (buggy) result:
-  negative deltas -> 1 trade, hedge sells the 20d 90-put, buys 3x 80-puts
-  positive deltas -> ZERO trades in the entire backtest, silently
-The engine neither validates nor normalizes the input convention, and a
-positive-delta vendor file produces an empty (or, with unusual chains, a
-nonsensically hedged) backtest with no warning.
+Fixed behavior verified here: deltas are normalized at load (puts negative),
+so both runs enter the identical trade (income 90/85, hedge sell 90, buy
+3x80) with identical P&L. Also checks the expiration exit: legs settle
+(intrinsic/quote), so only the 6 entry legs pay slippage/commission.
 """
 from fha_common import D0, entry_chain, put_row, run_engine
 
@@ -40,24 +33,26 @@ def build(sign):
 res_neg = run_engine(build(-1.0), {D0: 99.0, E: 99.0})
 res_pos = run_engine(build(+1.0), {D0: 99.0, E: 99.0})
 
-print(f"negative deltas: {len(res_neg)} closed trade(s)")
-if len(res_neg):
-    t = res_neg.iloc[0]
-    print(f"                 income {t['Inc. Short Strike']}/{t['Inc. Long Strike']}  "
-          f"hedge sell {t['Hdg. Sell Strike']}, buy 3x {t['Hdg. Buy Strike']}")
-print(f"positive deltas: {len(res_pos)} closed trade(s)")
+for label, res in [("negative deltas", res_neg), ("positive deltas", res_pos)]:
+    assert len(res) == 1, f"{label}: expected 1 closed trade, got {len(res)}"
+    t = res.iloc[0]
+    print(f"{label:>16}: income {t['Inc. Short Strike']}/{t['Inc. Long Strike']}  "
+          f"hedge sell {t['Hdg. Sell Strike']}, buy 3x {t['Hdg. Buy Strike']}  "
+          f"P&L {t['Total Net PnL ($)']:>10,.2f}  ({t['Reason']})")
 
-assert len(res_neg) == 1, f"expected 1 trade with negative deltas, got {len(res_neg)}"
-t = res_neg.iloc[0]
-assert t["Inc. Short Strike"] == "$90.00" and t["Inc. Long Strike"] == "$85.00"
-assert t["Hdg. Sell Strike"] == "$90.00" and t["Hdg. Buy Strike"] == "$80.00"
+neg, pos = res_neg.iloc[0], res_pos.iloc[0]
+for col in ["Inc. Short Strike", "Inc. Long Strike", "Hdg. Sell Strike",
+            "Hdg. Buy Strike", "Contracts", "Total Net PnL ($)",
+            "Slippage Paid ($)", "Commissions ($)", "Reason"]:
+    assert neg[col] == pos[col], (col, neg[col], pos[col])
 
-# with positive deltas the hedge sell collapses to the lowest strike in the
-# chain (closest to -0.20), no buy strikes exist below it, and the engine
-# silently enters nothing at all
-assert len(res_pos) == 0, (
-    f"expected 0 trades with positive deltas, got {len(res_pos)}")
+assert neg["Hdg. Sell Strike"] == "$90.00" and neg["Hdg. Buy Strike"] == "$80.00"
+assert neg["Reason"] == "EXPIRATION"
 
-print("\nCONFIRMED: identical market data, opposite delta sign convention "
-      "-> 1 hedged trade vs an entirely empty backtest. The delta "
-      "convention is never validated or normalized.")
+# expiration settles all legs: only the 6 entry legs pay friction
+contracts = int(neg["Contracts"])
+assert abs(neg["Slippage Paid ($)"] - 0.05 * 6 * 100 * contracts) < 0.01
+assert abs(neg["Commissions ($)"] - 0.65 * 6 * contracts) < 0.01
+
+print("\nPASS: both delta conventions produce the identical backtest; "
+      "expired legs settle without exit friction.")
