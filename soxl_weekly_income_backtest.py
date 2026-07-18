@@ -5,8 +5,10 @@ SOXL Weekly-Income Covered Call + Long-Dated Put Backtest  (Version 1)
 
 Implements the "Trade to Model" in "Option Trading Project for SOXL.md":
 
-    Part 1: Every Monday by 10:00 sell a call at the nearest OTM whole-number
-            strike, expiring that Friday.
+    Part 1: Every Monday by 10:00 sell a call at the whole-number strike
+            nearest to the share COST BASIS (user revision 2026-07-18;
+            spec 2.a.i originally said nearest OTM to the current price),
+            expiring that Friday.
     Part 2: Hold long SOXL shares (75% of capital, whole shares); shares only
             leave via call assignment or put exercise/sale.
     Part 3: Hold a long put, strike nearest whole dollar to the underlying
@@ -84,7 +86,7 @@ OUT_CSV = ROOT / "soxl_weekly_backtest_results.csv"
 RISK_FREE = 0.045          # constant r for BS (not in data files)
 START_CAPITAL = 150_000.0
 INVEST_FRACTION = 0.75     # spec Capital #2
-SWEEP_FRACTION = 0.25      # spec Capital #3
+SWEEP_FRACTION = 0.10      # user revision 2026-07-18 (spec Capital #3 was 25%)
 SPREAD_EXECUTION = 0.20    # spec parameter #6
 PUT_TARGET_DAYS = 182      # "six months"
 PUT_MIN_DAYS, PUT_MAX_DAYS = 120, 180
@@ -187,15 +189,28 @@ class Market:
     def chain(self, d):
         return self.opt_by_day.get(d)
 
-    def whole_otm_call_strike(self, d, spot):
-        """Nearest OTM whole-number CALL strike listed in the data on day d
-        (spec 2.a.i / parameter #5: use file strikes, whole numbers)."""
+    def call_strike_nearest(self, d, target):
+        """Whole-number CALL strike nearest to `target` (user revision
+        2026-07-18: anchor the weekly call to the share cost basis, not the
+        current price).  The $1 whole-number grid is verified in the data
+        (spec parameter #5).  The daily chain snapshot only lists strikes
+        within ~+/-10% of that day's price, so when the basis-anchored
+        strike falls outside the listed band it is still used -- real SOXL
+        weeklies list far wider than the snapshot -- and the note flags
+        that its IV comes from the nearest listed strike instead.
+        Returns (strike, note)."""
         ch = self.chain(d)
         if ch is None:
-            return None
-        ks = ch.loc[(ch["right"] == "CALL") & (ch["strike"] % 1 == 0)
-                    & (ch["strike"] > spot), "strike"]
-        return None if ks.empty else float(ks.min())
+            return None, ""
+        k = float(math.floor(target + 0.5))
+        ks = ch.loc[(ch["right"] == "CALL") & (ch["strike"] % 1 == 0),
+                    "strike"]
+        note = ""
+        if not ks.empty and k not in set(ks):
+            note = (f"; K={k} not in snapshot chain ({ks.min()}-{ks.max()} "
+                    f"listed, ~+/-10% band artifact); IV taken from nearest "
+                    f"listed strike")
+        return k, note
 
     def iv_and_spread(self, d, right, strike, want_long_dte):
         """IV + relative spread from the file: rows of `right` on day d with
@@ -312,8 +327,11 @@ def run():
         r["put_contracts"] = put["contracts"] if put else 0
 
         # ---- Part 1: sell the weekly call at 10:00 ----
+        # Strike anchored to the share cost basis (user revision 2026-07-18),
+        # priced off the 10:00 underlying.
         contracts = shares // 100
-        k = mkt.whole_otm_call_strike(entry, s_1000)
+        k, capped = (mkt.call_strike_nearest(entry, basis)
+                     if contracts else (None, ""))
         call_premium = 0.0
         r.update({"call_strike": "", "call_contracts": 0,
                   "call_sell_price": "", "call_premium_received": "",
@@ -335,17 +353,13 @@ def run():
                     "call_premium_received": round(call_premium, 2),
                     "call_pricing_source":
                         f"BS est (no <=7-DTE quotes in file); {src}; "
-                        f"exp={settle} assumed weekly"})
+                        f"exp={settle} assumed weekly; K anchored to "
+                        f"basis {basis:.2f}{capped}"})
             else:
                 warnings.append(f"{entry}: no usable call IV at K={k}")
         elif contracts > 0:
-            ch = mkt.chain(entry)
-            top = ch.loc[ch["right"] == "CALL", "strike"].max() \
-                if ch is not None else float("nan")
-            warnings.append(
-                f"{entry}: no whole strike above 10:00 price {s_1000:.2f} "
-                f"listed in chain (chain tops out at {top}) -- big intraday "
-                f"drop; NO CALL SOLD this week (data limitation, not a bug)")
+            warnings.append(f"{entry}: no whole-number call strikes listed; "
+                            f"NO CALL SOLD this week")
 
         # ---- Friday 15:30: put management checks ----
         s_1530 = mkt.pre_close_price(settle)
@@ -587,7 +601,7 @@ def qa_and_summary(df, warnings):
     pos_sw = df[df["realized_gain_total"] > 0]
     m = np.allclose(pos_sw["swept_to_side_account"],
                     SWEEP_FRACTION * pos_sw["realized_gain_total"], atol=0.01)
-    print(f"  sweep == 25% of positive realized gains: "
+    print(f"  sweep == {SWEEP_FRACTION:.0%} of positive realized gains: "
           f"{'PASS' if m else 'FAIL'}")
     ok &= m
 
