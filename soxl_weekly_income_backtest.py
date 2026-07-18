@@ -17,10 +17,12 @@ Implements the "Trade to Model" in "Option Trading Project for SOXL.md":
     Part 2: Hold long SOXL shares (75% of capital, whole shares); shares only
             leave via call assignment or put exercise/sale.
     Part 3: Hold a long put, strike nearest whole dollar to the underlying
-            purchase price, expiring ~6 months out (120-180 days), with the
-            roll-up rule (+20%, upside only -- user revision of the
-            original 10% either-way rule) and the 15% protective-exit
-            rule.
+            purchase price, at the OPTIMAL listed expiration scanned over
+            60-180 DTE -- lowest executed premium per protected day (user
+            revision 2026-07-18; spec 1.c/e originally said ~6 months,
+            120-180 days) -- with the roll-up rule (+20%, upside only,
+            user revision of the original 10% either-way rule) and the
+            15% protective-exit rule.
 
 Capital: start $150,000; invest 75%; sweep 10% (user revision 2026-07-18;
 spec said 25%) of each week's positive realized gain to a separate account;
@@ -37,10 +39,10 @@ are therefore priced from REAL bid/ask quotes:
 
     * SHORT CALL (weekly): the REAL listed weekly expiring that week,
       real quote at the basis-anchored strike when listed;
-    * LONG PUT (~6 months, 120-180 DTE): the REAL listed expiration
-      in-band nearest 182 days (nearest listed overall when the band has
-      no listing that day -- flagged), real quote at the listed
-      whole-dollar strike nearest the purchase price;
+    * LONG PUT (optimal-expiry scan, 60-180 DTE): every listed
+      expiration in the window is priced from real quotes at the listed
+      whole-dollar strike nearest the purchase price; the cheapest per
+      protected day is bought and the scan recorded per row;
     * marks/rolls/buybacks: real quote for the exact contract on that day.
 
 Black-Scholes with file IV survives only as a per-row-flagged fallback for
@@ -95,12 +97,14 @@ WEEKLY_CALLS = True        # original spec 2.a: sell Monday, expires that
                            # Friday (the listed weekly; Thursday on holiday
                            # weeks). Reverted from the 21-DTE variant per
                            # user direction 2026-07-18.
-PUT_TARGET_DAYS = 182      # original spec 1.d/e: ~six months out,
-PUT_MIN_DAYS = 120         # between 120 and 180 DTE. The REAL listed
-PUT_MAX_DAYS = 180         # expiration in-range nearest 182 is used; when
-                           # no listing falls inside the band (145 of 627
-                           # days -- long-tenor listings are sparse) the
-                           # nearest listed to 182 is used and flagged.
+PUT_SCAN_MIN = 60          # user revision 2026-07-18: instead of a fixed
+PUT_SCAN_MAX = 180         # ~6-month put, scan ALL real listed expirations
+                           # with 60-180 DTE at purchase time and buy the
+                           # one with the lowest COST PER PROTECTED DAY
+                           # (executed premium / DTE) at the listed
+                           # whole-dollar strike nearest the purchase
+                           # price. The scan is recorded per row in
+                           # put_pricing_source.
 ROLL_MOVE = 0.20           # roll UP only, at +20% (user direction 2026-07-18;
                            # originally spec 2.c.iv: 10% either direction)
 EXIT_DROP = 0.15           # spec 2.c.v
@@ -193,23 +197,32 @@ class Market:
                & (ch["expiration"] == exp)]
         return None if m.empty else m.iloc[0]
 
-    def put_expiration(self, d):
-        """REAL listed expiration for the six-month put: in [PUT_MIN_DAYS,
-        PUT_MAX_DAYS] nearest PUT_TARGET_DAYS; if none listed in the band,
-        the listed expiration nearest PUT_TARGET_DAYS overall, flagged.
-        Returns (exp, dte, out_of_range_note) or None."""
+    def scan_put_candidates(self, d, spot):
+        """Scan every REAL listed expiration with PUT_SCAN_MIN-PUT_SCAN_MAX
+        DTE on day d.  For each, take the listed whole-dollar strike
+        nearest `spot` with a live ask and compute the executed buy price
+        (spec #6) and its cost per protected day.  Returns a list of dicts
+        sorted cheapest-per-day first (possibly empty)."""
         ch = self.chain(d)
         if ch is None:
-            return None
-        g = ch[["expiration", "dte"]].drop_duplicates()
-        band = g[(g["dte"] >= PUT_MIN_DAYS) & (g["dte"] <= PUT_MAX_DAYS)]
-        if not band.empty:
-            row = band.loc[(band["dte"] - PUT_TARGET_DAYS).abs().idxmin()]
-            return row["expiration"], int(row["dte"]), ""
-        row = g.loc[(g["dte"] - PUT_TARGET_DAYS).abs().idxmin()]
-        return row["expiration"], int(row["dte"]), \
-            (f"; NOTE no listing in {PUT_MIN_DAYS}-{PUT_MAX_DAYS} DTE band "
-             f"this day, nearest listed to {PUT_TARGET_DAYS}d used")
+            return []
+        cands = []
+        exps = ch[["expiration", "dte"]].drop_duplicates()
+        exps = exps[(exps["dte"] >= PUT_SCAN_MIN)
+                    & (exps["dte"] <= PUT_SCAN_MAX)]
+        for exp, dte in exps.itertuples(index=False):
+            rows = ch[(ch["right"] == "PUT") & (ch["expiration"] == exp)
+                      & (ch["strike"] % 1 == 0) & (ch["ask"] > 0)]
+            if rows.empty:
+                continue
+            row = rows.loc[(rows["strike"] - spot).abs().idxmin()]
+            bid, ask = float(row["bid"]), float(row["ask"])
+            px = ask - SPREAD_EXECUTION * (ask - bid)
+            cands.append({"exp": exp, "dte": int(dte),
+                          "strike": float(row["strike"]),
+                          "bid": bid, "ask": ask, "px": px,
+                          "cost_per_day": px / int(dte)})
+        return sorted(cands, key=lambda c: c["cost_per_day"])
 
     def iv_and_spread(self, d, right, strike, want_long_dte):
         """IV + relative spread from the file: rows of `right` on day d with
@@ -640,38 +653,27 @@ def call_mark(mkt, call, d, spot):
 
 
 def open_put(mkt, d, spot, shares, cash_avail):
-    """Buy protective puts at the REAL listed expiration nearest
-    ~PUT_TARGET_DAYS and the listed whole-dollar strike nearest `spot`
-    (spec 1.d / parameter #5), priced from the file's actual bid/ask with
-    the spec #6 long-side rule. BS is only a flagged fallback."""
+    """Buy protective puts at the OPTIMAL real listed expiration in the
+    60-180 DTE scan window: lowest executed premium per protected day at
+    the listed whole-dollar strike nearest `spot` (spec 1.d / parameter
+    #5), priced from the file's actual bid/ask with the spec #6 long-side
+    rule.  The full scan outcome is recorded in pricing_source."""
     contracts = shares // 100
     if contracts == 0:
         return None, "fewer than 100 shares"
-    got = mkt.put_expiration(d)
-    if got is None:
-        return None, "no option chain on trade date"
-    exp, dte, range_note = got
-    ch = mkt.chain(d)
-    rows = ch[(ch["right"] == "PUT") & (ch["expiration"] == exp)
-              & (ch["strike"] % 1 == 0)]
-    if rows.empty:
-        return None, f"no whole-dollar put strikes listed at exp={exp}"
-    row = rows.loc[(rows["strike"] - spot).abs().idxmin()]
-    strike = float(row["strike"])
-    if row["ask"] > 0:
-        bid, ask = float(row["bid"]), float(row["ask"])
-        px = ask - SPREAD_EXECUTION * (ask - bid)
-        src = (f"REAL QUOTE bid={bid} ask={ask} K={strike} exp={exp} "
-               f"dte={dte}" + ("; ZERO BID" if bid == 0 else "")
-               + range_note)
-    else:
-        got_iv = mkt.iv_and_spread(d, "PUT", strike, want_long_dte=True)
-        if got_iv is None:
-            return None, "no ask and no put IV rows on trade date"
-        iv, spread, ivsrc = got_iv
-        mid = bs_price("PUT", spot, strike, dte / 365.0, iv)
-        px = mkt.exec_price(mid, spread, "BUY")
-        src = f"BS est (no ask at K={strike} exp={exp}); {ivsrc}"
+    cands = mkt.scan_put_candidates(d, spot)
+    if not cands:
+        return None, (f"no quoted whole-dollar puts listed with "
+                      f"{PUT_SCAN_MIN}-{PUT_SCAN_MAX} DTE on {d}")
+    best, worst = cands[0], cands[-1]
+    strike, exp, dte = best["strike"], best["exp"], best["dte"]
+    px = best["px"]
+    src = (f"OPTIMAL SCAN of {len(cands)} exps {PUT_SCAN_MIN}-"
+           f"{PUT_SCAN_MAX}d: chose dte={dte} K={strike} "
+           f"cost/day={best['cost_per_day']:.4f} "
+           f"(worst: dte={worst['dte']} {worst['cost_per_day']:.4f}); "
+           f"REAL QUOTE bid={best['bid']} ask={best['ask']} exp={exp}"
+           + ("; ZERO BID" if best["bid"] == 0 else ""))
     cost = px * contracts * 100
     trimmed = ""
     while contracts > 1 and cost > cash_avail:   # flagged, not hidden
@@ -754,6 +756,10 @@ def qa_and_summary(df, warnings):
           f"{df['call_outcome'].astype(str).str.startswith('ASSIGNED').sum()}")
     print(f"  Put rolls:             "
           f"{df['put_action'].str.contains('ROLLED').sum()}")
+    chosen = (df["put_pricing_source"].astype(str)
+              .str.extract(r"chose dte=(\d+)")[0].dropna().astype(int))
+    if len(chosen):
+        print(f"  Put DTEs chosen (60-180 scan): {sorted(chosen.tolist())}")
     print(f"  Protective exits:      "
           f"{df['put_action'].str.contains('PROTECTIVE_EXIT').sum()}")
     neg = (df['realized_gain_total'] < 0).sum()

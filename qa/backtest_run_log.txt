@@ -5,10 +5,10 @@ QA CHECKS (spec Quality Control #1-2)
 ========================================================================
   cash ledger reconciles every week:       PASS (131 weeks)
   cash never negative:                     PASS
-  sweep sum == final side account:         PASS (18,361.06 vs 18,361.07)
+  sweep sum == final side account:         PASS (18,137.41 vs 18,137.41)
   sweep == 10% of positive realized gains: PASS
   call sales priced from REAL quotes:      78/78
-  put purchases priced from REAL quotes:   8/8
+  put purchases priced from REAL quotes:   9/9
   warnings during run:                     53
     - 2024-09-03: call not sold (no listed strike near basis 65.26 at weekly exp 2024-09-06 (nearest listed 60.0); CALL SKIPPED this week)
     - 2024-09-09: call not sold (no listed strike near basis 65.26 at weekly exp 2024-09-13 (nearest listed 60.0); CALL SKIPPED this week)
@@ -26,15 +26,16 @@ SUMMARY
 ========================================================================
   Window:                2024-01-02 -> 2026-07-02  (131 weeks)
   Start capital:           150,000.00
-  End trading balance:     211,890.79
-  Side (swept) account:     18,361.07
-  End total:               230,251.86
-  Total return:                 53.5%
-  Call premium collected:  179,677.00 over 78 weekly sales (avg 2,303.55)
+  End trading balance:     198,655.25
+  Side (swept) account:     18,137.41
+  End total:               216,792.66
+  Total return:                 44.5%
+  Call premium collected:  178,406.40 over 78 weekly sales (avg 2,287.26)
   Calls assigned:        18
   Put rolls:             3
+  Put DTEs chosen (60-180 scan): [88, 115, 133, 136, 147, 151, 154, 179, 179]
   Protective exits:      0
-  Weeks w/ realized loss:6 of 131
+  Weeks w/ realized loss:7 of 131
 
   Both legs are priced from REAL file quotes (raw ThetaData
   exports, full window). BS-with-file-IV survives only as a
