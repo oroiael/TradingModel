@@ -5,9 +5,10 @@ QA CHECKS (spec Quality Control #1-2)
 ========================================================================
   cash ledger reconciles every week:       PASS (131 weeks)
   cash never negative:                     PASS
-  sweep sum == final side account:         PASS (28,916.74 vs 28,916.73)
+  sweep sum == final side account:         PASS (30,331.76 vs 30,331.76)
   sweep == 10% of positive realized gains: PASS
-  call sales priced from REAL quotes:      21/43 (rest BS-est: basis strike outside snapshot band)
+  call sales priced from REAL quotes:      38/44
+  put purchases priced from REAL quotes:   26/26
   warnings during run:                     0
 
 ========================================================================
@@ -15,18 +16,18 @@ SUMMARY
 ========================================================================
   Window:                2024-01-02 -> 2026-07-02  (131 weeks)
   Start capital:           150,000.00
-  End trading balance:     179,041.29
-  Side (swept) account:     28,916.73
-  End total:               207,958.03
-  Total return:                 38.6%
-  Call premium collected:  256,803.63 over 43 ~21-DTE sales (avg 6,114.37)
-  Calls assigned:        16
-  Put rolls:             16
-  Protective exits:      3
-  Weeks w/ realized loss:16 of 131
+  End trading balance:     177,746.03
+  Side (swept) account:     30,331.76
+  End total:               208,077.79
+  Total return:                 38.7%
+  Call premium collected:  285,900.73 over 44 ~21-DTE sales (avg 6,497.74)
+  Calls assigned:        17
+  Put rolls:             19
+  Protective exits:      4
+  Weeks w/ realized loss:18 of 131
 
-  Call sales use REAL file quotes when the basis strike is
-  listed at the ~21-DTE expiration; other call
-  sales and ALL put prices are BS estimates with file IV (see
-  header disclosure). Check pricing_source per row.
+  Both legs are priced from REAL file quotes (raw ThetaData
+  exports, full window). BS-with-file-IV survives only as a
+  per-row-flagged fallback where the exact strike is not
+  listed. Check pricing_source per row.
   Overall QA: PASS

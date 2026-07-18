@@ -86,44 +86,40 @@ Cross-check: option file 'underlying_price' vs 5-min last close (same date):
   (small diffs are expected: the option snapshot timestamp is after the 16:00 close while the 5-min file's last bar is 15:55)
 
 ==============================================================================
-4. RAW THETADATA EXPORT  (SOXL_Options_2025.csv)
+4. RAW THETADATA EXPORTS  SOXL_Options_2024.csv, SOXL_Options_2025.csv, SOXL_Options_2026.csv
 ==============================================================================
-Rows:                   299,008
-Symbols:                ['SOXL']
-Rights:                 {'PUT': 149504, 'CALL': 149504}
-Trade-date range:       2025-01-02  ->  2025-12-31  (250 days)
-Expirations:            64  (2025-01-03 -> 2028-01-21)
+Merged rows:            919,090
+Rights:                 {'CALL': 459545, 'PUT': 459545}
+Trade-date range:       2024-01-02  ->  2026-07-02  (627 days)
 DTE range:              0 - 858  (negative-DTE rows: 0)
 DTE bucket row counts:
-         (-1, 7]: 36,534
-         (7, 14]: 28,996
-        (14, 21]: 27,394
-        (21, 30]: 34,732
-        (30, 60]: 57,956
-        (60, 90]: 11,538
-       (90, 120]: 11,928
-      (120, 180]: 21,540
-      (180, 900]: 68,390
+         (-1, 7]: 117,274
+         (7, 14]: 91,106
+        (14, 21]: 82,976
+        (21, 30]: 103,726
+        (30, 60]: 168,002
+        (60, 90]: 40,674
+       (90, 120]: 39,628
+      (120, 180]: 65,954
+      (180, 900]: 209,750
 
 Gap checks vs SOXL_Master_Cleaned.csv (15-60 DTE only):
-  Mondays with a <=7-DTE expiration:  48/48  (weekly short-call leg -> REAL quotes)
-  trade dates with >=85 DTE listed:   250/250  (~90-DTE put leg -> REAL quotes)
-  trade dates with >=150 DTE listed:  250/250  (~6-month put leg -> REAL quotes)
-  strike band vs spot:                median [0.04x, 3.51x]  (master file was ~+/-10% -> basis-anchored strikes now listed)
+  Mondays with a <=7-DTE expiration:  119/119  (weekly short-call leg -> REAL quotes)
+  trade dates with >=85 DTE listed:   627/627  (~90-DTE put leg -> REAL quotes)
+  trade dates with >=150 DTE listed:  627/627  (~6-month put leg -> REAL quotes)
+  strike band vs spot:                median [0.03x, 2.46x]  (master file was ~+/-10% -> basis-anchored strikes now listed)
 
 Quality:
-  bid==0: 8.35%   ask==0: 0.00%   crossed (bid>ask): 0
-  implied_vol==0: 7.10%   volume==0 (quote-only rows): 35.99%
-  non-whole strikes: 15.5% of rows
+  bid==0: 5.63%   ask==0: 0.00%   crossed (bid>ask): 0
+  implied_vol==0: 6.04%
+  non-whole strikes: 13.7% of rows
 
-2025 alignment vs 5-min file: stock days 250, option days 250, in stock only: [], in options only: []
-underlying_price vs 5-min close: median diff 0.078%  max 1.929%
+Alignment vs 5-min file (2024-01-02..2026-07-02): stock days 627, option days 627, in stock only: [], in options only: []
+underlying_price vs 5-min close: median diff 0.074%  max 1.929%
 
-VERDICT: this export fills BOTH pricing gaps (weekly calls and
-60+ DTE puts, full strike range) -- but for 2025 ONLY.
-Still needed for the full 2024-01..2026-07 backtest window:
-  * same export for 2024 (Jan-Dec)
-  * same export for 2026 (Jan-Jul)
-Normalization required before use (no new data needed): parse
-M/D/YY dates and derive dte; columns otherwise match the master
-file schema.
+VERDICT: the three raw exports together cover the FULL backtest
+window (2024-01-02 -> 2026-07-02) with 0-DTE-and-up expirations
+and the full strike range: BOTH legs of the trade can now be
+priced from real bid/ask quotes. The 2025 export uses M/D/YY
+dates while 2024/2026 use ISO -- normalized by
+soxl_options_loader.load_raw_options(); no further data needed.

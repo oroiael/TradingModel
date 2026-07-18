@@ -24,25 +24,24 @@ Capital: start $150,000; invest 75%; sweep 25% of each week's positive
 realized gain to a separate account; reinvest the remaining 75%.
 
 ----------------------------------------------------------------------
-DATA LIMITATION -- READ THIS (required disclosure per spec parameter #7)
+PRICING DATA (disclosure per spec parameter #7)
 ----------------------------------------------------------------------
-The option file (SOXL_Master_Cleaned.csv) contains ONLY snapshots with
-15-60 days to expiration (verified by data_evaluation.py).
+Options are priced from the merged raw ThetaData exports
+(SOXL_Options_2024/2025/2026.csv via soxl_options_loader), which cover the
+full window 2024-01-02 -> 2026-07-02 with 0-DTE-and-up expirations and the
+full strike range (verified by data_evaluation.py, section 4).  BOTH legs
+are therefore priced from REAL bid/ask quotes:
 
-    * SHORT CALL (~21 DTE variant): the ~21-DTE expiration IS in the data,
-      so the call is priced from the REAL bid/ask whenever the
-      basis-anchored strike is listed that day (the snapshot only lists
-      strikes within ~10% of the day's price, so in deep drawdowns the
-      strike falls outside the band and BS with the nearest listed
-      strike's IV is used instead -- flagged per row).
-    * LONG PUT (~90 DTE variant): beyond the file's 60-DTE window, so
-      still Black-Scholes per spec parameter #7, using the file's IV at
-      the nearest strike / longest listed DTE (60->90 extrapolation,
-      much milder than the original 60->180).
+    * SHORT CALL (~21 DTE): real listed expiration nearest 21 DTE, real
+      quote at the basis-anchored strike when listed;
+    * LONG PUT (~90 DTE): real listed expiration nearest 90 DTE, real
+      quote at the listed whole-dollar strike nearest the purchase price;
+    * marks/rolls/buybacks: real quote for the exact contract on that day.
 
-Every priced leg in the output CSV carries a `pricing_source` field naming
-the exact quote/IV row used, so every price is auditable.  Remaining bias:
-option snapshots are end-of-day; trades happen 09:30/10:00 Monday.
+Black-Scholes with file IV survives only as a per-row-flagged fallback for
+contracts with no usable quote.  Every priced leg in the output CSV carries
+a `pricing_source` field naming the exact quote/IV row used.  Remaining
+bias: option snapshots are end-of-day; trades happen 09:30/10:00 Monday.
 
 Bid/ask handling (spec parameter #6): each BS mid is bracketed with the
 relative bid/ask spread of the IV-source row from the file, then
@@ -80,9 +79,10 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
+from soxl_options_loader import load_raw_options
+
 ROOT = Path(__file__).resolve().parent
 STOCK_CSV = ROOT / "SOXL_5min_3Years.csv"
-OPTION_CSV = ROOT / "SOXL_Master_Cleaned.csv"
 OUT_CSV = ROOT / "soxl_weekly_backtest_results.csv"
 
 # ------------------------- documented assumptions --------------------------
@@ -120,22 +120,6 @@ def bs_price(right, s, k, t_years, sigma, r=RISK_FREE):
     return k * math.exp(-r * t_years) * _ncdf(-d2) - s * _ncdf(-d1)
 
 
-def third_friday(year, month):
-    d = date(year, month, 15)
-    return d + timedelta(days=(4 - d.weekday()) % 7)
-
-
-def pick_put_expiration(entry):
-    """Friday nearest to ~PUT_TARGET_DAYS out. SOXL expirations in the data
-    are overwhelmingly Fridays (weeklies); listings beyond the file's 60-DTE
-    window are assumed and flagged in pricing_source."""
-    f = entry + timedelta(days=PUT_TARGET_DAYS)
-    ahead = (4 - f.weekday()) % 7
-    c1 = f + timedelta(days=ahead)
-    c2 = c1 - timedelta(days=7)
-    return c1 if (c1 - f).days <= (f - c2).days else c2
-
-
 # ------------------------------- data access -------------------------------
 class Market:
     """Verified lookups into the two data files. No repairs, no invention:
@@ -156,12 +140,7 @@ class Market:
         self.day_last = st.groupby("date").last()[["Close", "time"]]
         self.trading_days = sorted(st["date"].unique())
 
-        opt = pd.read_csv(OPTION_CSV, low_memory=False,
-                          usecols=["expiration", "strike", "right", "bid",
-                                   "ask", "implied_vol", "trade_date", "dte",
-                                   "underlying_price"])
-        opt["trade_date"] = pd.to_datetime(opt["trade_date"]).dt.date
-        opt["expiration"] = pd.to_datetime(opt["expiration"]).dt.date
+        opt = load_raw_options()
         self.opt_by_day = dict(tuple(opt.groupby("trade_date")))
         self.opt_dates = sorted(self.opt_by_day)
 
@@ -405,7 +384,9 @@ def run():
                         r.update({"call_outcome": "BOUGHT_BACK_ON_EXIT",
                                   "call_close_cost": round(cost_c, 2),
                                   "call_realized_pnl": round(prem - cost_c, 2),
-                                  "call_pricing_source": vsrc})
+                                  "call_pricing_source":
+                                      (str(r["call_pricing_source"])
+                                       + f"; buyback: {vsrc}").lstrip("; ")})
                         call = None
                     shares, put, exited = 0, None, True
                 else:
@@ -533,21 +514,30 @@ def run():
 
 
 def put_spread(mkt, put, d):
+    row = mkt.quote(d, "PUT", put["strike"], put["expiration"])
+    if row is not None and row["ask"] > 0 and row["bid"] > 0:
+        return (row["ask"] - row["bid"]) / ((row["ask"] + row["bid"]) / 2)
     got = mkt.iv_and_spread(d, "PUT", put["strike"], want_long_dte=True)
     return got[1] if got else 0.14  # file-wide median spread as last resort
 
 
 def put_value(mkt, put, d, spot):
-    """Mark the held put with BS using the file's IV nearest strike/longest
-    DTE on day d. Returns (PER-SHARE value, source string)."""
+    """Mark the held put from the REAL quote for its exact contract on day
+    d; BS with file IV only as a flagged fallback.
+    Returns (PER-SHARE mid, source string)."""
+    row = mkt.quote(d, "PUT", put["strike"], put["expiration"])
+    if row is not None and row["ask"] > 0:
+        bid, ask = float(row["bid"]), float(row["ask"])
+        return (bid + ask) / 2, (f"REAL QUOTE bid={bid} ask={ask}"
+                                 + ("; ZERO BID" if bid == 0 else ""))
     t = max((put["expiration"] - d).days, 0) / 365.0
     got = mkt.iv_and_spread(d, "PUT", put["strike"], want_long_dte=True)
     if got is None:
         return (max(put["strike"] - spot, 0.0),
-                "intrinsic only (no IV row)")
+                "intrinsic only (no quote, no IV row)")
     iv, _, src = got
     mid = bs_price("PUT", spot, put["strike"], t, iv)
-    return mid, f"BS est; {src}"
+    return mid, f"BS est (no quote row); {src}"
 
 
 def open_call(mkt, d, spot, basis, contracts):
@@ -612,21 +602,37 @@ def call_mark(mkt, call, d, spot):
 
 
 def open_put(mkt, d, spot, shares, cash_avail):
-    """Buy protective puts: nearest whole-dollar strike to `spot`, assumed
-    third-Friday expiration ~6 months out, BS-priced with file IV
-    (longest DTE available, <=60 -- disclosed)."""
+    """Buy protective puts at the REAL listed expiration nearest
+    ~PUT_TARGET_DAYS and the listed whole-dollar strike nearest `spot`
+    (spec 1.d / parameter #5), priced from the file's actual bid/ask with
+    the spec #6 long-side rule. BS is only a flagged fallback."""
     contracts = shares // 100
     if contracts == 0:
         return None, "fewer than 100 shares"
-    strike = float(round(spot))
-    exp = pick_put_expiration(d)
-    got = mkt.iv_and_spread(d, "PUT", strike, want_long_dte=True)
+    got = mkt.expiration_near(d, PUT_TARGET_DAYS)
     if got is None:
-        return None, "no put IV rows on trade date"
-    iv, spread, src = got
-    t = (exp - d).days / 365.0
-    mid = bs_price("PUT", spot, strike, t, iv)
-    px = mkt.exec_price(mid, spread, "BUY")
+        return None, "no option chain on trade date"
+    exp, dte = got
+    ch = mkt.chain(d)
+    rows = ch[(ch["right"] == "PUT") & (ch["expiration"] == exp)
+              & (ch["strike"] % 1 == 0)]
+    if rows.empty:
+        return None, f"no whole-dollar put strikes listed at exp={exp}"
+    row = rows.loc[(rows["strike"] - spot).abs().idxmin()]
+    strike = float(row["strike"])
+    if row["ask"] > 0:
+        bid, ask = float(row["bid"]), float(row["ask"])
+        px = ask - SPREAD_EXECUTION * (ask - bid)
+        src = (f"REAL QUOTE bid={bid} ask={ask} K={strike} exp={exp} "
+               f"dte={dte}" + ("; ZERO BID" if bid == 0 else ""))
+    else:
+        got_iv = mkt.iv_and_spread(d, "PUT", strike, want_long_dte=True)
+        if got_iv is None:
+            return None, "no ask and no put IV rows on trade date"
+        iv, spread, ivsrc = got_iv
+        mid = bs_price("PUT", spot, strike, dte / 365.0, iv)
+        px = mkt.exec_price(mid, spread, "BUY")
+        src = f"BS est (no ask at K={strike} exp={exp}); {ivsrc}"
     cost = px * contracts * 100
     trimmed = ""
     while contracts > 1 and cost > cash_avail:   # flagged, not hidden
@@ -636,10 +642,7 @@ def open_put(mkt, d, spot, shares, cash_avail):
     if cost > cash_avail:
         return None, "insufficient cash for even 1 contract"
     return ({"strike": strike, "expiration": exp, "contracts": contracts,
-             "cost_ps": px},
-            f"BS est (no 120-180 DTE quotes in file); {src}; "
-            f"exp={exp} assumed 3rd-Friday listing, dte={(exp-d).days}"
-            + trimmed)
+             "cost_ps": px}, src + trimmed)
 
 
 # ------------------------------ QA / summary -------------------------------
@@ -680,8 +683,12 @@ def qa_and_summary(df, warnings):
     sold = df[df["call_action"] == "SOLD"]
     real = sold["call_pricing_source"].astype(str).str.startswith(
         "REAL QUOTE").sum()
-    print(f"  call sales priced from REAL quotes:      {real}/{len(sold)} "
-          f"(rest BS-est: basis strike outside snapshot band)")
+    print(f"  call sales priced from REAL quotes:      {real}/{len(sold)}")
+    pbuys = df[df["put_action"].astype(str).str.contains("BUY|ROLLED",
+                                                         regex=True)]
+    preal = pbuys["put_pricing_source"].astype(str).str.contains(
+        "REAL QUOTE").sum()
+    print(f"  put purchases priced from REAL quotes:   {preal}/{len(pbuys)}")
 
     print(f"  warnings during run:                     {len(warnings)}")
     for w in warnings[:10]:
@@ -712,10 +719,10 @@ def qa_and_summary(df, warnings):
           f"{df['put_action'].str.contains('PROTECTIVE_EXIT').sum()}")
     neg = (df['realized_gain_total'] < 0).sum()
     print(f"  Weeks w/ realized loss:{neg} of {len(df)}")
-    print(f"\n  Call sales use REAL file quotes when the basis strike is"
-          f"\n  listed at the ~{CALL_TARGET_DTE}-DTE expiration; other call"
-          f"\n  sales and ALL put prices are BS estimates with file IV (see"
-          f"\n  header disclosure). Check pricing_source per row."
+    print(f"\n  Both legs are priced from REAL file quotes (raw ThetaData"
+          f"\n  exports, full window). BS-with-file-IV survives only as a"
+          f"\n  per-row-flagged fallback where the exact strike is not"
+          f"\n  listed. Check pricing_source per row."
           f"\n  Overall QA: {'PASS' if ok else 'FAIL -- see above'}")
     return ok
 

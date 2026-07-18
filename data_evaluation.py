@@ -49,7 +49,6 @@ import pandas as pd
 ROOT = Path(__file__).resolve().parent
 STOCK_CSV = ROOT / "SOXL_5min_3Years.csv"
 OPTION_CSV = ROOT / "SOXL_Master_Cleaned.csv"
-RAW_2025_CSV = ROOT / "SOXL_Options_2025.csv"   # raw ThetaData export
 REPORT_TXT = ROOT / "qa" / "data_evaluation_report.txt"
 
 _lines = []
@@ -312,30 +311,20 @@ def eval_alignment(stock_days, opt):
        "after the 16:00 close while the 5-min file's last bar is 15:55)")
 
 
-def eval_raw_2025(stock_days):
-    """Evaluate the raw ThetaData export SOXL_Options_2025.csv against the
-    two data gaps found in SOXL_Master_Cleaned.csv: no <=7-DTE quotes for
-    the short call and no >60-DTE quotes for the long put."""
-    section("4. RAW THETADATA EXPORT  (SOXL_Options_2025.csv)")
-    df = pd.read_csv(
-        RAW_2025_CSV, low_memory=False,
-        usecols=["symbol", "expiration", "strike", "right", "bid", "ask",
-                 "implied_vol", "trade_date", "underlying_price", "volume",
-                 "close"])
-    # Raw export: dates are M/D/YY and there is no dte/moneyness column.
-    df["trade_date"] = pd.to_datetime(df["trade_date"], format="%m/%d/%y")
-    df["expiration"] = pd.to_datetime(df["expiration"], format="%m/%d/%y")
-    df["dte"] = (df["expiration"] - df["trade_date"]).dt.days
+def eval_raw_files(stock_days):
+    """Evaluate the merged raw ThetaData exports (2024, 2025, 2026) against
+    the two data gaps found in SOXL_Master_Cleaned.csv: no <=7-DTE quotes
+    for the short call and no >60-DTE quotes for the long put."""
+    from soxl_options_loader import RAW_FILES, load_raw_options
+    section("4. RAW THETADATA EXPORTS  " + ", ".join(RAW_FILES))
+    df = load_raw_options()
+    df["trade_date"] = pd.to_datetime(df["trade_date"])
 
-    emit(f"Rows:                   {len(df):,}")
-    emit(f"Symbols:                {df['symbol'].unique().tolist()}")
+    emit(f"Merged rows:            {len(df):,}")
     emit(f"Rights:                 {df['right'].value_counts().to_dict()}")
     emit(f"Trade-date range:       {df['trade_date'].min().date()}  ->  "
          f"{df['trade_date'].max().date()}  "
          f"({df['trade_date'].nunique()} days)")
-    emit(f"Expirations:            {df['expiration'].nunique()}  "
-         f"({df['expiration'].min().date()} -> "
-         f"{df['expiration'].max().date()})")
     emit(f"DTE range:              {df['dte'].min()} - {df['dte'].max()}  "
          f"(negative-DTE rows: {(df['dte'] < 0).sum()})")
     emit("DTE bucket row counts:")
@@ -367,20 +356,19 @@ def eval_raw_2025(stock_days):
     emit(f"  bid==0: {100*(df['bid'] == 0).mean():.2f}%   "
          f"ask==0: {100*(df['ask'] == 0).mean():.2f}%   "
          f"crossed (bid>ask): {(df['bid'] > df['ask']).sum()}")
-    emit(f"  implied_vol==0: {100*(df['implied_vol'] == 0).mean():.2f}%   "
-         f"volume==0 (quote-only rows): "
-         f"{100*(df['volume'] == 0).mean():.2f}%")
+    emit(f"  implied_vol==0: {100*(df['implied_vol'] == 0).mean():.2f}%")
     emit(f"  non-whole strikes: "
          f"{100*(df['strike'] % 1 != 0).mean():.1f}% of rows")
 
-    # alignment vs the 5-minute file for 2025
-    s25 = {d for d in stock_days.index if str(d)[:4] == "2025"}
-    o25 = set(df["trade_date"].dt.date.unique())
+    # alignment vs the 5-minute file over the merged window
+    lo, hi = df["trade_date"].min().date(), df["trade_date"].max().date()
+    sw = {d for d in stock_days.index if lo <= d <= hi}
+    ow = set(df["trade_date"].dt.date.unique())
     emit()
-    emit(f"2025 alignment vs 5-min file: stock days {len(s25)}, "
-         f"option days {len(o25)}, "
-         f"in stock only: {sorted(s25 - o25)!s:.60}, "
-         f"in options only: {sorted(o25 - s25)!s:.60}")
+    emit(f"Alignment vs 5-min file ({lo}..{hi}): stock days {len(sw)}, "
+         f"option days {len(ow)}, "
+         f"in stock only: {sorted(sw - ow)!s:.60}, "
+         f"in options only: {sorted(ow - sw)!s:.60}")
 
     stock = load_stock()
     last_close = stock.groupby("date")["Close"].last()
@@ -394,14 +382,12 @@ def eval_raw_2025(stock_days):
          f"{diff.median():.3f}%  max {diff.max():.3f}%")
 
     emit()
-    emit("VERDICT: this export fills BOTH pricing gaps (weekly calls and")
-    emit("60+ DTE puts, full strike range) -- but for 2025 ONLY.")
-    emit("Still needed for the full 2024-01..2026-07 backtest window:")
-    emit("  * same export for 2024 (Jan-Dec)")
-    emit("  * same export for 2026 (Jan-Jul)")
-    emit("Normalization required before use (no new data needed): parse")
-    emit("M/D/YY dates and derive dte; columns otherwise match the master")
-    emit("file schema.")
+    emit("VERDICT: the three raw exports together cover the FULL backtest")
+    emit("window (2024-01-02 -> 2026-07-02) with 0-DTE-and-up expirations")
+    emit("and the full strike range: BOTH legs of the trade can now be")
+    emit("priced from real bid/ask quotes. The 2025 export uses M/D/YY")
+    emit("dates while 2024/2026 use ISO -- normalized by")
+    emit("soxl_options_loader.load_raw_options(); no further data needed.")
 
 
 def main():
@@ -417,8 +403,10 @@ def main():
     opt = load_options()
     eval_options(opt)
     eval_alignment(days, opt)
-    if RAW_2025_CSV.exists() and RAW_2025_CSV.stat().st_size > 1000:
-        eval_raw_2025(days)
+    try:
+        eval_raw_files(days)
+    except FileNotFoundError as e:
+        emit(f"\n(raw export evaluation skipped: {e})")
 
     REPORT_TXT.parent.mkdir(exist_ok=True)
     REPORT_TXT.write_text("\n".join(_lines) + "\n")
