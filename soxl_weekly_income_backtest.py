@@ -89,6 +89,22 @@ OUT_CSV = ROOT / "soxl_weekly_backtest_results.csv"
 
 # ------------------------- documented assumptions --------------------------
 RISK_FREE = 0.045          # constant r for BS (not in data files)
+CASH_YIELD = 0.045         # opt #1a (2026-07-18): T-bill-proxy interest
+                           # accrued on idle trading cash, calendar-day
+                           # basis on the week's opening cash. Documented
+                           # constant -- replace with a real rate series
+                           # when provided. Excluded from the sweep base.
+WEEKLY_TOPUP = True        # opt #1b: every Monday, top share sleeve back
+                           # up to INVEST_FRACTION of the trading balance
+                           # (was: only at re-entry after assignment/exit).
+                           # Extra put contracts are bought at the same
+                           # strike/expiration to keep the hedge ratio.
+DRAWDOWN_CALL_OTM = 0.10   # opt #2: when no strike within 2.5% of basis is
+                           # listed (deep drawdown), sell the nearest
+                           # listed strike >= spot*(1+10%) instead of
+                           # skipping -- income with 10% recovery headroom.
+DRAWDOWN_CALL_MIN_PREM = 0.05   # ...but only if it fetches at least
+                                # $0.05/share; below that, still skip.
 START_CAPITAL = 150_000.0
 INVEST_FRACTION = 0.75     # spec Capital #2
 SWEEP_FRACTION = 0.10      # user revision 2026-07-18 (spec Capital #3 was 25%)
@@ -281,6 +297,7 @@ def run():
     basis = 0.0            # per-share purchase price of the current lot
     put = None             # dict(strike, expiration, contracts, cost_ps)
     call = None            # dict(strike, expiration, contracts, premium_ps)
+    prev_settle = None
     rows = []
     warnings = []
 
@@ -305,10 +322,18 @@ def run():
         realized = 0.0
         flows = 0.0   # independent tally of every cash movement (QA)
 
-        # ---- Part 2: underlying entry / top-up ----
+        # ---- opt #1a: interest on idle cash (calendar days since the
+        # previous settlement, on the week's opening cash; not swept) ----
+        accrual_days = (settle - (prev_settle or entry)).days
+        interest = cash * CASH_YIELD * accrual_days / 365.0
+        cash += interest
+        flows += interest
+        r["cash_interest"] = round(interest, 2)
+
+        # ---- Part 2: underlying entry / weekly top-up (opt #1b) ----
         r.update({"stock_action": "HELD", "stock_buy_units": 0,
                   "stock_buy_price": "", "stock_buy_cost": ""})
-        if shares < 100:   # cannot support a single covered call
+        if shares < 100 or WEEKLY_TOPUP:
             target = INVEST_FRACTION * (cash + shares * s_entry)
             buy = int((target - shares * s_entry) // s_entry)
             if buy > 0:
@@ -316,8 +341,10 @@ def run():
                 cash -= cost
                 flows -= cost
                 basis = ((shares * basis) + cost) / (shares + buy)
+                was_entry = shares < 100
                 shares += buy
-                r.update({"stock_action": "BUY", "stock_buy_units": buy,
+                r.update({"stock_action": "BUY" if was_entry else "TOPUP",
+                          "stock_buy_units": buy,
                           "stock_buy_price": round(s_entry, 4),
                           "stock_buy_cost": round(cost, 2)})
 
@@ -339,6 +366,36 @@ def run():
                           "put_pricing_source": note})
             else:
                 warnings.append(f"{entry}: could not price put ({note})")
+        # opt #1b: keep the hedge ratio when weekly top-ups add a new
+        # round lot -- buy additional contracts of the SAME put.
+        if put is not None and shares // 100 > put["contracts"]:
+            add = shares // 100 - put["contracts"]
+            rq = mkt.quote(entry, "PUT", put["strike"], put["expiration"])
+            if rq is not None and rq["ask"] > 0:
+                bid, ask = float(rq["bid"]), float(rq["ask"])
+                px = ask - SPREAD_EXECUTION * (ask - bid)
+                cost = px * add * 100
+                if cost <= cash:
+                    cash -= cost
+                    flows -= cost
+                    tot = put["contracts"] + add
+                    put["cost_ps"] = (put["cost_ps"] * put["contracts"]
+                                      + px * add) / tot
+                    put["contracts"] = tot
+                    r["put_action"] = (r["put_action"]
+                                       + f"+ADD{add}").replace("HELD+", "")
+                    r["put_open_price"] = round(px, 4)
+                    r["put_open_cost"] = round(cost, 2)
+                    r["put_pricing_source"] = (
+                        str(r["put_pricing_source"]) + f"; add {add} "
+                        f"contracts @ REAL QUOTE bid={bid} ask={ask}"
+                    ).lstrip("; ")
+                else:
+                    warnings.append(f"{entry}: hedge top-up ({add} "
+                                    f"contracts, {cost:,.0f}) exceeds cash")
+            else:
+                warnings.append(f"{entry}: hedge top-up skipped, no quote "
+                                f"K={put['strike']} exp={put['expiration']}")
         r["put_strike"] = put["strike"] if put else ""
         r["put_expiration"] = put["expiration"] if put else ""
         r["put_contracts"] = put["contracts"] if put else 0
@@ -542,6 +599,7 @@ def run():
         r["end_total_balance"] = round(end_bal, 2)
         r["end_total_with_side"] = round(end_bal + side_account, 2)
         rows.append(r)
+        prev_settle = settle
 
         if cash < 0:
             warnings.append(f"{settle}: cash went negative ({cash:,.2f})")
@@ -601,10 +659,21 @@ def open_call(mkt, d, spot, basis, contracts):
     if ks.empty:
         return None, f"no call strikes listed at weekly exp {exp}"
     k = float(ks.iloc[(ks - basis).abs().argsort().iloc[0]])
+    drawdown_note = ""
     if abs(k - basis) > max(0.025 * basis, 2.5):
-        return None, (f"no listed strike near basis {basis:.2f} at weekly "
-                      f"exp {exp} (nearest listed {k}); CALL SKIPPED "
-                      f"this week")
+        # opt #2 (2026-07-18): deep drawdown -- no strike near basis.
+        # Instead of skipping, sell the nearest listed strike at least
+        # DRAWDOWN_CALL_OTM above spot: income now, 10% recovery headroom.
+        # Risk accepted: a >10% rally into expiration assigns below basis.
+        otm = ks[ks >= spot * (1 + DRAWDOWN_CALL_OTM)]
+        if otm.empty:
+            return None, (f"no listed strike near basis {basis:.2f} nor "
+                          f">= spot+{DRAWDOWN_CALL_OTM:.0%} at weekly exp "
+                          f"{exp}; CALL SKIPPED this week")
+        k = float(otm.min())
+        drawdown_note = (f"; DRAWDOWN OTM SALE: no strike near basis "
+                         f"{basis:.2f}, K={k} >= "
+                         f"spot {spot:.2f} +{DRAWDOWN_CALL_OTM:.0%}")
     row = mkt.quote(d, "CALL", k, exp)
     if row is not None and row["ask"] > 0:
         bid, ask = float(row["bid"]), float(row["ask"])
@@ -632,6 +701,12 @@ def open_call(mkt, d, spot, basis, contracts):
         px = mkt.exec_price(mid, spread, "SELL")
         src = (f"BS est (K={k} not listed at exp={exp}, chain band artifact);"
                f" IV={iv:.3f} from nearest listed K={near['strike']}")
+    if drawdown_note:
+        if px < DRAWDOWN_CALL_MIN_PREM:
+            return None, (f"drawdown OTM candidate K={k} fetches only "
+                          f"{px:.3f}/sh (< {DRAWDOWN_CALL_MIN_PREM}); "
+                          f"CALL SKIPPED this week")
+        src += drawdown_note
     return ({"strike": k, "expiration": exp, "contracts": contracts,
              "premium_ps": px, "entry": d}, src)
 
@@ -754,6 +829,14 @@ def qa_and_summary(df, warnings):
     print(f"  Call premium collected:{prem.sum():>12,.2f} over "
           f"{(df['call_action'] == 'SOLD').sum()} weekly "
           f"sales (avg {prem[prem > 0].mean():,.2f})")
+    print(f"  Cash interest earned:  "
+          f"{df['cash_interest'].sum():>12,.2f}  (opt #1a, {CASH_YIELD:.1%})")
+    print(f"  Weekly top-up buys:    "
+          f"{df['stock_action'].astype(str).str.contains('TOPUP').sum()} "
+          f"(opt #1b)")
+    print(f"  Drawdown OTM sales:    "
+          f"{df['call_pricing_source'].astype(str).str.contains('DRAWDOWN OTM').sum()} "
+          f"(opt #2)")
     print(f"  Calls assigned:        "
           f"{df['call_outcome'].astype(str).str.startswith('ASSIGNED').sum()}")
     print(f"  Put rolls:             "

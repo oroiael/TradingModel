@@ -1,41 +1,35 @@
-Wrote soxl_weekly_backtest_results.csv: 131 weekly rows, 48 columns
+Wrote soxl_weekly_backtest_results.csv: 131 weekly rows, 50 columns
 
 ========================================================================
 QA CHECKS (spec Quality Control #1-2)
 ========================================================================
   cash ledger reconciles every week:       PASS (131 weeks)
   cash never negative:                     PASS
-  sweep sum == final side account:         PASS (18,375.57 vs 18,375.56)
+  sweep sum == final side account:         PASS (42,683.76 vs 42,683.74)
   sweep == 10% of positive realized gains: PASS
-  call sales priced from REAL quotes:      78/78
-  put purchases priced from REAL quotes:   8/8
-  warnings during run:                     54
-    - 2024-09-03: call not sold (no listed strike near basis 65.26 at weekly exp 2024-09-06 (nearest listed 60.0); CALL SKIPPED this week)
-    - 2024-09-09: call not sold (no listed strike near basis 65.26 at weekly exp 2024-09-13 (nearest listed 60.0); CALL SKIPPED this week)
-    - 2024-09-23: call not sold (no listed strike near basis 65.26 at weekly exp 2024-09-27 (nearest listed 60.0); CALL SKIPPED this week)
-    - 2024-09-30: call not sold (no listed strike near basis 65.26 at weekly exp 2024-10-04 (nearest listed 60.0); CALL SKIPPED this week)
-    - 2024-10-07: call not sold (no listed strike near basis 65.26 at weekly exp 2024-10-11 (nearest listed 55.0); CALL SKIPPED this week)
-    - 2024-10-21: call not sold (no listed strike near basis 65.26 at weekly exp 2024-10-25 (nearest listed 55.0); CALL SKIPPED this week)
-    - 2024-10-28: call not sold (no listed strike near basis 65.26 at weekly exp 2024-11-01 (nearest listed 55.0); CALL SKIPPED this week)
-    - 2024-11-04: call not sold (no listed strike near basis 65.26 at weekly exp 2024-11-08 (nearest listed 53.0); CALL SKIPPED this week)
-    - 2024-11-18: call not sold (no listed strike near basis 65.26 at weekly exp 2024-11-22 (nearest listed 53.0); CALL SKIPPED this week)
-    - 2024-11-25: call not sold (no listed strike near basis 65.26 at weekly exp 2024-11-29 (nearest listed 53.0); CALL SKIPPED this week)
+  call sales priced from REAL quotes:      131/131
+  put purchases priced from REAL quotes:   9/9
+  warnings during run:                     1
+    - 2025-05-19: could not price put (no quoted whole-dollar puts listed with 120-180 DTE on 2025-05-19)
 
 ========================================================================
 SUMMARY
 ========================================================================
   Window:                2024-01-02 -> 2026-07-02  (131 weeks)
   Start capital:           150,000.00
-  End trading balance:     212,402.74
-  Side (swept) account:     18,375.56
-  End total:               230,778.30
-  Total return:                 53.9%
-  Call premium collected:  179,710.60 over 78 weekly sales (avg 2,303.98)
-  Calls assigned:        18
-  Put rolls:             3
-  Put DTEs chosen (120-180 scan): [133, 136, 147, 154, 172, 178, 179, 179]
-  Protective exits:      0
-  Weeks w/ realized loss:6 of 131
+  End trading balance:     296,209.11
+  Side (swept) account:     42,683.74
+  End total:               338,892.85
+  Total return:                125.9%
+  Call premium collected:  445,889.60 over 131 weekly sales (avg 3,403.74)
+  Cash interest earned:      9,100.96  (opt #1a, 4.5%)
+  Weekly top-up buys:    44 (opt #1b)
+  Drawdown OTM sales:    1 (opt #2)
+  Calls assigned:        36
+  Put rolls:             4
+  Put DTEs chosen (120-180 scan): [133, 136, 147, 154, 161, 172, 178, 179, 179]
+  Protective exits:      1
+  Weeks w/ realized loss:7 of 131
 
   Both legs are priced from REAL file quotes (raw ThetaData
   exports, full window). BS-with-file-IV survives only as a

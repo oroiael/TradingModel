@@ -117,10 +117,33 @@ Same frontier treatment as 3.3; combines with 3.1(b).
 5. Optional, for regime filters: daily VIX and SOX/SOXX index levels to
    gate call-selling aggressiveness and put tenor by volatility regime.
 
-## 5. Suggested order of work
+## 5. Results of §3.1 + §3.2 (run 2026-07-18)
 
-1. §3.1 cash deployment (pure win) → rerun baseline.
-2. §3.2 zero-income-week fix (biggest single lever).
+Implemented: 4.5% interest on idle cash (constant, documented), weekly
+top-up to the 75% target with matching put-contract additions, and the
+drawdown OTM call fallback (strike ≥ spot+10%, min $0.05/sh).
+
+Outcome vs the +53.9% baseline: **+125.9% total ($338,893), CAGR 38.2%,
+max DD −24.5% (better than baseline's −28.2%), ann. vol 34.3% (up from
+27.7%)**. Calls sold all 131 weeks ($445.9k premium); interest +$9.1k.
+The dominant driver was the weekly top-up: dollar-cost averaging the
+2024–25 crash pulled average basis down to the market, which organically
+re-enabled call selling (opt #2 fired only once). Attribution: calls
++$445.9k, puts −$133.0k, stock −$70.7k (moving-average-basis accounting
+offset inside call premium), interest +$9.1k.
+
+**Caveats before trusting it:** (1) top-up buying is path-favorable in a
+crash-then-recovery window — in a 2022-style grind-down it buys all the
+way down; the hedge scales along (only 3 weeks deeper than −20% DD here)
+but the 2020–2023 data extension (§4.4) is the real test. (2) One week
+(2025-05-19) had no 120–180 DTE listing at whole-dollar strikes: the put
+lapsed for one week until the next Monday's repurchase — a listing-gap
+edge case worth a fallback rule later.
+
+## 6. Suggested order of remaining work
+
+1. ~~§3.1 cash deployment~~ DONE (see §5).
+2. ~~§3.2 zero-income-week fix~~ DONE (see §5).
 3. §3.3 + §3.4 joint grid with frontier report.
 4. §3.5 threshold grids on the winner.
 5. §3.6 robustness gauntlet; only keep parameters that survive it.
