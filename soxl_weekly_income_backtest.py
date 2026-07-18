@@ -97,7 +97,9 @@ WEEKLY_CALLS = True        # original spec 2.a: sell Monday, expires that
                            # Friday (the listed weekly; Thursday on holiday
                            # weeks). Reverted from the 21-DTE variant per
                            # user direction 2026-07-18.
-PUT_SCAN_MIN = 60          # user revision 2026-07-18: instead of a fixed
+PUT_SCAN_MIN = 120         # user revision 2026-07-18 (floor raised from 60
+                           # after the 88-DTE pick showed per-day cost is
+                           # blind to repurchase churn): instead of a fixed
 PUT_SCAN_MAX = 180         # ~6-month put, scan ALL real listed expirations
                            # with 60-180 DTE at purchase time and buy the
                            # one with the lowest COST PER PROTECTED DAY
@@ -759,7 +761,8 @@ def qa_and_summary(df, warnings):
     chosen = (df["put_pricing_source"].astype(str)
               .str.extract(r"chose dte=(\d+)")[0].dropna().astype(int))
     if len(chosen):
-        print(f"  Put DTEs chosen (60-180 scan): {sorted(chosen.tolist())}")
+        print(f"  Put DTEs chosen ({PUT_SCAN_MIN}-{PUT_SCAN_MAX} scan): "
+              f"{sorted(chosen.tolist())}")
     print(f"  Protective exits:      "
           f"{df['put_action'].str.contains('PROTECTIVE_EXIT').sum()}")
     neg = (df['realized_gain_total'] < 0).sum()
