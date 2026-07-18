@@ -86,7 +86,7 @@ SWEEP_FRACTION = 0.25      # spec Capital #3
 SPREAD_EXECUTION = 0.20    # spec parameter #6
 PUT_TARGET_DAYS = 182      # "six months"
 PUT_MIN_DAYS, PUT_MAX_DAYS = 120, 180
-ROLL_MOVE = 0.10           # spec 2.c.iv
+ROLL_MOVE = 0.20           # spec 2.c.iv (raised from 0.10 per user, 2026-07-18)
 EXIT_DROP = 0.15           # spec 2.c.v
 
 
@@ -572,7 +572,9 @@ def qa_and_summary(df, warnings):
 
     total_sweep = df["swept_to_side_account"].sum()
     side_final = df["side_account_balance"].iloc[-1]
-    m = abs(total_sweep - side_final) < 0.01
+    # per-week sweeps are rounded to cents in the CSV; allow half a cent
+    # of drift per row against the full-precision running balance
+    m = abs(total_sweep - side_final) <= 0.005 * len(df) + 0.01
     print(f"  sweep sum == final side account:         "
           f"{'PASS' if m else 'FAIL'} "
           f"({total_sweep:,.2f} vs {side_final:,.2f})")
