@@ -84,3 +84,46 @@ Cross-check: option file 'underlying_price' vs 5-min last close (same date):
     worst: 2024-07-24  option_file=42.90  5min_close=42.51  diff=0.92%
     worst: 2024-10-01  option_file=33.83  5min_close=33.55  diff=0.83%
   (small diffs are expected: the option snapshot timestamp is after the 16:00 close while the 5-min file's last bar is 15:55)
+
+==============================================================================
+4. RAW THETADATA EXPORT  (SOXL_Options_2025.csv)
+==============================================================================
+Rows:                   299,008
+Symbols:                ['SOXL']
+Rights:                 {'PUT': 149504, 'CALL': 149504}
+Trade-date range:       2025-01-02  ->  2025-12-31  (250 days)
+Expirations:            64  (2025-01-03 -> 2028-01-21)
+DTE range:              0 - 858  (negative-DTE rows: 0)
+DTE bucket row counts:
+         (-1, 7]: 36,534
+         (7, 14]: 28,996
+        (14, 21]: 27,394
+        (21, 30]: 34,732
+        (30, 60]: 57,956
+        (60, 90]: 11,538
+       (90, 120]: 11,928
+      (120, 180]: 21,540
+      (180, 900]: 68,390
+
+Gap checks vs SOXL_Master_Cleaned.csv (15-60 DTE only):
+  Mondays with a <=7-DTE expiration:  48/48  (weekly short-call leg -> REAL quotes)
+  trade dates with >=85 DTE listed:   250/250  (~90-DTE put leg -> REAL quotes)
+  trade dates with >=150 DTE listed:  250/250  (~6-month put leg -> REAL quotes)
+  strike band vs spot:                median [0.04x, 3.51x]  (master file was ~+/-10% -> basis-anchored strikes now listed)
+
+Quality:
+  bid==0: 8.35%   ask==0: 0.00%   crossed (bid>ask): 0
+  implied_vol==0: 7.10%   volume==0 (quote-only rows): 35.99%
+  non-whole strikes: 15.5% of rows
+
+2025 alignment vs 5-min file: stock days 250, option days 250, in stock only: [], in options only: []
+underlying_price vs 5-min close: median diff 0.078%  max 1.929%
+
+VERDICT: this export fills BOTH pricing gaps (weekly calls and
+60+ DTE puts, full strike range) -- but for 2025 ONLY.
+Still needed for the full 2024-01..2026-07 backtest window:
+  * same export for 2024 (Jan-Dec)
+  * same export for 2026 (Jan-Jul)
+Normalization required before use (no new data needed): parse
+M/D/YY dates and derive dte; columns otherwise match the master
+file schema.

@@ -1,3 +1,2 @@
 *.csv filter=lfs diff=lfs merge=lfs -text
 soxl_weekly_backtest_results.csv -filter -diff -merge text
-SOXL_5min_3Years.csv -filter -diff -merge text
