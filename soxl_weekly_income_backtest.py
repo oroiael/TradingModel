@@ -11,7 +11,9 @@ Implements the "Trade to Model" in "Option Trading Project for SOXL.md":
             leave via call assignment or put exercise/sale.
     Part 3: Hold a long put, strike nearest whole dollar to the underlying
             purchase price, expiring ~6 months out (120-180 days), with the
-            10% roll rule and the 15% protective-exit rule.
+            roll-up rule (+20%, upside only -- user revision of the
+            original 10% either-way rule) and the 15% protective-exit
+            rule.
 
 Capital: start $150,000; invest 75%; sweep 25% of each week's positive
 realized gain to a separate account; reinvest the remaining 75%.
@@ -57,7 +59,7 @@ Timing conventions (from the 5-minute file, verified present for every week):
                               after the open", spec parameter #4)
     * put purchase          : same time as the shares
     * call sale             : entry-day 10:00 bar OPEN ("by 10:00am")
-    * 10% / 15% checks      : settlement-day 15:30 bar CLOSE ("3:30pm Friday")
+    * roll-up / 15% checks  : settlement-day 15:30 bar CLOSE ("3:30pm Friday")
     * weekly close / assign : settlement-day last bar CLOSE (15:55 bar)
     * entry day = first trading day of the week (Monday, or Tuesday when
       Monday is a holiday); settlement day = last trading day of the week.
@@ -86,7 +88,8 @@ SWEEP_FRACTION = 0.25      # spec Capital #3
 SPREAD_EXECUTION = 0.20    # spec parameter #6
 PUT_TARGET_DAYS = 182      # "six months"
 PUT_MIN_DAYS, PUT_MAX_DAYS = 120, 180
-ROLL_MOVE = 0.20           # spec 2.c.iv (raised from 0.10 per user, 2026-07-18)
+ROLL_MOVE = 0.20           # roll UP only, at +20% (user direction 2026-07-18;
+                           # originally spec 2.c.iv: 10% either direction)
 EXIT_DROP = 0.15           # spec 2.c.v
 
 
@@ -384,8 +387,9 @@ def run():
                 else:
                     r["put_action"] = (r["put_action"] + "+HELD_15PCT_CHECK"
                                        ).replace("HELD+", "")
-            elif abs(move) >= ROLL_MOVE and not exited:
-                # spec 2.c.iv: roll the put
+            elif move >= ROLL_MOVE and not exited:
+                # roll UP only (user direction 2026-07-18): downside is
+                # handled solely by the 15% protective-exit check above
                 px = mkt.exec_price(val_ps, put_spread(mkt, put, settle),
                                     "SELL")
                 proceeds = px * put["contracts"] * 100
