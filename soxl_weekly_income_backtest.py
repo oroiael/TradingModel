@@ -6,11 +6,13 @@ SOXL Weekly-Income Covered Call + Long-Dated Put Backtest  (Version 1)
 Implements the "Trade to Model" in "Option Trading Project for SOXL.md":
 
     Part 1: When no short call is outstanding, sell a call Monday by 10:00
-            at the whole-number strike nearest to the share COST BASIS
-            (user revision 2026-07-18; spec 2.a.i originally said nearest
-            OTM to the current price), expiring at the REAL listed
-            expiration nearest ~21 DTE (user variant 2026-07-18; spec
-            originally said that Friday). Settles at expiration; early
+            at the nearest LISTED strike to the share COST BASIS (user
+            revision 2026-07-18; spec 2.a.i originally said nearest OTM to
+            the current price), expiring at the REAL listed weekly
+            expiration for that week -- Friday, or Thursday on holiday
+            weeks (spec 2.a: "Short calls expire that Friday"). If no
+            strike within 2.5% of basis is listed (deep drawdowns), the
+            sale is skipped and flagged. Settles at expiration; early
             exercise is not modeled.
     Part 2: Hold long SOXL shares (75% of capital, whole shares); shares only
             leave via call assignment or put exercise/sale.
@@ -20,8 +22,9 @@ Implements the "Trade to Model" in "Option Trading Project for SOXL.md":
             original 10% either-way rule) and the 15% protective-exit
             rule.
 
-Capital: start $150,000; invest 75%; sweep 25% of each week's positive
-realized gain to a separate account; reinvest the remaining 75%.
+Capital: start $150,000; invest 75%; sweep 10% (user revision 2026-07-18;
+spec said 25%) of each week's positive realized gain to a separate account;
+reinvest the rest.
 
 ----------------------------------------------------------------------
 PRICING DATA (disclosure per spec parameter #7)
@@ -32,10 +35,12 @@ full window 2024-01-02 -> 2026-07-02 with 0-DTE-and-up expirations and the
 full strike range (verified by data_evaluation.py, section 4).  BOTH legs
 are therefore priced from REAL bid/ask quotes:
 
-    * SHORT CALL (~21 DTE): real listed expiration nearest 21 DTE, real
-      quote at the basis-anchored strike when listed;
-    * LONG PUT (~90 DTE): real listed expiration nearest 90 DTE, real
-      quote at the listed whole-dollar strike nearest the purchase price;
+    * SHORT CALL (weekly): the REAL listed weekly expiring that week,
+      real quote at the basis-anchored strike when listed;
+    * LONG PUT (~6 months, 120-180 DTE): the REAL listed expiration
+      in-band nearest 182 days (nearest listed overall when the band has
+      no listing that day -- flagged), real quote at the listed
+      whole-dollar strike nearest the purchase price;
     * marks/rolls/buybacks: real quote for the exact contract on that day.
 
 Black-Scholes with file IV survives only as a per-row-flagged fallback for
@@ -43,18 +48,13 @@ contracts with no usable quote.  Every priced leg in the output CSV carries
 a `pricing_source` field naming the exact quote/IV row used.  Remaining
 bias: option snapshots are end-of-day; trades happen 09:30/10:00 Monday.
 
-Bid/ask handling (spec parameter #6): each BS mid is bracketed with the
-relative bid/ask spread of the IV-source row from the file, then
-    sell (write)  at synthetic bid + 20% of the spread,
-    buy  (long)   at synthetic ask - 20% of the spread.
+Bid/ask handling (spec parameter #6), applied to the REAL spread (or, for
+BS-fallback rows, a synthetic spread bracketing the BS mid):
+    sell (write)  at bid + 20% of the spread,
+    buy  (long)   at ask - 20% of the spread.
 
-Long-put expirations beyond the data window are assumed to be the standard
-third-Friday monthlies (flagged "assumed listing" in pricing_source).
-
-Risk-free rate: constant 4.5% (documented assumption; not in the data files).
-
-If 0-14 DTE and 61-200 DTE option snapshots can be provided, every
-BS-estimated price in this backtest can be replaced with real quotes.
+Risk-free rate for BS fallbacks: constant 4.5% (documented assumption; not
+in the data files).
 ----------------------------------------------------------------------
 
 Timing conventions (from the 5-minute file, verified present for every week):
@@ -91,13 +91,16 @@ START_CAPITAL = 150_000.0
 INVEST_FRACTION = 0.75     # spec Capital #2
 SWEEP_FRACTION = 0.10      # user revision 2026-07-18 (spec Capital #3 was 25%)
 SPREAD_EXECUTION = 0.20    # spec parameter #6
-CALL_TARGET_DTE = 21       # user variant 2026-07-18: ~21-DTE short calls
-                           # (was: weekly Monday->Friday). Chosen from the
-                           # REAL expirations listed on the trade date, so
-                           # calls are priced from real quotes when the
-                           # basis-anchored strike is listed.
-PUT_TARGET_DAYS = 90       # user variant 2026-07-18: ~90-DTE puts
-                           # (was: ~6 months / 120-180 DTE)
+WEEKLY_CALLS = True        # original spec 2.a: sell Monday, expires that
+                           # Friday (the listed weekly; Thursday on holiday
+                           # weeks). Reverted from the 21-DTE variant per
+                           # user direction 2026-07-18.
+PUT_TARGET_DAYS = 182      # original spec 1.d/e: ~six months out,
+PUT_MIN_DAYS = 120         # between 120 and 180 DTE. The REAL listed
+PUT_MAX_DAYS = 180         # expiration in-range nearest 182 is used; when
+                           # no listing falls inside the band (145 of 627
+                           # days -- long-tenor listings are sparse) the
+                           # nearest listed to 182 is used and flagged.
 ROLL_MOVE = 0.20           # roll UP only, at +20% (user direction 2026-07-18;
                            # originally spec 2.c.iv: 10% either direction)
 EXIT_DROP = 0.15           # spec 2.c.v
@@ -189,6 +192,24 @@ class Market:
         m = ch[(ch["right"] == right) & (ch["strike"] == strike)
                & (ch["expiration"] == exp)]
         return None if m.empty else m.iloc[0]
+
+    def put_expiration(self, d):
+        """REAL listed expiration for the six-month put: in [PUT_MIN_DAYS,
+        PUT_MAX_DAYS] nearest PUT_TARGET_DAYS; if none listed in the band,
+        the listed expiration nearest PUT_TARGET_DAYS overall, flagged.
+        Returns (exp, dte, out_of_range_note) or None."""
+        ch = self.chain(d)
+        if ch is None:
+            return None
+        g = ch[["expiration", "dte"]].drop_duplicates()
+        band = g[(g["dte"] >= PUT_MIN_DAYS) & (g["dte"] <= PUT_MAX_DAYS)]
+        if not band.empty:
+            row = band.loc[(band["dte"] - PUT_TARGET_DAYS).abs().idxmin()]
+            return row["expiration"], int(row["dte"]), ""
+        row = g.loc[(g["dte"] - PUT_TARGET_DAYS).abs().idxmin()]
+        return row["expiration"], int(row["dte"]), \
+            (f"; NOTE no listing in {PUT_MIN_DAYS}-{PUT_MAX_DAYS} DTE band "
+             f"this day, nearest listed to {PUT_TARGET_DAYS}d used")
 
     def iv_and_spread(self, d, right, strike, want_long_dte):
         """IV + relative spread from the file: rows of `right` on day d with
@@ -308,7 +329,7 @@ def run():
         r["put_contracts"] = put["contracts"] if put else 0
 
         # ---- Part 1: short call management at Monday 10:00 ----
-        # ~CALL_TARGET_DTE call at the whole strike nearest the cost basis
+        # Weekly call at the whole strike nearest the cost basis
         # (user variant 2026-07-18). A new call is sold only when none is
         # outstanding; premium P&L is REALIZED at settlement, though the
         # cash arrives at sale.
@@ -443,9 +464,9 @@ def run():
             put = None   # replaced next Monday (spec 2.c.iii)
 
         # ---- call settlement when its expiration falls in this week ----
-        # A ~21-DTE call sold on a Monday settles 3+ weeks later at the last
-        # trading day on/before its expiration (American early exercise is
-        # not modeled -- documented simplification).
+        # The weekly call settles at the last trading day on/before its
+        # expiration (American early exercise is not modeled -- documented
+        # simplification).
         r["friday_close_price"] = round(s_close, 4)
         if call and not exited:
             exp_day = mkt.last_trading_on_or_before(call["expiration"])
@@ -541,23 +562,40 @@ def put_value(mkt, put, d, spot):
 
 
 def open_call(mkt, d, spot, basis, contracts):
-    """Sell a ~CALL_TARGET_DTE covered call at the whole strike nearest the
-    cost basis.  Expiration is the REAL listed expiration nearest 21 DTE on
-    day d; if the strike is listed there, the REAL bid/ask is used with the
-    spec #6 execution rule.  Only when the strike is outside the snapshot's
-    listed band does it fall back to BS with the nearest listed strike's IV
-    (flagged)."""
-    got = mkt.expiration_near(d, CALL_TARGET_DTE)
+    """Sell the WEEKLY covered call (original spec 2.a: sold Monday,
+    expires that Friday) at the whole strike nearest the cost basis.
+    Expiration is the REAL listed weekly expiring this week -- Friday, or
+    Thursday on holiday weeks.  If the strike is listed there, the REAL
+    bid/ask is used with the spec #6 execution rule; otherwise BS with the
+    nearest listed strike's IV, flagged."""
+    friday = d + timedelta(days=(4 - d.weekday()) % 7)
+    got = mkt.expiration_near(d, (friday - d).days)
     if got is None:
         return None, "no option chain on entry day"
     exp, dte = got
-    k = float(math.floor(basis + 0.5))
+    if exp > friday:
+        return None, f"no expiration this week listed (nearest is {exp})"
+    holiday_note = "" if exp == friday else f"; {exp} weekly (holiday week)"
+    # Nearest LISTED strike to the cost basis (spec #5: use file strikes --
+    # the real grid is $1 at low prices, $2.50/$5 above ~$200). If nothing
+    # within 2.5% (min $2.50) of basis is listed, the strike the strategy
+    # wants does not exist that week: skip the sale rather than invent it.
+    ch = mkt.chain(d)
+    ks = ch.loc[(ch["right"] == "CALL") & (ch["expiration"] == exp),
+                "strike"]
+    if ks.empty:
+        return None, f"no call strikes listed at weekly exp {exp}"
+    k = float(ks.iloc[(ks - basis).abs().argsort().iloc[0]])
+    if abs(k - basis) > max(0.025 * basis, 2.5):
+        return None, (f"no listed strike near basis {basis:.2f} at weekly "
+                      f"exp {exp} (nearest listed {k}); CALL SKIPPED "
+                      f"this week")
     row = mkt.quote(d, "CALL", k, exp)
     if row is not None and row["ask"] > 0:
         bid, ask = float(row["bid"]), float(row["ask"])
         px = bid + SPREAD_EXECUTION * (ask - bid)
         src = (f"REAL QUOTE bid={bid} ask={ask} K={k} exp={exp} dte={dte}"
-               + ("; ZERO BID (deep OTM)" if bid == 0 else ""))
+               + ("; ZERO BID (deep OTM)" if bid == 0 else "") + holiday_note)
     else:
         ch = mkt.chain(d)
         rows = ch[(ch["right"] == "CALL") & (ch["expiration"] == exp)
@@ -609,10 +647,10 @@ def open_put(mkt, d, spot, shares, cash_avail):
     contracts = shares // 100
     if contracts == 0:
         return None, "fewer than 100 shares"
-    got = mkt.expiration_near(d, PUT_TARGET_DAYS)
+    got = mkt.put_expiration(d)
     if got is None:
         return None, "no option chain on trade date"
-    exp, dte = got
+    exp, dte, range_note = got
     ch = mkt.chain(d)
     rows = ch[(ch["right"] == "PUT") & (ch["expiration"] == exp)
               & (ch["strike"] % 1 == 0)]
@@ -624,7 +662,8 @@ def open_put(mkt, d, spot, shares, cash_avail):
         bid, ask = float(row["bid"]), float(row["ask"])
         px = ask - SPREAD_EXECUTION * (ask - bid)
         src = (f"REAL QUOTE bid={bid} ask={ask} K={strike} exp={exp} "
-               f"dte={dte}" + ("; ZERO BID" if bid == 0 else ""))
+               f"dte={dte}" + ("; ZERO BID" if bid == 0 else "")
+               + range_note)
     else:
         got_iv = mkt.iv_and_spread(d, "PUT", strike, want_long_dte=True)
         if got_iv is None:
@@ -709,7 +748,7 @@ def qa_and_summary(df, warnings):
     prem = pd.to_numeric(df["call_premium_received"],
                          errors="coerce").fillna(0)
     print(f"  Call premium collected:{prem.sum():>12,.2f} over "
-          f"{(df['call_action'] == 'SOLD').sum()} ~{CALL_TARGET_DTE}-DTE "
+          f"{(df['call_action'] == 'SOLD').sum()} weekly "
           f"sales (avg {prem[prem > 0].mean():,.2f})")
     print(f"  Calls assigned:        "
           f"{df['call_outcome'].astype(str).str.startswith('ASSIGNED').sum()}")
