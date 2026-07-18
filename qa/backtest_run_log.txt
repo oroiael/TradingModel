@@ -1,13 +1,13 @@
-Wrote soxl_weekly_backtest_results.csv: 131 weekly rows, 44 columns
+Wrote soxl_weekly_backtest_results.csv: 131 weekly rows, 49 columns
 
 ========================================================================
 QA CHECKS (spec Quality Control #1-2)
 ========================================================================
   cash ledger reconciles every week:       PASS (131 weeks)
   cash never negative:                     PASS
-  sweep sum == final side account:         PASS (13,721.69 vs 13,721.72)
+  sweep sum == final side account:         PASS (28,916.74 vs 28,916.73)
   sweep == 10% of positive realized gains: PASS
-  weekly-call rows BS-estimated:           131/131 (expected ALL -- file has no <=7 DTE quotes)
+  call sales priced from REAL quotes:      21/43 (rest BS-est: basis strike outside snapshot band)
   warnings during run:                     0
 
 ========================================================================
@@ -15,17 +15,18 @@ SUMMARY
 ========================================================================
   Window:                2024-01-02 -> 2026-07-02  (131 weeks)
   Start capital:           150,000.00
-  End trading balance:     193,560.65
-  Side (swept) account:     13,721.72
-  End total:               207,282.37
-  Total return:                 38.2%
-  Call premium collected:  124,676.62 (avg 1,860.85/wk on 67 weeks)
-  Weeks assigned:        18
-  Put rolls:             3
-  Protective exits:      0
-  Weeks w/ realized loss:6 of 131
+  End trading balance:     179,041.29
+  Side (swept) account:     28,916.73
+  End total:               207,958.03
+  Total return:                 38.6%
+  Call premium collected:  256,803.63 over 43 ~21-DTE sales (avg 6,114.37)
+  Calls assigned:        16
+  Put rolls:             16
+  Protective exits:      3
+  Weeks w/ realized loss:16 of 131
 
-  ALL PRICES for the weekly call and long put are Black-Scholes
-  estimates using IV from SOXL_Master_Cleaned.csv (see header
-  disclosure) because the file contains only 15-60 DTE quotes.
+  Call sales use REAL file quotes when the basis strike is
+  listed at the ~21-DTE expiration; other call
+  sales and ALL put prices are BS estimates with file IV (see
+  header disclosure). Check pricing_source per row.
   Overall QA: PASS
