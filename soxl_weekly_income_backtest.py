@@ -123,9 +123,22 @@ PUT_SCAN_MAX = 180         # ~6-month put, scan ALL real listed expirations
                            # whole-dollar strike nearest the purchase
                            # price. The scan is recorded per row in
                            # put_pricing_source.
-ROLL_MOVE = 0.20           # roll UP only, at +20% (user direction 2026-07-18;
-                           # originally spec 2.c.iv: 10% either direction)
+ROLL_MOVE = 0.20           # roll UP at +20% vs basis (user direction
+                           # 2026-07-18; spec 2.c.iv said 10% both ways).
+                           # None disables roll-ups.
+ROLL_DOWN_MOVE = None      # put-policy lab: roll DOWN (harvest the put's
+                           # gain, re-strike ATM) when move <= -x vs basis.
+                           # None (default) = off, current behavior.
+HARVEST_MULT = None        # put-policy lab: sell + re-strike ATM when the
+                           # put's mark reaches this multiple of its cost
+                           # (e.g. 2.0 = harvest at 2x). None = off.
+EXIT_MODE = "conditional"  # "conditional" (spec 2.c.v: exit at -15% only
+                           # if the put's gain covers the stock loss),
+                           # "unconditional" (exit at -15% regardless),
+                           # "off" (never exit).
 EXIT_DROP = 0.15           # spec 2.c.v
+HEDGE_ENABLED = True       # put-policy lab: False runs the covered-call
+                           # machine with NO protective put at all.
 
 
 # ------------------------------ Black-Scholes ------------------------------
@@ -280,8 +293,8 @@ class Market:
 
 
 # --------------------------------- backtest --------------------------------
-def run():
-    mkt = Market()
+def run(mkt=None):
+    mkt = mkt or Market()
 
     # Weeks = ISO weeks restricted to the overlap of both files.
     start, end = mkt.opt_dates[0], mkt.opt_dates[-1]
@@ -354,7 +367,7 @@ def run():
                   "put_sell_price": "", "put_sell_proceeds": "",
                   "put_roll_price": "", "put_roll_cost": "",
                   "put_realized_pnl": "", "put_pricing_source": ""})
-        if put is None and shares >= 100:
+        if put is None and shares >= 100 and HEDGE_ENABLED:
             put, note = open_put(mkt, entry, s_entry, shares, cash)
             if put:
                 cost = put["cost_ps"] * put["contracts"] * 100
@@ -443,10 +456,11 @@ def run():
             val_ps, mark_src = put_value(mkt, put, settle, s_1530)
             put_gain = (val_ps - put["cost_ps"]) * put["contracts"] * 100
 
-            if move <= -EXIT_DROP:
-                # spec 2.c.v: only exit if the put's gain covers the loss
+            if EXIT_MODE != "off" and move <= -EXIT_DROP:
+                # spec 2.c.v: exit at -15%; "conditional" mode (spec) only
+                # if the put's gain covers the loss, "unconditional" always
                 stock_loss = (basis - s_1530) * shares
-                if put_gain >= stock_loss:
+                if EXIT_MODE == "unconditional" or put_gain >= stock_loss:
                     px = mkt.exec_price(val_ps, put_spread(mkt, put, settle),
                                         "SELL")
                     proceeds = px * put["contracts"] * 100
@@ -485,9 +499,21 @@ def run():
                 else:
                     r["put_action"] = (r["put_action"] + "+HELD_15PCT_CHECK"
                                        ).replace("HELD+", "")
-            elif move >= ROLL_MOVE and not exited:
-                # roll UP only (user direction 2026-07-18): downside is
-                # handled solely by the 15% protective-exit check above
+            elif not exited and (
+                    (ROLL_MOVE is not None and move >= ROLL_MOVE)
+                    or (ROLL_DOWN_MOVE is not None
+                        and move <= -ROLL_DOWN_MOVE)
+                    or (HARVEST_MULT is not None
+                        and val_ps >= HARVEST_MULT * put["cost_ps"])):
+                # Roll: sell the held put at its real mark, re-strike ATM.
+                # Direction/trigger recorded in put_action: roll-UP on
+                # +move (user rule), roll-DOWN / profit-HARVEST are
+                # put-policy-lab variants (off by default).
+                roll_tag = ("ROLLED" if move >= (ROLL_MOVE or 9e9)
+                            else ("HARVESTED" if HARVEST_MULT is not None
+                                  and val_ps >= HARVEST_MULT
+                                  * put["cost_ps"]
+                                  else "ROLLED_DOWN"))
                 px = mkt.exec_price(val_ps, put_spread(mkt, put, settle),
                                     "SELL")
                 proceeds = px * put["contracts"] * 100
@@ -499,7 +525,7 @@ def run():
                 new_put, note = open_put(mkt, settle, s_1530,
                                          put["contracts"] * 100, cash)
                 r.update({"put_action": r["put_action"].replace(
-                              "HELD", "").replace("BUY", "BUY+") + "ROLLED",
+                              "HELD", "").replace("BUY", "BUY+") + roll_tag,
                           "put_sell_price": round(px, 4),
                           "put_sell_proceeds": round(proceeds, 2),
                           "put_realized_pnl": round(pnl, 2)})
