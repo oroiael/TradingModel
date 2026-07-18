@@ -1,0 +1,37 @@
+Wrote soxl_weekly_backtest_results.csv: 131 weekly rows, 45 columns
+
+========================================================================
+QA CHECKS (spec Quality Control #1-2)
+========================================================================
+  cash ledger reconciles every week:       PASS (131 weeks)
+  cash never negative:                     PASS
+  sweep sum == final side account:         PASS (28,410.82 vs 28,410.82)
+  sweep == 25% of positive realized gains: PASS
+  weekly-call rows BS-estimated:           114/114 (expected ALL -- file has no <=7 DTE quotes)
+  warnings during run:                     6
+    - 2024-04-15: no whole strike above 10:00 price 43.13 listed in chain (chain tops out at 43.5) -- big intraday drop; NO CALL SOLD this week (data limitation, not a bug)
+    - 2024-09-03: no whole strike above 10:00 price 34.33 listed in chain (chain tops out at 33.0) -- big intraday drop; NO CALL SOLD this week (data limitation, not a bug)
+    - 2025-01-27: no whole strike above 10:00 price 27.80 listed in chain (chain tops out at 27.5) -- big intraday drop; NO CALL SOLD this week (data limitation, not a bug)
+    - 2025-03-03: no whole strike above 10:00 price 22.05 listed in chain (chain tops out at 22.5) -- big intraday drop; NO CALL SOLD this week (data limitation, not a bug)
+    - 2025-03-10: no whole strike above 10:00 price 19.34 listed in chain (chain tops out at 19.5) -- big intraday drop; NO CALL SOLD this week (data limitation, not a bug)
+    - 2026-05-08: roll failed (insufficient cash for even 1 contract)
+
+========================================================================
+SUMMARY
+========================================================================
+  Window:                2024-01-02 -> 2026-07-02  (131 weeks)
+  Start capital:           150,000.00
+  End trading balance:      19,545.61
+  Side (swept) account:     28,410.82
+  End total:                47,956.43
+  Total return:                -68.0%
+  Call premium collected:  109,064.37 (avg 956.70/wk on 114 weeks)
+  Weeks assigned:        61
+  Put rolls:             33
+  Protective exits:      3
+  Weeks w/ realized loss:44 of 131
+
+  ALL PRICES for the weekly call and long put are Black-Scholes
+  estimates using IV from SOXL_Master_Cleaned.csv (see header
+  disclosure) because the file contains only 15-60 DTE quotes.
+  Overall QA: PASS

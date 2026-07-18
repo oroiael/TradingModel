@@ -1,0 +1,86 @@
+
+==============================================================================
+1. SOXL 5-MINUTE DATA  (SOXL_5min_3Years.csv)
+==============================================================================
+Rows (bars):            58,560
+Date range:             2023-07-07  ->  2026-07-09
+Trading days:           754
+Bars per day:           min=42  max=78  mode=78
+Days with < 78 bars:    7 (78 = full 09:30-15:55 regular session)
+  Examples (date: bars) -- typically half-days around holidays:
+    2023-11-24: 42
+    2024-07-03: 42
+    2024-11-29: 42
+    2024-12-24: 42
+    2025-07-03: 42
+    2025-11-28: 42
+    2025-12-24: 42
+Duplicate timestamps:   0
+Bars with price <= 0:   0
+Bars with volume == 0:  0
+OHLC integrity violations (High<max(O,C) or Low>min(O,C)): 0
+First bar of day:       {'09:30:00': 754}
+Last bar of day:        {'15:55:00': 747, '12:55:00': 7}
+
+Strategy-critical bars:
+  Monday 09:30 (underlying entry check): 143/143 days have the bar
+  Monday 10:00 (sell weekly call): 143/143 days have the bar
+  Friday 15:30 (10%/15% move check): 148/151 days have the bar;  missing on [datetime.date(2023, 11, 24), datetime.date(2024, 11, 29), datetime.date(2025, 11, 28)]
+  Friday 15:55 (last bar / weekly close): 148/151 days have the bar;  missing on [datetime.date(2023, 11, 24), datetime.date(2024, 11, 29), datetime.date(2025, 11, 28)]
+
+Gaps > 4 calendar days between trading days: 0
+
+==============================================================================
+2. SOXL OPTION DATA  (SOXL_Master_Cleaned.csv)
+==============================================================================
+Rows:                   202,612
+Columns:                ['symbol', 'expiration', 'strike', 'right', 'timestamp', 'open', 'high', 'low', 'close', 'volume', 'count', 'bid_size', 'bid_exchange', 'bid', 'bid_condition', 'ask_size', 'ask_exchange', 'ask', 'ask_condition', 'delta', 'theta', 'vega', 'rho', 'epsilon', 'lambda', 'gamma', 'vanna', 'charm', 'vomma', 'veta', 'vera', 'speed', 'zomma', 'color', 'ultima', 'd1', 'd2', 'dual_delta', 'dual_gamma', 'implied_vol', 'iv_error', 'underlying_timestamp', 'underlying_price', 'trade_date', 'dte', 'moneyness']
+Symbols:                ['SOXL']
+Rights:                 {'CALL': 101306, 'PUT': 101306}
+Trade-date range:       2024-01-02  ->  2026-07-02
+Distinct trade dates:   627
+Expiration range:       2024-01-19  ->  2026-08-21
+Distinct expirations:   136
+Strike range:           3.5 - 330.0
+Non-whole-number strikes: 50,080 rows (24.72%); example strikes: [np.float64(3.5), np.float64(4.5), np.float64(5.5), np.float64(6.5), np.float64(7.5), np.float64(8.5), np.float64(9.5), np.float64(10.5), np.float64(11.5), np.float64(12.5)]
+Expiration day-of-week: Thu=11,182, Fri=191,430
+
+Quote quality:
+  bid: zero=3,346 (1.65%)  negative=0  NaN=0
+  ask: zero=0 (0.00%)  negative=0  NaN=0
+  crossed markets (bid > ask): 0
+  spread as % of ask (where both sides > 0): median=13.8%  p90=44.6%
+  rows with volume == 0 (quote-only, no trades): 52,165 (25.75%)
+  rows with close == 0 AND volume == 0: 52,165 (close price is meaningless on these rows -> must use bid/ask)
+
+Implied volatility:
+  zero=6,939 (3.42%)  NaN=0
+  where > 0: min=0.242  median=1.091  max=5.525
+  iv_error: median=0  p99=0.0223
+
+DTE column vs (expiration - trade_date): mismatches=0
+DTE range: 15 - 60 days
+
+Strategy coverage:
+  Mondays in option data: 119; with a <=7-DTE expiration listed: 0
+  trade dates with a 120-180 DTE expiration listed: 0 / 627
+  trade dates with a 120-200 DTE expiration listed: 0 / 627
+
+==============================================================================
+3. DATE ALIGNMENT BETWEEN THE TWO FILES
+==============================================================================
+Stock trading days:     754   (2023-07-07 -> 2026-07-09)
+Option trade dates:     627   (2024-01-02 -> 2026-07-02)
+Overlapping dates:      627   (2024-01-02 -> 2026-07-02)
+In stock file only (within option window): 0  []
+In option file only:                       0  []
+
+>>> The backtest window is limited to the overlap: 2024-01-02 -> 2026-07-02 <<<
+
+Cross-check: option file 'underlying_price' vs 5-min last close (same date):
+  dates compared: 627
+  abs diff %: median=0.074%  p95=0.333%  max=1.929%
+    worst: 2025-04-07  option_file=9.15  5min_close=9.33  diff=1.93%
+    worst: 2024-07-24  option_file=42.90  5min_close=42.51  diff=0.92%
+    worst: 2024-10-01  option_file=33.83  5min_close=33.55  diff=0.83%
+  (small diffs are expected: the option snapshot timestamp is after the 16:00 close while the 5-min file's last bar is 15:55)
