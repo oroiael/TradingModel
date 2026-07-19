@@ -2,3 +2,5 @@
 soxl_weekly_backtest_results.csv -filter -diff -merge text
 put_policy_results.csv -filter -diff -merge text
 pricing_lab/*.csv -filter -diff -merge text
+put_diagonal_ledger.csv -filter -diff -merge text
+put_diagonal_grid.csv -filter -diff -merge text
