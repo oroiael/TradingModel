@@ -1,0 +1,59 @@
+==============================================================================
+PART 1 -- PUT-MANAGEMENT POLICY BACKTESTS (all real quotes)
+==============================================================================
+  baseline        end=   420,719  ret=  180.5%  maxDD= -24.5%  vol= 35.5%  rolls= 0  exits= 1
+  rollup_20       end=   338,893  ret=  125.9%  maxDD= -24.5%  vol= 34.3%  rolls= 4  exits= 1
+  no_hedge        end=   495,526  ret=  230.4%  maxDD= -67.4%  vol= 65.8%  rolls= 0  exits= 0
+  spread_75       end=   509,592  ret=  239.7%  maxDD= -47.6%  vol= 50.9%  rolls= 0  exits= 0
+  spread_65       end=   503,213  ret=  235.5%  maxDD= -36.8%  vol= 44.9%  rolls= 0  exits= 1
+  rolldown_10     end=   296,800  ret=   97.9%  maxDD= -55.6%  vol= 46.9%  rolls=70  exits= 0
+  rolldown_20     end=   226,754  ret=   51.2%  maxDD= -56.7%  vol= 47.1%  rolls=46  exits= 0
+  harvest_2x      end=   432,864  ret=  188.6%  maxDD= -42.3%  vol= 45.7%  rolls= 3  exits= 0
+  exit_uncond_15  end=   171,531  ret=   14.4%  maxDD= -38.2%  vol= 33.3%  rolls= 0  exits=21
+  exit_uncond_20  end=   236,631  ret=   57.8%  maxDD= -36.3%  vol= 34.3%  rolls= 0  exits=13
+
+        policy  end_total  total_ret_pct  cagr_pct  max_dd_pct  ann_vol_pct  worst_wk_pct  call_premium  put_prem_spent  put_realized  rolls  exits  income_weeks  loss_weeks  warnings
+      baseline   420719.0          180.5      50.6       -24.5         35.5         -13.8      523778.0        247670.0      -57269.0      0      1           131           4         2
+     rollup_20   338893.0          125.9      38.2       -24.5         34.3         -13.8      445890.0        539156.0     -133003.0      4      1           131           7         1
+      no_hedge   495526.0          230.4      60.7       -67.4         65.8         -31.1      590217.0             0.0           0.0      0      0           131           2         0
+     spread_75   509592.0          239.7      62.5       -47.6         50.9         -23.6      597450.0        146885.0      -13744.0      0      0           131           3         1
+     spread_65   503213.0          235.5      61.7       -36.8         44.9         -17.0      615787.0        189846.0      -21186.0      0      1           131           4         1
+   rolldown_10   296800.0           97.9      31.1       -55.6         46.9         -18.0      343409.0       1829326.0     -136224.0     70      0           131          36        61
+   rolldown_20   226754.0           51.2      17.8       -56.7         47.1         -18.2      334625.0       1195389.0      -95866.0     46      0           131          25        36
+    harvest_2x   432864.0          188.6      52.3       -42.3         45.7         -18.5      506334.0        257584.0      -28265.0      3      0           131           4        13
+exit_uncond_15   171531.0           14.4       5.5       -38.2         33.3         -12.8      505099.0        478140.0      -32689.0      0     21           131          20        16
+exit_uncond_20   236631.0           57.8      19.8       -36.3         34.3         -13.6      529961.0        352786.0      -52745.0      0     13           131          14         8
+
+==============================================================================
+PART 2 -- EXERCISE vs SELL (every ITM put row in the data)
+==============================================================================
+ITM put rows: 213,652
+           rows  median_tv  pct_bid_below_intrinsic
+depth                                              
+0-5% ITM  18683       3.96                    2.628
+5-15%     35404       2.60                    9.197
+15-30%    44290       1.09                   27.333
+30-60%    59026       0.05                   48.878
+>60%      56248      -0.87                   68.769
+
+Reading: tv_at_bid = what SELLING at the bid pays ABOVE exercise
+value. Positive median => selling captures time value that
+exercising burns. 'pct_bid_below_intrinsic' = share of rows where
+the bid is under intrinsic -- the only case where exercising (or
+selling shares via exercise) beats selling the put outright.
+
+==============================================================================
+PART 3 -- PUT SPREAD PRICING AT THE BASELINE'S PURCHASE DATES
+==============================================================================
+      date  K_long        exp  long_cost_ps  K_short_75  credit_75  net_cost_reduction_75_pct  K_short_65  credit_65  net_cost_reduction_65_pct
+2024-01-02    29.0 2024-05-17          5.53        22.0       2.31                       41.8        19.0       1.43                       25.9
+2024-05-20    47.0 2024-11-15         10.06        35.0       4.14                       41.2        31.0       2.76                       27.5
+2024-11-18    27.0 2025-05-16          6.41        20.0       2.95                       46.1        18.0       2.22                       34.6
+2025-05-27    16.0 2025-11-21          3.73        12.0       1.75                       47.0        10.0       1.26                       33.7
+2025-11-24    34.0 2026-05-15          9.16        25.0       4.63                       50.5        22.0       2.83                       30.9
+2026-05-18   170.0 2026-09-18         58.74       125.0      29.35                       50.0       110.0      21.24                       36.2
+
+Reading: selling the 75%-strike put against the long put would
+have recovered the 'net_cost_reduction' share of its cost, in
+exchange for giving up protection below that short strike (a
+crash through it leaves the shares unhedged below).
