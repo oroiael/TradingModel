@@ -213,3 +213,31 @@ the put top-up executes. That is a structural flaw at 90%, not just a
 risk preference — fixable by reordering the weekly sequence (hedge
 top-up BEFORE share top-up), which should be implemented and re-tested
 before 90% is considered for adoption. Defaults unchanged (75%/10%).
+
+## 10. Hedge-priority fix + invest-fraction ladder (2026-07-18)
+
+Fix implemented in two parts: (1) weekly share buys are sized so cash can
+still hedge every new round lot at real quotes (INVEST_FRACTION becomes a
+cap); (2) at put replacement events, shares are sold to fund full
+coverage when cash can't (flagged SOLD_TO_FUND_HEDGE per row -- a
+documented deviation from spec 2.b.2). Under-hedged weeks: 16 -> 1 (the
+un-fixable 2025-05-19 listing-gap week).
+
+Whole-hedge ladder, spread_65 + sweep 5%:
+
+| invest cap | return  | CAGR  | max DD | forced hedge-fund sales |
+|-----------|---------|-------|--------|--------------------------|
+| 75%       | +256.4% | 65.6% | −38.3% | 0 sh    |
+| 85%       | +283.5% | 70.5% | −41.8% | 76 sh   |
+| 88%       | +281.4% | 70.1% | −44.0% | 345 sh  |
+| 90%       | +286.6% | 71.0% | −44.6% | 778 sh  |
+| **95%**   | **+200.0%** | 54.7% | **−56.1%** | 1,617 sh |
+
+Finding: returns plateau at 85-90% and COLLAPSE at 95%, which is
+strictly dominated (less return, more risk than every other rung). At
+95% the cash buffer that powers the strategy's own edge -- weekly
+dip-buying top-ups and interest -- is starved, and the hedge must be
+maintained by repeatedly selling shares at lows. The earlier +334% at
+"90%" (section 9) was inflated by its broken hedge; the honest
+whole-hedge 90% number is +286.6%. Practical maximum: ~90%.
+Default currently 95% per user direction; recommendation is 90%.

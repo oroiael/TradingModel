@@ -106,8 +106,14 @@ DRAWDOWN_CALL_OTM = 0.10   # opt #2: when no strike within 2.5% of basis is
 DRAWDOWN_CALL_MIN_PREM = 0.05   # ...but only if it fetches at least
                                 # $0.05/share; below that, still skip.
 START_CAPITAL = 150_000.0
-INVEST_FRACTION = 0.75     # spec Capital #2
-SWEEP_FRACTION = 0.10      # user revision 2026-07-18 (spec Capital #3 was 25%)
+INVEST_FRACTION = 0.95     # user revision 2026-07-18 (spec Capital #2 was
+                           # 75%). This is a CAP: hedge-priority sizing
+                           # (see Part 2 in run()) shrinks the share buy
+                           # so every round lot can be hedged first, so
+                           # the effective fraction self-limits below the
+                           # cap when the hedge is expensive.
+SWEEP_FRACTION = 0.05      # user revision 2026-07-18 (was 10%; spec
+                           # Capital #3 said 25%)
 SPREAD_EXECUTION = 0.20    # spec parameter #6
 WEEKLY_CALLS = True        # original spec 2.a: sell Monday, expires that
                            # Friday (the listed weekly; Thursday on holiday
@@ -353,11 +359,26 @@ def run(mkt=None):
         r["cash_interest"] = round(interest, 2)
 
         # ---- Part 2: underlying entry / weekly top-up (opt #1b) ----
+        # HEDGE-PRIORITY SIZING (fix 2026-07-18): the share purchase is
+        # sized so that cash can still cover hedging every new round lot
+        # at today's real quotes. INVEST_FRACTION is therefore a CAP --
+        # when the hedge is expensive the effective invested fraction
+        # self-limits below it rather than leaving lots unhedged.
         r.update({"stock_action": "HELD", "stock_buy_units": 0,
                   "stock_buy_price": "", "stock_buy_cost": ""})
         if shares < 100 or WEEKLY_TOPUP:
             target = INVEST_FRACTION * (cash + shares * s_entry)
             buy = int((target - shares * s_entry) // s_entry)
+            hedge_ps = (hedge_unit_cost(mkt, entry, s_entry, put)
+                        if HEDGE_ENABLED else None)
+            if buy > 0 and hedge_ps is not None:
+                held_lots = put["contracts"] if put else 0
+                while buy > 0:
+                    lots_needed = max((shares + buy) // 100 - held_lots, 0)
+                    if (buy * s_entry + lots_needed * hedge_ps * 100
+                            <= cash):
+                        break
+                    buy -= 1
             if buy > 0:
                 cost = buy * s_entry
                 cash -= cost
@@ -369,6 +390,35 @@ def run(mkt=None):
                           "stock_buy_units": buy,
                           "stock_buy_price": round(s_entry, 4),
                           "stock_buy_cost": round(cost, 2)})
+
+        # ---- hedge-first funding (fix 2026-07-18, part 2): at put
+        # REPLACEMENT events (expiry rebuy, post-gap rebuy) the cash on
+        # hand may not cover full coverage no matter how the buy was
+        # sized. Sell just enough shares at the entry price to fund the
+        # full hedge. DEVIATION from spec 2.b.2 (underlying only leaves
+        # via assignment/exit) -- flagged per row as SOLD_TO_FUND_HEDGE.
+        r.update({"stock_hedge_fund_sold": 0, "stock_hedge_fund_pnl": ""})
+        if HEDGE_ENABLED and shares >= 100:
+            h_ps = hedge_unit_cost(mkt, entry, s_entry, put)
+            if h_ps is not None and h_ps > 0:
+                held_lots = put["contracts"] if put else 0
+                sold = 0
+                while shares >= 100:
+                    need = max(shares // 100 - held_lots, 0) * h_ps * 100
+                    if need <= cash:
+                        break
+                    shares -= 1
+                    sold += 1
+                    cash += s_entry
+                    flows += s_entry
+                if sold:
+                    pnl = (s_entry - basis) * sold
+                    realized += pnl
+                    r.update({"stock_action": (r["stock_action"]
+                              + f"+SOLD{sold}_TO_FUND_HEDGE"
+                              ).replace("HELD+", ""),
+                              "stock_hedge_fund_sold": sold,
+                              "stock_hedge_fund_pnl": round(pnl, 2)})
 
         # ---- Part 3: long put purchase (new position or post-expiry) ----
         r.update({"put_action": "HELD",
@@ -798,6 +848,42 @@ def call_mark(mkt, call, d, spot):
     iv, spread, src = got
     return bs_price("CALL", spot, call["strike"], t, iv), spread, \
         f"BS est; {src}"
+
+
+def hedge_unit_cost(mkt, d, spot, put):
+    """Estimated NET debit per share to hedge one additional round lot:
+    priced from the existing put's leg quotes when a put is held, else
+    from the scan winner a new put would use. None if unpriceable."""
+    if put is not None:
+        rq = mkt.quote(d, "PUT", put["strike"], put["expiration"])
+        if rq is None or rq["ask"] <= 0:
+            return None
+        bid, ask = float(rq["bid"]), float(rq["ask"])
+        px = ask - SPREAD_EXECUTION * (ask - bid)
+        if put.get("short_strike"):
+            rq_s = mkt.quote(d, "PUT", put["short_strike"],
+                             put["expiration"])
+            if rq_s is None or rq_s["ask"] <= 0:
+                return None
+            sbid, sask = float(rq_s["bid"]), float(rq_s["ask"])
+            px -= sbid + SPREAD_EXECUTION * (sask - sbid)
+        return px
+    cands = mkt.scan_put_candidates(d, spot)
+    if not cands:
+        return None
+    best = cands[0]
+    px = best["px"]
+    if PUT_SPREAD_SHORT_FRAC:
+        ch = mkt.chain(d)
+        srows = ch[(ch["right"] == "PUT")
+                   & (ch["expiration"] == best["exp"])
+                   & (ch["bid"] > 0) & (ch["strike"] < best["strike"])]
+        if not srows.empty:
+            tgt = best["strike"] * PUT_SPREAD_SHORT_FRAC
+            sr = srows.iloc[(srows["strike"] - tgt).abs().argsort().iloc[0]]
+            px -= (float(sr["bid"]) + SPREAD_EXECUTION
+                   * (float(sr["ask"]) - float(sr["bid"])))
+    return px
 
 
 def open_put(mkt, d, spot, shares, cash_avail):
