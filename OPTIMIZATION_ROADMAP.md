@@ -171,3 +171,26 @@ spread_65 ≈ no-hedge returns at roughly half its drawdown. The choice
 between baseline and spread_65 is a genuine risk-appetite decision:
 +55 points of return for ~12 points deeper max drawdown. Default remains
 the plain put; set PUT_SPREAD_SHORT_FRAC = 0.65 to switch.
+
+## 8. Spread_65 scenario tests (2026-07-18): invest 85%, exit trigger 20%
+
+spread_65 adopted as the working default (+235.5%, −36.8% max DD).
+Scenarios on top of it, each change isolated then combined:
+
+| scenario              | return  | CAGR  | max DD | vol   | worst wk |
+|-----------------------|---------|-------|--------|-------|----------|
+| spread_65 (reference) | +235.5% | 61.7% | −36.8% | 44.9% | −17.0%   |
+| + invest 85%          | +262.3% | 66.7% | −42.2% | 50.5% | −18.2%   |
+| + exit trigger 20%    | +235.5% | 61.7% | −36.8% | 44.9% | −17.0%   |
+| + both                | +262.3% | 66.7% | −42.2% | 50.5% | −18.2%   |
+
+Findings: (1) **invest 85% adds ~27 points of return for ~5.4 points more
+max DD** — a clean, roughly proportional risk/return trade. Side effect:
+with only 15% cash, 4–5 weeks couldn't immediately afford the hedge
+top-up after large put purchases and ran a few contracts under-hedged
+until cash replenished (warned per week in the run log). (2) **Raising
+the protective-exit trigger from 15% to 20% is a historical no-op**: the
+only exit in the window fired on a −20.4% week, beyond both thresholds.
+It only matters in future paths where a −15%..−20% move coincides with
+the put covering the loss; it neither helped nor hurt here. Neither
+scenario changes the repo default pending user decision.

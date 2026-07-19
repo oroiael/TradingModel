@@ -142,12 +142,12 @@ EXIT_MODE = "conditional"  # "conditional" (spec 2.c.v: exit at -15% only
 EXIT_DROP = 0.15           # spec 2.c.v
 HEDGE_ENABLED = True       # put-policy lab: False runs the covered-call
                            # machine with NO protective put at all.
-PUT_SPREAD_SHORT_FRAC = None   # put-spread strategy (2026-07-18): sell a
-                               # put at ~this fraction of the long strike,
-                               # SAME expiration, real quote (e.g. 0.75).
-                               # Recovers part of the hedge cost; downside
-                               # protection stops below the short strike.
-                               # None = plain long put (default).
+PUT_SPREAD_SHORT_FRAC = 0.65   # put-spread hedge (user-adopted
+                               # 2026-07-18): sell a put at ~65% of the
+                               # long strike, SAME expiration, real quotes
+                               # both legs. Recovers ~30% of hedge cost;
+                               # protection stops below the short strike
+                               # (a ~35%-deep band). None = plain long put.
 
 
 # ------------------------------ Black-Scholes ------------------------------

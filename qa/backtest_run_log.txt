@@ -5,26 +5,25 @@ QA CHECKS (spec Quality Control #1-2)
 ========================================================================
   cash ledger reconciles every week:       PASS (131 weeks)
   cash never negative:                     PASS
-  sweep sum == final side account:         PASS (51,962.25 vs 51,962.23)
+  sweep sum == final side account:         PASS (62,061.51 vs 62,061.50)
   sweep == 10% of positive realized gains: PASS
   call sales priced from REAL quotes:      131/131
   put purchases priced from REAL quotes:   6/6
-  warnings during run:                     2
+  warnings during run:                     1
     - 2025-05-19: could not price put (no quoted whole-dollar puts listed with 120-180 DTE on 2025-05-19)
-    - 2026-05-18: hedge top-up (1 contracts, 5,874) exceeds cash
 
 ========================================================================
 SUMMARY
 ========================================================================
   Window:                2024-01-02 -> 2026-07-02  (131 weeks)
   Start capital:           150,000.00
-  End trading balance:     368,756.84
-  Side (swept) account:     51,962.23
-  End total:               420,719.07
-  Total return:                180.5%
-  Call premium collected:  523,778.40 over 131 weekly sales (avg 3,998.31)
-  Cash interest earned:     10,407.71  (opt #1a, 4.5%)
-  Weekly top-up buys:    44 (opt #1b)
+  End trading balance:     441,151.56
+  Side (swept) account:     62,061.50
+  End total:               503,213.06
+  Total return:                235.5%
+  Call premium collected:  615,787.00 over 131 weekly sales (avg 4,700.66)
+  Cash interest earned:     12,215.88  (opt #1a, 4.5%)
+  Weekly top-up buys:    43 (opt #1b)
   Drawdown OTM sales:    1 (opt #2)
   Calls assigned:        36
   Put rolls:             0
