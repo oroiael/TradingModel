@@ -147,3 +147,27 @@ edge case worth a fallback rule later.
 3. §3.3 + §3.4 joint grid with frontier report.
 4. §3.5 threshold grids on the winner.
 5. §3.6 robustness gauntlet; only keep parameters that survive it.
+
+## 7. Put policy decision (2026-07-18, post put-policy lab)
+
+Adopted: **buy the put and HOLD TO EXPIRATION** (roll-up rule retired;
+conditional −15% exit kept). Baseline is now +180.5% / −24.5% max DD.
+Rolling in either direction, profit-harvesting, and liquidate-everything
+exits all tested worse on real quotes (see qa/put_policy_report.txt).
+
+Put-spread strategy implemented (`PUT_SPREAD_SHORT_FRAC`): sell a put at
+~65–75% of the long strike, same expiration, real quotes both legs, held
+to expiration with net-intrinsic settlement. Results frontier:
+
+| policy     | return  | max DD | hedge net spend |
+|------------|---------|--------|-----------------|
+| plain put (baseline) | +180.5% | −24.5% | $248k |
+| spread_65  | +235.5% | −36.8% | $187k |
+| spread_75  | +239.7% | −47.6% | $147k |
+| no hedge   | +230.4% | −67.4% | $0 |
+
+spread_75 dominates no-hedge outright (more return, less drawdown).
+spread_65 ≈ no-hedge returns at roughly half its drawdown. The choice
+between baseline and spread_65 is a genuine risk-appetite decision:
++55 points of return for ~12 points deeper max drawdown. Default remains
+the plain put; set PUT_SPREAD_SHORT_FRAC = 0.65 to switch.

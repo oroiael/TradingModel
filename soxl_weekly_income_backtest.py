@@ -123,9 +123,12 @@ PUT_SCAN_MAX = 180         # ~6-month put, scan ALL real listed expirations
                            # whole-dollar strike nearest the purchase
                            # price. The scan is recorded per row in
                            # put_pricing_source.
-ROLL_MOVE = 0.20           # roll UP at +20% vs basis (user direction
-                           # 2026-07-18; spec 2.c.iv said 10% both ways).
-                           # None disables roll-ups.
+ROLL_MOVE = None           # roll-ups DISABLED (user-approved 2026-07-18
+                           # after the put-policy lab showed rolling up
+                           # doubles hedge spend for zero extra drawdown
+                           # protection: sell-low/buy-high every roll).
+                           # The put is bought and HELD TO EXPIRATION.
+                           # Set to e.g. 0.20 to re-enable the old rule.
 ROLL_DOWN_MOVE = None      # put-policy lab: roll DOWN (harvest the put's
                            # gain, re-strike ATM) when move <= -x vs basis.
                            # None (default) = off, current behavior.
@@ -139,6 +142,12 @@ EXIT_MODE = "conditional"  # "conditional" (spec 2.c.v: exit at -15% only
 EXIT_DROP = 0.15           # spec 2.c.v
 HEDGE_ENABLED = True       # put-policy lab: False runs the covered-call
                            # machine with NO protective put at all.
+PUT_SPREAD_SHORT_FRAC = None   # put-spread strategy (2026-07-18): sell a
+                               # put at ~this fraction of the long strike,
+                               # SAME expiration, real quote (e.g. 0.75).
+                               # Recovers part of the hedge cost; downside
+                               # protection stops below the short strike.
+                               # None = plain long put (default).
 
 
 # ------------------------------ Black-Scholes ------------------------------
@@ -384,9 +393,21 @@ def run(mkt=None):
         if put is not None and shares // 100 > put["contracts"]:
             add = shares // 100 - put["contracts"]
             rq = mkt.quote(entry, "PUT", put["strike"], put["expiration"])
-            if rq is not None and rq["ask"] > 0:
+            rq_s = (mkt.quote(entry, "PUT", put["short_strike"],
+                              put["expiration"])
+                    if put.get("short_strike") else None)
+            if rq is not None and rq["ask"] > 0 and (
+                    put.get("short_strike") is None
+                    or (rq_s is not None and rq_s["ask"] > 0)):
                 bid, ask = float(rq["bid"]), float(rq["ask"])
                 px = ask - SPREAD_EXECUTION * (ask - bid)
+                short_note = ""
+                if rq_s is not None:
+                    sbid, sask = float(rq_s["bid"]), float(rq_s["ask"])
+                    scredit = sbid + SPREAD_EXECUTION * (sask - sbid)
+                    px -= scredit
+                    short_note = (f", short K={put['short_strike']} sold @ "
+                                  f"{scredit:.2f} (bid={sbid} ask={sask})")
                 cost = px * add * 100
                 if cost <= cash:
                     cash -= cost
@@ -402,6 +423,7 @@ def run(mkt=None):
                     r["put_pricing_source"] = (
                         str(r["put_pricing_source"]) + f"; add {add} "
                         f"contracts @ REAL QUOTE bid={bid} ask={ask}"
+                        + short_note
                     ).lstrip("; ")
                 else:
                     warnings.append(f"{entry}: hedge top-up ({add} "
@@ -461,8 +483,7 @@ def run(mkt=None):
                 # if the put's gain covers the loss, "unconditional" always
                 stock_loss = (basis - s_1530) * shares
                 if EXIT_MODE == "unconditional" or put_gain >= stock_loss:
-                    px = mkt.exec_price(val_ps, put_spread(mkt, put, settle),
-                                        "SELL")
+                    px, mark_src = close_put(mkt, put, settle, s_1530)
                     proceeds = px * put["contracts"] * 100
                     pnl = proceeds - put["cost_ps"] * put["contracts"] * 100
                     cash += proceeds
@@ -514,8 +535,7 @@ def run(mkt=None):
                                   and val_ps >= HARVEST_MULT
                                   * put["cost_ps"]
                                   else "ROLLED_DOWN"))
-                px = mkt.exec_price(val_ps, put_spread(mkt, put, settle),
-                                    "SELL")
+                px, mark_src = close_put(mkt, put, settle, s_1530)
                 proceeds = px * put["contracts"] * 100
                 pnl = proceeds - put["cost_ps"] * put["contracts"] * 100
                 cash += proceeds
@@ -548,6 +568,9 @@ def run(mkt=None):
         # ---- put expiration on/before this settlement day ----
         if put and put["expiration"] <= settle:
             intrinsic = max(put["strike"] - s_close, 0.0)
+            if put.get("short_strike"):
+                # spread: cash-settle the NET intrinsic (short leg owed)
+                intrinsic -= max(put["short_strike"] - s_close, 0.0)
             proceeds = intrinsic * put["contracts"] * 100
             pnl = proceeds - put["cost_ps"] * put["contracts"] * 100
             cash += proceeds
@@ -633,31 +656,53 @@ def run(mkt=None):
     return pd.DataFrame(rows), warnings
 
 
-def put_spread(mkt, put, d):
-    row = mkt.quote(d, "PUT", put["strike"], put["expiration"])
-    if row is not None and row["ask"] > 0 and row["bid"] > 0:
-        return (row["ask"] - row["bid"]) / ((row["ask"] + row["bid"]) / 2)
-    got = mkt.iv_and_spread(d, "PUT", put["strike"], want_long_dte=True)
-    return got[1] if got else 0.14  # file-wide median spread as last resort
+def _leg_mark(mkt, d, strike, exp, spot, t_years):
+    """(mid, spread_frac, src) for one put leg: REAL quote when the row
+    exists, else BS with file IV (flagged)."""
+    row = mkt.quote(d, "PUT", strike, exp)
+    if row is not None and row["ask"] > 0:
+        bid, ask = float(row["bid"]), float(row["ask"])
+        mid = (bid + ask) / 2
+        spread = (ask - bid) / mid if mid > 0 else 0.14
+        return mid, spread, (f"REAL QUOTE bid={bid} ask={ask}"
+                             + ("; ZERO BID" if bid == 0 else ""))
+    got = mkt.iv_and_spread(d, "PUT", strike, want_long_dte=True)
+    if got is None:
+        return max(strike - spot, 0.0), 0.14, "intrinsic (no quote/IV row)"
+    iv, spread, src = got
+    return bs_price("PUT", spot, strike, t_years, iv), spread, \
+        f"BS est (no quote row); {src}"
 
 
 def put_value(mkt, put, d, spot):
-    """Mark the held put from the REAL quote for its exact contract on day
-    d; BS with file IV only as a flagged fallback.
-    Returns (PER-SHARE mid, source string)."""
-    row = mkt.quote(d, "PUT", put["strike"], put["expiration"])
-    if row is not None and row["ask"] > 0:
-        bid, ask = float(row["bid"]), float(row["ask"])
-        return (bid + ask) / 2, (f"REAL QUOTE bid={bid} ask={ask}"
-                                 + ("; ZERO BID" if bid == 0 else ""))
+    """NET mark of the held put position (long leg minus short leg when a
+    spread is on). Returns (PER-SHARE mid, source string)."""
     t = max((put["expiration"] - d).days, 0) / 365.0
-    got = mkt.iv_and_spread(d, "PUT", put["strike"], want_long_dte=True)
-    if got is None:
-        return (max(put["strike"] - spot, 0.0),
-                "intrinsic only (no quote, no IV row)")
-    iv, _, src = got
-    mid = bs_price("PUT", spot, put["strike"], t, iv)
-    return mid, f"BS est (no quote row); {src}"
+    v_l, _, src_l = _leg_mark(mkt, d, put["strike"], put["expiration"],
+                              spot, t)
+    if put.get("short_strike"):
+        v_s, _, src_s = _leg_mark(mkt, d, put["short_strike"],
+                                  put["expiration"], spot, t)
+        return v_l - v_s, (f"long: {src_l}; "
+                           f"short K={put['short_strike']}: {src_s}")
+    return v_l, src_l
+
+
+def close_put(mkt, put, d, spot):
+    """Unwind the put position at executable prices (spec #6 per leg):
+    sell the long leg, buy back the short leg if a spread is on.
+    Returns (NET proceeds per share, source string)."""
+    t = max((put["expiration"] - d).days, 0) / 365.0
+    v_l, sp_l, src_l = _leg_mark(mkt, d, put["strike"], put["expiration"],
+                                 spot, t)
+    proceeds = mkt.exec_price(v_l, sp_l, "SELL")
+    src = f"sold long ({src_l})"
+    if put.get("short_strike"):
+        v_s, sp_s, src_s = _leg_mark(mkt, d, put["short_strike"],
+                                     put["expiration"], spot, t)
+        proceeds -= mkt.exec_price(v_s, sp_s, "BUY")
+        src += f"; bought back short K={put['short_strike']} ({src_s})"
+    return proceeds, src
 
 
 def open_call(mkt, d, spot, basis, contracts):
@@ -777,6 +822,28 @@ def open_put(mkt, d, spot, shares, cash_avail):
            f"(worst: dte={worst['dte']} {worst['cost_per_day']:.4f}); "
            f"REAL QUOTE bid={best['bid']} ask={best['ask']} exp={exp}"
            + ("; ZERO BID" if best["bid"] == 0 else ""))
+
+    # Put-spread variant: sell a put at ~PUT_SPREAD_SHORT_FRAC of the long
+    # strike, same expiration, real quote. cost_ps becomes the NET debit.
+    short_strike = None
+    if PUT_SPREAD_SHORT_FRAC:
+        ch = mkt.chain(d)
+        srows = ch[(ch["right"] == "PUT") & (ch["expiration"] == exp)
+                   & (ch["bid"] > 0)
+                   & (ch["strike"] < strike)]
+        if not srows.empty:
+            tgt = strike * PUT_SPREAD_SHORT_FRAC
+            sr = srows.iloc[(srows["strike"] - tgt).abs().argsort().iloc[0]]
+            sbid, sask = float(sr["bid"]), float(sr["ask"])
+            credit = sbid + SPREAD_EXECUTION * (sask - sbid)
+            short_strike = float(sr["strike"])
+            px -= credit
+            src += (f"; SPREAD: sold K={short_strike} same exp @ "
+                    f"{credit:.2f}/sh (REAL QUOTE bid={sbid} ask={sask}), "
+                    f"net debit {px:.2f}/sh")
+        else:
+            src += "; SPREAD short leg SKIPPED (no bid>0 strikes below long)"
+
     cost = px * contracts * 100
     trimmed = ""
     while contracts > 1 and cost > cash_avail:   # flagged, not hidden
@@ -786,6 +853,7 @@ def open_put(mkt, d, spot, shares, cash_avail):
     if cost > cash_avail:
         return None, "insufficient cash for even 1 contract"
     return ({"strike": strike, "expiration": exp, "contracts": contracts,
+             "short_strike": short_strike,
              "cost_ps": px}, src + trimmed)
 
 

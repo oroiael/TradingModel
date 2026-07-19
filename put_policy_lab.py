@@ -49,14 +49,17 @@ ROOT = Path(__file__).resolve().parent
 REPORT = ROOT / "qa" / "put_policy_report.txt"
 OUT_CSV = ROOT / "put_policy_results.csv"
 
-DEFAULTS = dict(ROLL_MOVE=0.20, ROLL_DOWN_MOVE=None, HARVEST_MULT=None,
-                EXIT_MODE="conditional", EXIT_DROP=0.15, HEDGE_ENABLED=True)
+DEFAULTS = dict(ROLL_MOVE=None, ROLL_DOWN_MOVE=None, HARVEST_MULT=None,
+                EXIT_MODE="conditional", EXIT_DROP=0.15, HEDGE_ENABLED=True,
+                PUT_SPREAD_SHORT_FRAC=None)
 
 POLICIES = {
+    # baseline = current default: put held to expiration, conditional exit
     "baseline":       {},
+    "rollup_20":      {"ROLL_MOVE": 0.20},   # the retired old default
     "no_hedge":       {"HEDGE_ENABLED": False, "EXIT_MODE": "off"},
-    "no_rolls":       {"ROLL_MOVE": None, "EXIT_MODE": "off"},
-    "no_rolls_cond_exit": {"ROLL_MOVE": None},
+    "spread_75":      {"PUT_SPREAD_SHORT_FRAC": 0.75},
+    "spread_65":      {"PUT_SPREAD_SHORT_FRAC": 0.65},
     "rolldown_10":    {"ROLL_DOWN_MOVE": 0.10, "EXIT_MODE": "off"},
     "rolldown_20":    {"ROLL_DOWN_MOVE": 0.20, "EXIT_MODE": "off"},
     "harvest_2x":     {"HARVEST_MULT": 2.0, "EXIT_MODE": "off"},

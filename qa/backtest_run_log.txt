@@ -5,31 +5,32 @@ QA CHECKS (spec Quality Control #1-2)
 ========================================================================
   cash ledger reconciles every week:       PASS (131 weeks)
   cash never negative:                     PASS
-  sweep sum == final side account:         PASS (42,683.76 vs 42,683.74)
+  sweep sum == final side account:         PASS (51,962.25 vs 51,962.23)
   sweep == 10% of positive realized gains: PASS
   call sales priced from REAL quotes:      131/131
-  put purchases priced from REAL quotes:   9/9
-  warnings during run:                     1
+  put purchases priced from REAL quotes:   6/6
+  warnings during run:                     2
     - 2025-05-19: could not price put (no quoted whole-dollar puts listed with 120-180 DTE on 2025-05-19)
+    - 2026-05-18: hedge top-up (1 contracts, 5,874) exceeds cash
 
 ========================================================================
 SUMMARY
 ========================================================================
   Window:                2024-01-02 -> 2026-07-02  (131 weeks)
   Start capital:           150,000.00
-  End trading balance:     296,209.11
-  Side (swept) account:     42,683.74
-  End total:               338,892.85
-  Total return:                125.9%
-  Call premium collected:  445,889.60 over 131 weekly sales (avg 3,403.74)
-  Cash interest earned:      9,100.96  (opt #1a, 4.5%)
+  End trading balance:     368,756.84
+  Side (swept) account:     51,962.23
+  End total:               420,719.07
+  Total return:                180.5%
+  Call premium collected:  523,778.40 over 131 weekly sales (avg 3,998.31)
+  Cash interest earned:     10,407.71  (opt #1a, 4.5%)
   Weekly top-up buys:    44 (opt #1b)
   Drawdown OTM sales:    1 (opt #2)
   Calls assigned:        36
-  Put rolls:             4
-  Put DTEs chosen (120-180 scan): [133, 136, 147, 154, 161, 172, 178, 179, 179]
+  Put rolls:             0
+  Put DTEs chosen (120-180 scan): [123, 136, 172, 178, 179, 179]
   Protective exits:      1
-  Weeks w/ realized loss:7 of 131
+  Weeks w/ realized loss:4 of 131
 
   Both legs are priced from REAL file quotes (raw ThetaData
   exports, full window). BS-with-file-IV survives only as a
