@@ -10,7 +10,7 @@ into one normalized frame covering 2024-01-02 -> 2026-07-02:
     * `dte` derived as (expiration - trade_date) in calendar days
     * exact duplicate contracts across files dropped (keep first)
     * output columns: expiration, strike, right, bid, ask, implied_vol,
-      trade_date, dte, underlying_price  (trade_date/expiration as
+      delta, trade_date, dte, underlying_price  (trade_date/expiration as
       datetime.date)
 
 Nothing is repaired or imputed: zero bids, zero IVs and quote-only rows are
@@ -25,7 +25,7 @@ ROOT = Path(__file__).resolve().parent
 RAW_FILES = ("SOXL_Options_2024.csv", "SOXL_Options_2025.csv",
              "SOXL_Options_2026.csv")
 USECOLS = ["expiration", "strike", "right", "bid", "ask", "implied_vol",
-           "trade_date", "underlying_price"]
+           "delta", "trade_date", "underlying_price"]
 
 
 def load_raw_options(root=ROOT, verbose=False):

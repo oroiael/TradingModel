@@ -189,6 +189,17 @@ which loops back to §1.)
 
 ---
 
+## 6b. Update (2026-07-19): strategy built and backtested
+
+The user chose to make this short-strangle the go-forward **active** strategy.
+It is now implemented in `soxl_short_strangle_backtest.py` and run on 100%
+real quotes. Result: **−83.2%** over 2024-2026, with **every leg a net loser**
+(anchor −$54k, short put −$47k after mandated rolling, naked call −$24k) and
+the −0.50 credit-roll a net debit **76% of the time** — confirming §2.5 on
+real data. Full write-up: `RESULTS_short_strangle.md`. The corrections in
+§2-§4 are reflected in the build (naked-call margin modeled, roll debits
+flagged, retired-parameter conflicts documented).
+
 ## 7. Bottom line
 
 The spec is well-written as prose and gets the *execution plumbing* (nearest-
