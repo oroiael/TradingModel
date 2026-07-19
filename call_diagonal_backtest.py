@@ -85,9 +85,18 @@ class Config:
     put_delta: float = 0.25         # OTM put wing delta target
     put_dte: int = 60               # put wing tenor target
     put_roll_dte: int = 21
-    trend_filter: bool = False      # halve exposure while spot < 50d SMA
-    dd_derisk: float = 0.0          # e.g. 0.20: halve exposure while total
+    put_tp_mult: float = 0.0        # e.g. 3.0: monetize the put wing once it
+    #                                 marks at 3x entry, then re-buy fresh
+    trend_filter: bool = False      # cut exposure while spot < trend SMA
+    trend_sma: int = 50             # SMA length (trading days)
+    trend_cut: float = 0.5          # exposure multiplier below trend
+    dd_derisk: float = 0.0          # e.g. 0.20: cut exposure while total
     #                                 wealth is >20% below its high-water mark
+    dd_cut: float = 0.5             # exposure multiplier while under water
+    skip_call_below_trend: bool = False   # keep full upside in recoveries
+    skip_call_after_drop: float = 0.0     # skip call if last week fell > x
+    soxs_frac: float = 0.0          # sleeve of SYNTHETIC SOXS (=-1x SOXL
+    #                                 daily, fee-free approximation)
     sizing: str = "share_repl"      # or "premium"
     invest_frac: float = 0.75
     sweep_frac: float = 0.25
@@ -113,10 +122,18 @@ class Config:
         if self.put_ratio:
             parts.append(f"pw{self.put_ratio:g}x{self.put_delta:.0%}"
                          f"d{self.put_dte}")
+        if self.put_tp_mult:
+            parts.append(f"tp{self.put_tp_mult:g}x")
         if self.trend_filter:
-            parts.append("trend")
+            parts.append(f"trend{self.trend_sma}@{self.trend_cut:g}")
         if self.dd_derisk:
-            parts.append(f"dd{self.dd_derisk:.0%}")
+            parts.append(f"dd{self.dd_derisk:.0%}@{self.dd_cut:g}")
+        if self.skip_call_below_trend:
+            parts.append("nocallBT")
+        if self.skip_call_after_drop:
+            parts.append(f"nocallD{self.skip_call_after_drop:.0%}")
+        if self.soxs_frac:
+            parts.append(f"soxs{self.soxs_frac:.0%}")
         if self.invest_frac != 0.75:
             parts.append(f"inv{self.invest_frac:.0%}")
         if self.cash_apy:
@@ -127,11 +144,25 @@ class Config:
 class CallMarket(Market):
     def __init__(self):
         super().__init__()
-        self.sma50 = self.daily_close.rolling(50).mean()
+        self._sma_cache = {}
+        # Synthetic SOXS: SOXS is -3x SOXX while SOXL is +3x SOXX, so its
+        # daily return is ~ -1x SOXL's daily return.  Fee/financing drag is
+        # NOT modeled (optimistic for SOXS) -- real SOXS data is on the
+        # request list; this proxy is good enough to measure the decay
+        # penalty of holding an inverse-3x sleeve.
+        r = self.daily_close.pct_change().fillna(0.0)
+        self.soxs_px = 100.0 * (1.0 - r).cumprod()
 
-    def sma(self, td):
-        idx = self.sma50.index[self.sma50.index <= td]
-        return float(self.sma50.loc[idx[-1]]) if len(idx) else np.nan
+    def sma(self, td, n=50):
+        if n not in self._sma_cache:
+            self._sma_cache[n] = self.daily_close.rolling(n).mean()
+        s = self._sma_cache[n]
+        idx = s.index[s.index <= td]
+        return float(s.loc[idx[-1]]) if len(idx) else np.nan
+
+    def soxs(self, td):
+        idx = self.soxs_px.index[self.soxs_px.index <= td]
+        return float(self.soxs_px.loc[idx[-1]])
 
     def pick_put_wing(self, td, cfg):
         ch = self.chains[td]
@@ -191,6 +222,9 @@ class CallDiagonalBacktest:
         self.long = None            # call contract or share lot
         self.short = None
         self.put = None             # protective put wing (overlay)
+        self.soxs_units = 0.0       # synthetic inverse sleeve (overlay)
+        self.soxs_cost = 0.0
+        self.prev_week_spot = None
         self.hwm = cfg.start_capital
         self.blown = False
         self.week_rows = []
@@ -241,19 +275,43 @@ class CallDiagonalBacktest:
             if q is not None:
                 self.put["last_mark"] = float(q["mid"])
             eq += self.put["last_mark"] * 100 * self.put["n"]
+        if self.soxs_units:
+            eq += self.soxs_units * self.m.soxs(td)
         return eq
+
+    def rebalance_soxs(self, td):
+        """Weekly rebalance of the synthetic inverse (SOXS-proxy) sleeve.
+        Traded frictionlessly at the synthetic price -- optimistic; the
+        point is to measure whether an inverse-3x sleeve helps at all."""
+        c = self.cfg
+        if c.soxs_frac <= 0:
+            return
+        P = self.m.soxs(td)
+        if self.soxs_units:
+            proceeds = self.soxs_units * P
+            self.cash += proceeds
+            self.realize(td, "soxs", proceeds - self.soxs_cost)
+            self.soxs_units = 0.0
+        target = min(c.soxs_frac * max(self.equity(td), 0.0),
+                     max(self.cash - 1, 0.0))
+        if target > 0:
+            self.soxs_units = target / P
+            self.soxs_cost = target
+            self.pay(target, "soxs sleeve")
+            self.wk["soxs_note"] = (f"units={self.soxs_units:.1f}@{P:.4f} "
+                                    f"val={target:,.0f}")
 
     def risk_frac(self, td):
         """Deployment fraction after drawdown-management overlays."""
         f = self.cfg.invest_frac
         if self.cfg.trend_filter:
-            sma = self.m.sma(td)
+            sma = self.m.sma(td, self.cfg.trend_sma)
             if np.isfinite(sma) and self.m.spot(td) < sma:
-                f *= 0.5
+                f *= self.cfg.trend_cut
         if self.cfg.dd_derisk:
             wealth = self.equity(td) + self.sweep
             if wealth < self.hwm * (1 - self.cfg.dd_derisk):
-                f *= 0.5
+                f *= self.cfg.dd_cut
         return f
 
     # --- long leg ---------------------------------------------------------
@@ -401,6 +459,17 @@ class CallDiagonalBacktest:
         target = int(round(c.put_ratio
                            * (self.long["n"] if self.long else 0)))
         p = self.put
+        if p is not None and c.put_tp_mult:
+            q = self.m.quote(td, p["exp"], p["strike"], "PUT")
+            if q is not None and bool(q["liquid"]) and \
+                    float(q["sell_px"]) >= c.put_tp_mult * p["entry_px"]:
+                px = float(q["sell_px"])
+                self.cash += px * 100 * p["n"]
+                self.commission(p["n"])
+                self.realize(td, "put", (px - p["entry_px"]) * 100 * p["n"])
+                self.wk["put_action"] = (f"TP_MONETIZED@{px:.2f} "
+                                         f"({px / p['entry_px']:.1f}x)")
+                self.put = p = None   # falls through to re-buy fresh below
         if p is not None:
             dte = (p["exp"] - td).days
             if dte <= c.put_roll_dte or target == 0:
@@ -577,13 +646,28 @@ class CallDiagonalBacktest:
 
             self.manage_long(d0)
             self.manage_put(d0)
+            self.rebalance_soxs(d0)
             if not self.cfg.no_short:
-                if self.short is None:
-                    ch = self.m.week_expiry_chain(d0)
-                    if ch is not None:
-                        self.sell_short(d0, ch, "SELL")
-                elif (self.short["exp"] - d0).days > 7:
-                    self.wk["short_action"] = "HELD_FROM_DEFENSE_ROLL"
+                sell_ok = True
+                spot0 = self.m.spot(d0)
+                if self.cfg.skip_call_below_trend:
+                    sma = self.m.sma(d0, self.cfg.trend_sma)
+                    if np.isfinite(sma) and spot0 < sma:
+                        sell_ok = False
+                        self.wk["short_action"] = "SKIP_CALL_BELOW_TREND"
+                if sell_ok and self.cfg.skip_call_after_drop and \
+                        self.prev_week_spot:
+                    if spot0 / self.prev_week_spot - 1 < \
+                            -self.cfg.skip_call_after_drop:
+                        sell_ok = False
+                        self.wk["short_action"] = "SKIP_CALL_AFTER_DROP"
+                if sell_ok:
+                    if self.short is None:
+                        ch = self.m.week_expiry_chain(d0)
+                        if ch is not None:
+                            self.sell_short(d0, ch, "SELL")
+                    elif (self.short["exp"] - d0).days > 7:
+                        self.wk["short_action"] = "HELD_FROM_DEFENSE_ROLL"
             self.snapshot(d0)
 
             for d in wdays:
@@ -609,6 +693,12 @@ class CallDiagonalBacktest:
                                      * self.short["n"])
                         self.wk["short_outcome"] = f"FINAL_BUYBACK@{px:.2f}"
                         self.short = None
+                if self.soxs_units:
+                    P = self.m.soxs(dl)
+                    proceeds = self.soxs_units * P
+                    self.cash += proceeds
+                    self.realize(dl, "soxs", proceeds - self.soxs_cost)
+                    self.soxs_units = 0.0
                 if self.put:
                     p = self.put
                     q = self.m.quote(dl, p["exp"], p["strike"], "PUT")
@@ -635,6 +725,7 @@ class CallDiagonalBacktest:
                 self.sweep += swept
 
             dl = wdays[-1]
+            self.prev_week_spot = self.m.spot(dl)
             wealth_end = self.equity(dl) + self.sweep
             self.hwm = max(self.hwm, wealth_end)
             self.wk.update(
@@ -703,6 +794,7 @@ class CallDiagonalBacktest:
             "short_realized": round(by_leg.get("short", 0.0), 0),
             "long_realized": round(by_leg.get("long", 0.0), 0),
             "put_realized": round(by_leg.get("put", 0.0), 0),
+            "soxs_realized": round(by_leg.get("soxs", 0.0), 0),
             "long_rolls": int(led.get("long_roll_reason",
                                       pd.Series(dtype=object))
                               .notna().sum()),

@@ -10,3 +10,4 @@ r2_dd_overlays.csv -filter -diff -merge text
 r2_margin_weekly.csv -filter -diff -merge text
 r3_condor_ledger.csv -filter -diff -merge text
 r3_condor_grid.csv -filter -diff -merge text
+r2_hedge_campaign.csv -filter -diff -merge text
