@@ -6,3 +6,5 @@ put_diagonal_ledger.csv -filter -diff -merge text
 put_diagonal_grid.csv -filter -diff -merge text
 call_diagonal_ledger.csv -filter -diff -merge text
 call_diagonal_grid.csv -filter -diff -merge text
+r2_dd_overlays.csv -filter -diff -merge text
+r2_margin_weekly.csv -filter -diff -merge text

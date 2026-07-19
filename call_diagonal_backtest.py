@@ -80,6 +80,14 @@ class Config:
     restrike_lo: float = 0.0        # e.g. 0.55: roll down to repair; 0 = off
     delta_defense: bool = False
     defense_trigger: float = 0.50
+    # --- drawdown-management overlays (all off by default) ---------------
+    put_ratio: float = 0.0          # protective puts per long call; 0 = off
+    put_delta: float = 0.25         # OTM put wing delta target
+    put_dte: int = 60               # put wing tenor target
+    put_roll_dte: int = 21
+    trend_filter: bool = False      # halve exposure while spot < 50d SMA
+    dd_derisk: float = 0.0          # e.g. 0.20: halve exposure while total
+    #                                 wealth is >20% below its high-water mark
     sizing: str = "share_repl"      # or "premium"
     invest_frac: float = 0.75
     sweep_frac: float = 0.25
@@ -102,12 +110,46 @@ class Config:
             parts.append(f"lo{self.restrike_lo:.0%}")
         if self.delta_defense:
             parts.append("def")
+        if self.put_ratio:
+            parts.append(f"pw{self.put_ratio:g}x{self.put_delta:.0%}"
+                         f"d{self.put_dte}")
+        if self.trend_filter:
+            parts.append("trend")
+        if self.dd_derisk:
+            parts.append(f"dd{self.dd_derisk:.0%}")
+        if self.invest_frac != 0.75:
+            parts.append(f"inv{self.invest_frac:.0%}")
         if self.cash_apy:
             parts.append(f"apy{self.cash_apy:.0%}")
         return "_".join(parts)
 
 
 class CallMarket(Market):
+    def __init__(self):
+        super().__init__()
+        self.sma50 = self.daily_close.rolling(50).mean()
+
+    def sma(self, td):
+        idx = self.sma50.index[self.sma50.index <= td]
+        return float(self.sma50.loc[idx[-1]]) if len(idx) else np.nan
+
+    def pick_put_wing(self, td, cfg):
+        ch = self.chains[td]
+        lo = max(15, cfg.put_dte - 30)
+        g = ch[(ch["right"] == "PUT") & ch["liquid"] & (ch["delta"] < 0) &
+               (ch["dte"] >= lo) & (ch["dte"] <= cfg.put_dte + 45)]
+        if g.empty:
+            g = ch[(ch["right"] == "PUT") & ch["liquid"] & (ch["delta"] < 0)
+                   & (ch["dte"] >= 15) & (ch["dte"] <= 130)]
+        if g.empty:
+            return None
+        exp = g.loc[(g["dte"] - cfg.put_dte).abs().idxmin(), "expiration"]
+        g = g[g["expiration"] == exp]
+        whole = g[g["strike"] % 1 == 0]
+        if len(whole):
+            g = whole
+        return g.loc[(g["delta"].abs() - cfg.put_delta).abs().idxmin()]
+
     def pick_short_call(self, chain, delta_target):
         g = chain[(chain["right"] == "CALL") & chain["liquid"] &
                   (chain["sell_px"] >= 0.05) & (chain["delta"] > 0)]
@@ -148,6 +190,8 @@ class CallDiagonalBacktest:
         self.realized_log = []
         self.long = None            # call contract or share lot
         self.short = None
+        self.put = None             # protective put wing (overlay)
+        self.hwm = cfg.start_capital
         self.blown = False
         self.week_rows = []
         self.wk = None
@@ -192,12 +236,30 @@ class CallDiagonalBacktest:
             if q is not None:
                 self.short["last_mark"] = float(q["mid"])
             eq -= self.short["last_mark"] * 100 * self.short["n"]
+        if self.put:
+            q = self.m.quote(td, self.put["exp"], self.put["strike"], "PUT")
+            if q is not None:
+                self.put["last_mark"] = float(q["mid"])
+            eq += self.put["last_mark"] * 100 * self.put["n"]
         return eq
+
+    def risk_frac(self, td):
+        """Deployment fraction after drawdown-management overlays."""
+        f = self.cfg.invest_frac
+        if self.cfg.trend_filter:
+            sma = self.m.sma(td)
+            if np.isfinite(sma) and self.m.spot(td) < sma:
+                f *= 0.5
+        if self.cfg.dd_derisk:
+            wealth = self.equity(td) + self.sweep
+            if wealth < self.hwm * (1 - self.cfg.dd_derisk):
+                f *= 0.5
+        return f
 
     # --- long leg ---------------------------------------------------------
     def size_contracts(self, td, per_contract_cost):
         eq = self.equity(td)
-        budget = self.cfg.invest_frac * eq
+        budget = self.risk_frac(td) * eq
         if self.cfg.sizing == "premium" and self.cfg.long_kind == "call":
             per = per_contract_cost * 100
         else:
@@ -290,13 +352,96 @@ class CallDiagonalBacktest:
         elif delta is not None and c.restrike_lo and delta <= c.restrike_lo:
             why = f"RESTRIKE_REPAIR(delta={delta:.2f})"
         if why is None:
-            self.wk.update(long_action="HOLD",
+            if (c.trend_filter or c.dd_derisk) and c.sizing == "share_repl":
+                self.resize_long(td)
+            self.wk.update(long_action=self.wk.get("long_action", "HOLD"),
                            long_strike=self.long["strike"],
                            long_expiration=str(self.long["exp"].date()),
                            long_contracts=self.long["n"])
             return
         if self.sell_long(td, why):
             self.buy_long(td, why)
+
+    def resize_long(self, td):
+        """Trim or top up the long-call position toward the overlay-adjusted
+        exposure target (10% dead-band to avoid churn)."""
+        l = self.long
+        target = int(self.risk_frac(td) * self.equity(td)
+                     // (self.m.spot(td) * 100))
+        band = max(1, int(0.1 * max(l["n"], target)))
+        q = self.m.quote(td, l["exp"], l["strike"], "CALL")
+        if q is None or not bool(q["liquid"]):
+            return
+        if l["n"] - target >= band:
+            k = l["n"] - target
+            px = float(q["sell_px"])
+            self.cash += px * 100 * k
+            self.commission(k)
+            self.realize(td, "long", (px - l["entry_px"]) * 100 * k)
+            l["n"] = target
+            self.wk["long_action"] = f"RESIZE_DOWN(-{k})"
+        elif target - l["n"] >= band:
+            px = float(q["buy_px"])
+            k = min(target - l["n"],
+                    int((self.cash - 1) // (px * 100 + COMMISSION)))
+            if k <= 0:
+                return
+            self.pay(px * 100 * k, "long resize buy")
+            self.commission(k)
+            l["entry_px"] = ((l["entry_px"] * l["n"] + px * k)
+                             / (l["n"] + k))
+            l["n"] += k
+            self.wk["long_action"] = f"RESIZE_UP(+{k})"
+
+    # --- protective put wing (drawdown overlay) ---------------------------
+    def manage_put(self, td):
+        c = self.cfg
+        if c.put_ratio <= 0:
+            return
+        target = int(round(c.put_ratio
+                           * (self.long["n"] if self.long else 0)))
+        p = self.put
+        if p is not None:
+            dte = (p["exp"] - td).days
+            if dte <= c.put_roll_dte or target == 0:
+                q = self.m.quote(td, p["exp"], p["strike"], "PUT")
+                px = float(q["sell_px"]) if q is not None and \
+                    bool(q["liquid"]) else p["last_mark"]
+                self.cash += px * 100 * p["n"]
+                self.commission(p["n"])
+                self.realize(td, "put", (px - p["entry_px"]) * 100 * p["n"])
+                self.wk["put_action"] = ("ROLL" if target > 0 else "CLOSE")
+                self.put = None
+            else:
+                self.wk.update(put_action="HOLD", put_strike=p["strike"],
+                               put_contracts=p["n"])
+                return
+        if target <= 0:
+            return
+        row = self.m.pick_put_wing(td, c)
+        if row is None:
+            self.wk["put_action"] = (self.wk.get("put_action", "")
+                                     + "|NO_QUOTE")
+            return
+        px = float(row["buy_px"])
+        n = min(target, int((self.cash - 1) // (px * 100 + COMMISSION)))
+        if n <= 0:
+            self.wk["put_action"] = "SKIP_NO_CAPITAL"
+            return
+        self.pay(px * 100 * n, "put wing buy")
+        self.commission(n)
+        self.put = {"strike": float(row["strike"]),
+                    "exp": row["expiration"], "n": n, "entry_px": px,
+                    "last_mark": float(row["mid"])}
+        self.wk.update(put_action=(self.wk.get("put_action") or "BUY"),
+                       put_strike=row["strike"],
+                       put_expiration=str(row["expiration"].date()),
+                       put_contracts=n, put_buy_price=px,
+                       put_cost=round(px * 100 * n, 2),
+                       put_note=(f"REAL QUOTE bid={row['bid']:.2f} "
+                                 f"ask={row['ask']:.2f} "
+                                 f"delta={row['delta']:.3f} "
+                                 f"dte={row['dte']}"))
 
     # --- short leg --------------------------------------------------------
     def sell_short(self, td, chain, note, n_override=None):
@@ -431,6 +576,7 @@ class CallDiagonalBacktest:
                 self.margin_call(d0)
 
             self.manage_long(d0)
+            self.manage_put(d0)
             if not self.cfg.no_short:
                 if self.short is None:
                     ch = self.m.week_expiry_chain(d0)
@@ -438,6 +584,7 @@ class CallDiagonalBacktest:
                         self.sell_short(d0, ch, "SELL")
                 elif (self.short["exp"] - d0).days > 7:
                     self.wk["short_action"] = "HELD_FROM_DEFENSE_ROLL"
+            self.snapshot(d0)
 
             for d in wdays:
                 if self.short and self.cfg.delta_defense and \
@@ -462,6 +609,17 @@ class CallDiagonalBacktest:
                                      * self.short["n"])
                         self.wk["short_outcome"] = f"FINAL_BUYBACK@{px:.2f}"
                         self.short = None
+                if self.put:
+                    p = self.put
+                    q = self.m.quote(dl, p["exp"], p["strike"], "PUT")
+                    px = float(q["sell_px"]) if q is not None and \
+                        bool(q["liquid"]) else p["last_mark"]
+                    self.cash += px * 100 * p["n"]
+                    self.commission(p["n"])
+                    self.realize(dl, "put",
+                                 (px - p["entry_px"]) * 100 * p["n"])
+                    self.wk["put_action"] = f"FINAL_SELL@{px:.2f}"
+                    self.put = None
                 if self.long:
                     self.sell_long(dl, "FINAL_LIQUIDATION", force=True)
                     self.wk["long_action"] = (
@@ -477,6 +635,8 @@ class CallDiagonalBacktest:
                 self.sweep += swept
 
             dl = wdays[-1]
+            wealth_end = self.equity(dl) + self.sweep
+            self.hwm = max(self.hwm, wealth_end)
             self.wk.update(
                 spot_friday=round(self.m.spot(dl), 2),
                 week_realized=round(wk_realized, 2),
@@ -484,9 +644,29 @@ class CallDiagonalBacktest:
                 end_cash=round(self.cash, 2),
                 end_sweep=round(self.sweep, 2),
                 end_equity=round(self.equity(dl), 2),
-                end_total_wealth=round(self.equity(dl) + self.sweep, 2))
+                end_total_wealth=round(wealth_end, 2))
             self.week_rows.append(self.wk)
         return self.finish()
+
+    def snapshot(self, td):
+        """Record the post-trade Monday portfolio for margin estimation."""
+        self.wk["snap_equity"] = round(self.equity(td), 2)  # updates marks
+        self.wk["snap_spot"] = round(self.m.spot(td), 4)
+        if self.long:
+            if self.cfg.long_kind == "shares":
+                self.wk["snap_shares"] = self.long["n"] * 100
+            else:
+                self.wk.update(snap_long_k=self.long["strike"],
+                               snap_long_n=self.long["n"],
+                               snap_long_mark=self.long["last_mark"])
+        if self.short:
+            self.wk.update(snap_short_k=self.short["strike"],
+                           snap_short_n=self.short["n"],
+                           snap_short_mark=self.short["last_mark"])
+        if self.put:
+            self.wk.update(snap_put_k=self.put["strike"],
+                           snap_put_n=self.put["n"],
+                           snap_put_mark=self.put["last_mark"])
 
     def finish(self):
         led = pd.DataFrame(self.week_rows)
@@ -522,6 +702,7 @@ class CallDiagonalBacktest:
                         pd.Series(dtype=float)).sum(), 0),
             "short_realized": round(by_leg.get("short", 0.0), 0),
             "long_realized": round(by_leg.get("long", 0.0), 0),
+            "put_realized": round(by_leg.get("put", 0.0), 0),
             "long_rolls": int(led.get("long_roll_reason",
                                       pd.Series(dtype=object))
                               .notna().sum()),
