@@ -194,3 +194,22 @@ only exit in the window fired on a −20.4% week, beyond both thresholds.
 It only matters in future paths where a −15%..−20% move coincides with
 the put covering the loss; it neither helped nor hurt here. Neither
 scenario changes the repo default pending user decision.
+
+## 9. Spread_65 scenario tests round 2 (2026-07-18): invest 90%, sweep 5%
+
+| scenario               | return  | CAGR  | max DD | vol   | worst wk | side acct | under-hedged wks |
+|------------------------|---------|-------|--------|-------|----------|-----------|------------------|
+| spread_65 (ref 75%/10%)| +235.5% | 61.7% | −36.8% | 44.9% | −17.0%   | $62,062   | 1  |
+| + invest 90%           | +307.7% | 74.7% | −43.1% | 54.0% | −18.8%   | $81,379   | 15 |
+| + sweep 5%             | +256.4% | 65.6% | −38.3% | 47.0% | −17.7%   | $33,770   | 1  |
+| + both                 | +334.1% | 79.1% | −45.6% | 56.5% | −19.9%   | $44,462   | 13 |
+
+Findings: (1) sweep 5% is a clean compounding win (+21 points for ~1.5
+points more DD) — the trade-off is the smaller swept-cash cushion ($34k
+vs $62k). (2) invest 90% adds big return (+72 points) BUT the strategy
+outruns its own hedge maintenance: with only 10% cash, **13–15 weeks run
+under-hedged** because the Monday share top-up consumes the cash before
+the put top-up executes. That is a structural flaw at 90%, not just a
+risk preference — fixable by reordering the weekly sequence (hedge
+top-up BEFORE share top-up), which should be implemented and re-tested
+before 90% is considered for adoption. Defaults unchanged (75%/10%).
