@@ -1,3 +1,16 @@
 *.csv filter=lfs diff=lfs merge=lfs -text
 soxl_weekly_backtest_results.csv -filter -diff -merge text
 put_policy_results.csv -filter -diff -merge text
+pricing_lab/*.csv -filter -diff -merge text
+put_diagonal_ledger.csv -filter -diff -merge text
+put_diagonal_grid.csv -filter -diff -merge text
+call_diagonal_ledger.csv -filter -diff -merge text
+call_diagonal_grid.csv -filter -diff -merge text
+r2_dd_overlays.csv -filter -diff -merge text
+r2_margin_weekly.csv -filter -diff -merge text
+r3_condor_ledger.csv -filter -diff -merge text
+r3_condor_grid.csv -filter -diff -merge text
+r2_hedge_campaign.csv -filter -diff -merge text
+active_lab_results.csv -filter -diff -merge text
+active_lab_ledger.csv -filter -diff -merge text
+blend_results.csv -filter -diff -merge text

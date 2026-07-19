@@ -1,0 +1,202 @@
+SOXL VOLATILITY & OPTION-PRICING LAB
+run date: 2026-07-19 09:39
+options: 919,090 rows, 627 trade dates (2024-01-02 -> 2026-07-02);  bars: 58,560 (2023-07-07 -> 2026-07-09)
+
+==============================================================================
+S1  UNDERLYING VOLATILITY ANATOMY  (5-min file, 2023-07-07 -> 2026-07-09)
+==============================================================================
+daily close-close log returns: n=753  mean=+0.2824%  sd=7.2761%  skew=-0.57  kurt=4.4
+annualized realized vol (close-close): 115.5%
+annualized realized vol (5-min intraday RV): 80.5%
+overnight-gap vol: 72.7%   intraday vol: 87.7%   (overnight share of total variance: 41%)
+days with |move| > 5%: 40.1%   > 10%: 12.7%   worst day -36.7%  best day +44.4%
+
+weekly Mon-10:00 -> Fri-15:30 window: n=154 weeks
+  mean=+1.38%  median=+1.33%  sd=13.89%  skew=+0.12
+  quantiles: p01=-31.5%  p05=-21.1%  p10=-16.4%  p25=-6.3%  p50=+1.3%  p75=+9.4%  p90=+17.7%  p95=+22.8%  p99=+37.8%
+  weeks beyond +/-5%:  up 38.3%   down 29.9%
+  weeks beyond +/-8%:  up 29.2%   down 24.0%
+  weeks beyond +/-10%:  up 24.0%   down 20.8%
+  weeks beyond +/-15%:  up 14.3%   down 11.7%
+  weeks beyond +/-20%:  up 8.4%   down 5.8%
+
+leveraged-decay check: sum of daily log returns = +212.6% over 753 days (terminal +738.5%) while mean daily |move| = 5.19% -- classic 3x drag: huge daily vol, weak drift.
+
+==============================================================================
+S2  IMPLIED vs SUBSEQUENT REALIZED VOL  (variance risk premium)
+==============================================================================
+For each trade date: ATM IV in a DTE bucket vs realized vol over
+the matching forward window.  VRP = IV - forward RV.  Positive =
+options overpriced relative to what then happened (edge to seller).
+             n_dates  mean_IV  mean_fwd_RV  mean_VRP  median_VRP  VRP>0 freq  p05_VRP  p95_VRP
+bucket                                                                                        
+7d (weekly)      496   1.0619       1.0546    0.0073      0.0761      0.5605  -1.0680   0.6937
+14d              627   1.0326       1.0991   -0.0665      0.0122      0.5247  -0.9217   0.4875
+30d              624   1.0003       1.1402   -0.1399     -0.0443      0.4311  -0.9749   0.2949
+60d              388   0.9877       1.1613   -0.1736     -0.0773      0.3918  -0.9451   0.2661
+90d              201   0.9980       1.2161   -0.2181     -0.0885      0.3532  -0.9361   0.2428
+180d             441   0.9354       1.2205   -0.2851     -0.2939      0.1179  -0.6575   0.0919
+
+Interpretation: 'VRP>0 freq' is how often the seller of ATM vol
+was paid more than delivered movement over the option's life.
+
+==============================================================================
+S3  SKEW (25-delta put vs call) AND ATM TERM STRUCTURE
+==============================================================================
+                n  IV_25d_put  IV_25d_call  put-call skew  skew>0 freq    p10    p90
+bucket                                                                              
+weekly(4-9d)  496      1.1310       1.0132         0.1179       0.9012 0.0014 0.2488
+30d           621      1.0612       0.9587         0.1025       0.9002 0.0017 0.2227
+90d           170      1.0117       0.9134         0.0983       0.9588 0.0342 0.1683
+180d          308      0.9714       0.8561         0.1153       0.9643 0.0468 0.1868
+
+skew > 0  => downside puts carry richer IV than symmetric calls
+skew < 0  => CALLS are the rich side (unusual; sell-call edge)
+
+ATM term structure across 381 dates:
+  mean IV: 7d=107.7%  30d=101.0%  180d=98.1%
+  7d - 30d slope: mean=+6.7%  inverted (7d>30d) on 68% of days
+  7d - 180d slope: mean=+9.6%  inverted on 67% of days
+  persistent inversion = front-week vol systematically rich vs
+  the back months -> calendarized structures collect the spread.
+
+==============================================================================
+S4  PUT-CALL PARITY: IMPLIED FORWARD / CARRY & EXECUTABLE ARB
+==============================================================================
+Cross-strike regression per (date, expiry):  C_mid - P_mid = a + b*K
+  => implied forward F = -a/b, discount = -b, implied carry =
+     ln(F/S) * 365/dte  (r minus borrow/decay premium).
+               n  mean_fwd_over_spot  mean_carry_ann  med_carry_ann  carry_neg_freq
+dte                                                                                
+(0, 9]       876              1.0002          0.0361         0.0100          0.4817
+(9, 21]     1002              1.0007          0.0162         0.0181          0.4162
+(21, 45]    2158              1.0024          0.0257         0.0242          0.3258
+(45, 100]    865              1.0039          0.0222         0.0223          0.2520
+(100, 250]  1332              1.0095          0.0196         0.0215          0.1321
+(250, 900]  1051              1.0268          0.0181         0.0189          0.0162
+
+carry_ann below the T-bill rate (~4-5%) means the market prices
+SOXL forwards BELOW fair carry: puts are structurally expensive /
+calls structurally cheap vs spot (borrow fee + decay expectation).
+This is a persistent relative-pricing disparity, not free money --
+it is the compensation embedded for shorting a 3x ETF.
+
+Executable arb scan (20%-rule prices, per contract pair):
+  reversal: short stock + sell put(exec) + buy call(exec) -> locks -K
+  conversion: long stock + buy put(exec) + sell call(exec) -> locks +K
+  conv_pnl>$0.02: 86,121 of 407,764 pairs (21.12%);  p99 profit $2.04;  note: ex-financing and ex-borrow-fee, so apparent reversal 'profits' are mostly the hard-to-borrow fee you would pay to short SOXL.
+  rev_pnl>$0.02: 20,826 of 407,764 pairs (5.11%);  p99 profit $1.65;  note: ex-financing and ex-borrow-fee, so apparent reversal 'profits' are mostly the hard-to-borrow fee you would pay to short SOXL.
+
+==============================================================================
+S5  LIQUIDITY & SPREAD-COST SURFACE
+==============================================================================
+median spread as % of mid  (rows: DTE, cols: |delta| bucket):
+dl       0-10d  10-20d  20-30d  30-40d  40-60d  60d+
+db                                                  
+<=9      66.7%   20.7%   16.4%   14.1%   12.4% 11.0%
+10-21    66.7%   21.9%   18.2%   14.3%   11.7% 11.0%
+22-45    62.3%   26.3%   21.1%   16.9%   14.3% 11.9%
+46-100   59.5%   18.2%   14.2%   11.9%    9.7%  8.4%
+101-250  46.2%   14.8%    8.5%    6.1%    7.0%  6.4%
+>250     30.5%   16.8%   11.5%    9.2%    8.5% 10.0%
+
+share of quotes REJECTED by the 20% rule (bid=0 / inverted):
+dl       0-10d  10-20d  20-30d  30-40d  40-60d  60d+
+db                                                  
+<=9      27.4%   11.6%    1.9%    0.4%    0.0%  0.0%
+10-21    20.6%   10.0%    1.2%    0.3%    0.0%  0.0%
+22-45    17.6%    8.9%    2.7%    0.5%    0.0%  0.0%
+46-100    7.7%    3.2%    1.6%    0.6%    0.0%  0.0%
+101-250   4.6%    1.1%    0.2%    0.0%    0.0%  0.0%
+>250      1.2%    0.5%    0.1%    0.0%    0.0%  0.0%
+
+round-trip friction at the 20% rule is 0.6 x spread%; e.g. a 14% spread costs ~8.4% of premium round trip.
+
+==============================================================================
+S6  WEEKLY SHORT-PREMIUM GRID  (Mon EOD entry -> expiry settlement, 20%-rule fills)
+==============================================================================
+NOTE: option quotes are EOD snapshots; Monday-10:00 execution per
+the strategy docs cannot be priced from this file -- Monday EOD is
+the closest verifiable proxy.  (Intraday option data = request.)
+                                 n   win%  avg_prem  avg_pnl  med_pnl    worst      p05  capture  wk_yield_on_spot  ann_yield  sum_pnl_per_share
+strategy   legs                                                                                                                                 
+short_put  put10%         119.0000 0.8824    0.3788  -0.0057   0.1900  -9.7460  -2.4358  -0.0151           -0.0018    -0.0934            -0.6800
+           put50%         119.0000 0.6723    2.8766  -0.8213   0.9440 -62.8800 -10.3540  -0.2855           -0.0029    -0.1490           -97.7320
+           put15%         119.0000 0.8319    0.6100  -0.2204   0.2860 -18.3400  -4.2298  -0.3613           -0.0030    -0.1561           -26.2240
+           put20%         119.0000 0.7983    0.8492  -0.4339   0.3880 -28.1400  -5.8728  -0.5110           -0.0044    -0.2269           -51.6400
+short_call call10%        119.0000 0.8992    0.2617  -0.2875   0.1440 -22.8800  -1.3118  -1.0987           -0.0046    -0.2380           -34.2120
+short_put  put40%         119.0000 0.7143    2.0882  -0.7962   0.7840 -54.7600  -9.8460  -0.3813           -0.0046    -0.2383           -94.7440
+           put30%         119.0000 0.7563    1.4117  -0.6646   0.5860 -42.6700  -7.5146  -0.4708           -0.0048    -0.2493           -79.0920
+           put25%         119.0000 0.7731    1.1087  -0.5937   0.4920 -35.6400  -6.7456  -0.5355           -0.0049    -0.2558           -70.6460
+short_call call15%        119.0000 0.8235    0.4328  -0.3522   0.2320 -27.4280  -2.2028  -0.8137           -0.0063    -0.3259           -41.9080
+strangle   put15%/call10% 119.0000 0.7563    0.8716  -0.5079   0.3680 -21.2640  -6.1658  -0.5827           -0.0076    -0.3940           -60.4360
+short_call call20%        119.0000 0.7731    0.6261  -0.4384   0.3140 -30.8540  -3.8534  -0.7002           -0.0084    -0.4375           -52.1720
+strangle   put20%/call10% 119.0000 0.7143    1.1108  -0.7214   0.4420 -25.5860  -7.1394  -0.6495           -0.0089    -0.4648           -85.8520
+short_call call25%        119.0000 0.7479    0.8495  -0.4775   0.4440 -34.1320  -4.4208  -0.5621           -0.0092    -0.4763           -56.8260
+strangle   put15%/call15% 119.0000 0.7395    1.0428  -0.5725   0.3860 -25.8120  -5.9002  -0.5491           -0.0093    -0.4820           -68.1320
+           put30%/call10% 119.0000 0.6891    1.6733  -0.9521   0.6300 -40.1160  -9.8682  -0.5690           -0.0094    -0.4872          -113.3040
+           put25%/call10% 119.0000 0.6975    1.3704  -0.8812   0.5180 -33.0860  -9.9430  -0.6430           -0.0095    -0.4937          -104.8580
+short_call call30%        119.0000 0.7395    1.1079  -0.4453   0.5280 -36.4420  -5.1798  -0.4019           -0.0095    -0.4961           -52.9900
+           call40%        119.0000 0.6807    1.6499  -0.4389   0.6600 -39.9600  -5.9266  -0.2660           -0.0106    -0.5494           -52.2240
+strangle   put20%/call15% 119.0000 0.6807    1.2819  -0.7861   0.4540 -25.0380  -7.0384  -0.6132           -0.0106    -0.5528           -93.5480
+           put30%/call15% 119.0000 0.6723    1.8445  -1.0168   0.5960 -38.6400 -11.4776  -0.5513           -0.0111    -0.5752          -121.0000
+           put25%/call15% 119.0000 0.6723    1.5415  -0.9458   0.5180 -31.6100 -10.7958  -0.6136           -0.0112    -0.5817          -112.5540
+           put15%/call20% 119.0000 0.6723    1.2361  -0.6588   0.4260 -29.2380  -6.2900  -0.5330           -0.0114    -0.5936           -78.3960
+short_call call50%        119.0000 0.6303    2.3402  -0.4663   0.7840 -42.4200  -6.6170  -0.1993           -0.0124    -0.6471           -55.4940
+strangle   put15%/call30% 119.0000 0.6387    1.7179  -0.6657   0.5780 -34.8260  -7.9372  -0.3875           -0.0125    -0.6522           -79.2140
+           put20%/call20% 119.0000 0.6134    1.4753  -0.8724   0.5000 -28.4640  -7.0474  -0.5913           -0.0128    -0.6644          -103.8120
+           put30%/call20% 119.0000 0.5882    2.0378  -1.1031   0.5400 -37.1300 -12.2328  -0.5413           -0.0132    -0.6868          -131.2640
+           put25%/call20% 119.0000 0.6050    1.7348  -1.0321   0.5240 -30.1000  -9.7896  -0.5949           -0.0133    -0.6933          -122.8180
+           put20%/call30% 119.0000 0.5714    1.9571  -0.8792   0.5660 -34.0520 -11.3692  -0.4493           -0.0139    -0.7230          -104.6300
+           put30%/call30% 119.0000 0.5462    2.5196  -1.1099   0.5040 -32.5300 -11.5372  -0.4405           -0.0143    -0.7454          -132.0820
+           put25%/call30% 119.0000 0.5546    2.2166  -1.0390   0.5440 -33.3940 -11.0148  -0.4687           -0.0145    -0.7519          -123.6360
+straddle   put50%/call50% 119.0000 0.5126    5.2168  -1.2876   0.0720 -41.2100 -13.6828  -0.2468           -0.0153    -0.7961          -153.2260
+
+capture = total kept / total collected.  wk_yield_on_spot is per
+share of underlying (naked-cash basis, before margin relief).
+
+==============================================================================
+S7  DEFINED-RISK OVERLAYS: WING COST & JADE LIZARD SCAN
+==============================================================================
+weekly 25d-put/15d-call strangle, put wing ~$2+ lower: n=119
+  avg naked credit $1.54   avg wing cost $0.84 (37% of credit)
+  total P&L naked $-112.55/share-week vs protected $-63.36  (wing drag $-49.19)
+  worst week naked $-31.61 vs protected $-27.67  <-- what you buy with the wing
+
+jade lizard scan (short put + short call vertical): 119 weeks; structures where credit >= call width (NO upside risk): 21%
+
+==============================================================================
+S8  DIAGONAL ECONOMICS: 90-180 DTE LONG-PUT BLEED vs WEEKLY SHORT CREDIT
+==============================================================================
+Buy ~ATM put 120-180 DTE at 20%-rule ask; re-mark it one week
+later (same contract, mid).  Compare the average weekly bleed to
+the weekly short-premium collected in S6.
+n=113 weekly re-marks of a ~150-DTE ATM put
+  entry cost: avg $14.02 on spot $49.33 (25.2% of spot!)
+  avg weekly mark change: $-0.210 (all weeks)   $-0.380 (flat weeks |move|<3%, n=24)
+  in crash weeks (spot -10% or worse): $+4.23 avg gain (n=23)
+  -> compare bleed to the ~weekly credits in S6 to see whether
+     short premium actually funds the anchor put.
+
+==============================================================================
+S9  IRREGULARITY SCANS
+==============================================================================
+zero-IV rows with live two-sided quotes: 55,465 (6.03%) -- IV column unusable there; quotes still fine.
+ITM calls buyable (20% rule) below intrinsic-5c: 2,183 of 245,734 (0.89%) -- early-exercise/stale-quote artifacts, not a real edge at retail.
+ITM puts buyable below intrinsic-5c: 896 of 213,640 (0.42%)
+
+worst 10 'IV underpriced the week' events (seller blow-ups):
+             iv7  rv_next_wk   gap  wk_move
+trade_date                                 
+2025-04-02 +1.18       +5.04 +3.86    -0.21
+2025-04-03 +1.62       +4.81 +3.19    -0.16
+2025-04-04 +2.27       +4.34 +2.07    +0.18
+2026-06-04 +1.65       +3.67 +2.02    -0.15
+2026-06-01 +1.76       +3.44 +1.67    -0.07
+2025-03-31 +1.39       +3.02 +1.63    -0.41
+2025-03-28 +1.18       +2.79 +1.62    -0.46
+2025-04-08 +2.60       +4.14 +1.55    +0.28
+2026-05-29 +1.61       +3.16 +1.54    -0.19
+2024-07-26 +1.17       +2.65 +1.48    -0.30
+
+weeks where realized > implied: 44% of 496 weeks -- the loss tail the income engine must survive; sizing/wings exist because of these rows.
