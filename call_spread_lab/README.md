@@ -16,6 +16,15 @@ literal "invest 100%" rule the account is **functionally wiped out within the
 first 2–6 trades.** Details, mechanism, and the one real nuance (the entire
 theoretical edge lives *inside the bid/ask spread*) are below.
 
+> **Part 2 — the mirror image** (`FINDINGS_2_long_side_and_signals.md`): tests the
+> *long / put side*, a *debit call structure*, and *regime indicators*. Short version:
+> being **long** SOXL's upside (`long_call`, `bull_call` debit spreads) has strong
+> positive expectancy because SOXL's volatility risk premium is **negative** (options
+> are chronically cheap vs. realized); the put-credit spread mostly bleeds like the
+> call-credit spread; and the intuitive timing playbook is backwards — trend-gating
+> and mid-trade stops *hurt*, while buying *weakness* and sizing small are what
+> actually control the (still very large) drawdowns.
+
 ---
 
 ## 1. How to run / reproduce (on any platform)
