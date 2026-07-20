@@ -1,0 +1,35 @@
+R:50% BLEND -- INTEGRATED BACKTEST
+run: 2026-07-20 00:38
+
+  end_wealth: 528150.0
+  total_ret_pct: 252.1
+  cagr_pct: 64.8
+  max_dd_pct: -25.2
+  MAR: 2.58
+  worst_wk_pct: -11.6
+  best_wk_pct: 17.2
+  riskon_weeks: 85
+  riskoff_weeks: 46
+  income_weeks: 65
+  sweep_final: 55468.15
+  interest: 15764.0
+  commissions: 2189.0
+  avg_pm_util_pct: 17.7
+  max_pm_util_pct: 29.6
+  qa_recon: PASS
+  crash25_pct: 16.7
+  recover25_pct: 40.0
+  meltup26_pct: 104.4
+  crash26_pct: -16.9
+  ret_2024_pct: 11.9
+  ret_2025_pct: 73.8
+  ret_2026_pct: 81.1
+
+realized P&L by leg:
+leg
+A1_trendcall    136108.0
+A2_stcall       117847.0
+A3_stput        -52088.0
+D1_longcall     191259.0
+D2_shortcall    -15848.0
+D3_putwing      -12703.0
