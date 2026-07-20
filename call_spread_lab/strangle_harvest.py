@@ -32,6 +32,7 @@ from dataclasses import dataclass
 import numpy as np
 import pandas as pd
 from verticals import build_index, buy_fill, sell_fill, valid_quote
+from bs import bs_call, bs_put
 
 CONTRACT = 100.0
 
@@ -46,6 +47,19 @@ class HConfig:
     leg_frac: float = 0.50      # premium budget per leg as fraction of equity
     cap0: float = 100_000.0
     max_legs: int = 30
+
+
+def build_hilo(fm):
+    """{trade_date -> (day_high, day_low)} of the underlying from 5-min bars."""
+    g = fm.groupby("date").agg(high=("High", "max"), low=("Low", "min"))
+    return {d: (float(r.high), float(r.low)) for d, r in g.iterrows()}
+
+
+def build_iv_key(opt):
+    """{(trade_date,right,expiration,strike) -> implied_vol} for intraday BS marks."""
+    return {(td, r, e, k): iv for td, r, e, k, iv in
+            zip(opt["trade_date"], opt["right"], opt["expiration"],
+                opt["strike"], opt["implied_vol"]) if iv == iv and iv > 0}
 
 
 def compact_index(idx):
@@ -106,9 +120,19 @@ def _equity(cash, legs):
     return cash + sum(l["n"] * l["last_mark"] * CONTRACT for l in legs)
 
 
-def simulate(idx, cfg: HConfig, compact=None):
+def simulate(idx, cfg: HConfig, compact=None, intraday=None, regime_sides=None):
+    """intraday = (hilo_by_td, iv_by_key, slip) enables modeled intraday harvests:
+    a leg is harvested if its Black-Scholes value at the day's 5-min high (calls)
+    or low (puts), using the contract's own prior-EOD IV, clears the take
+    threshold -- exiting at that modeled price minus `slip`. Falls back to the EOD
+    real-quote harvest on days without 5-min data.
+
+    regime_sides = {td -> frozenset of rights to MAINTAIN that day}. A side dropped
+    from the set is liquidated at the EOD mark and not re-armed (the vol-regime
+    rotation). Default None = always maintain both sides (plain strangle)."""
     chain_by_td, spot_by_td, quote_by_key, tds = idx
     exps_by, strikes_by = compact if compact is not None else compact_index(idx)
+    hilo_by_td, iv_by_key, slip = intraday if intraday is not None else (None, None, 0.0)
     cash = cfg.cap0
     legs, log, eq, dates = [], [], [], []
     peak_deploy = 0.0
@@ -137,25 +161,57 @@ def simulate(idx, cfg: HConfig, compact=None):
                 keep.append(l)
         legs = keep
 
-        # 3. harvest any leg up >= take (needs a live quote to sell into)
+        # 3. harvest: modeled intraday peak (if 5-min data) first, else EOD quote
         keep = []
         for l in legs:
-            q = quote_by_key.get((td, l["right"], l["exp"], l["strike"]))
-            ret = (l["last_mark"] / l["entry_cost"]) - 1
-            if q and valid_quote(*q) and ret >= cfg.take:
-                px = sell_fill(*q)
-                cash += l["n"] * px * CONTRACT
-                log.append(dict(date=td, action="harvest", right=l["right"],
-                                strike=l["strike"], exp=l["exp"], n=l["n"], px=px,
-                                leg_ret=px / l["entry_cost"] - 1,
-                                held_days=(pd.Timestamp(td) - pd.Timestamp(l["entry_date"])).days))
-            else:
+            hd = (pd.Timestamp(td) - pd.Timestamp(l["entry_date"])).days
+            harvested = False
+            if hilo_by_td is not None and td in hilo_by_td and l.get("iv_ref", 0) > 0:
+                hi, lo = hilo_by_td[td]
+                T = max((pd.Timestamp(l["exp"]) - pd.Timestamp(td)).days, 0) / 365.0
+                S_ext = hi if l["right"] == "CALL" else lo
+                peak = (bs_call(S_ext, l["strike"], T, l["iv_ref"]) if l["right"] == "CALL"
+                        else bs_put(S_ext, l["strike"], T, l["iv_ref"]))
+                if peak / l["entry_cost"] - 1 >= cfg.take:
+                    px = peak * (1 - slip)
+                    cash += l["n"] * px * CONTRACT
+                    log.append(dict(date=td, action="harvest_intraday", right=l["right"],
+                                    strike=l["strike"], exp=l["exp"], n=l["n"], px=px,
+                                    leg_ret=px / l["entry_cost"] - 1, held_days=hd))
+                    harvested = True
+            if not harvested:
+                q = quote_by_key.get((td, l["right"], l["exp"], l["strike"]))
+                if q and valid_quote(*q) and (l["last_mark"] / l["entry_cost"] - 1) >= cfg.take:
+                    px = sell_fill(*q)
+                    cash += l["n"] * px * CONTRACT
+                    log.append(dict(date=td, action="harvest", right=l["right"],
+                                    strike=l["strike"], exp=l["exp"], n=l["n"], px=px,
+                                    leg_ret=px / l["entry_cost"] - 1, held_days=hd))
+                    harvested = True
+            if not harvested:
                 keep.append(l)
         legs = keep
 
-        # 4. unified re-entry: each side needs a leg within rearm_far of spot
+        # 3b. rotation: liquidate legs on a side the regime no longer maintains
+        maintain = regime_sides.get(td, frozenset({"CALL", "PUT"})) if regime_sides else None
+        if maintain is not None:
+            keep = []
+            for l in legs:
+                q = quote_by_key.get((td, l["right"], l["exp"], l["strike"]))
+                if l["right"] not in maintain and q and valid_quote(*q):
+                    cash += l["n"] * sell_fill(*q) * CONTRACT
+                    log.append(dict(date=td, action="rotate_out", right=l["right"],
+                                    strike=l["strike"], exp=l["exp"], n=l["n"],
+                                    px=sell_fill(*q),
+                                    leg_ret=sell_fill(*q) / l["entry_cost"] - 1, held_days=hd))
+                else:
+                    keep.append(l)
+            legs = keep
+
+        # 4. unified re-entry: each MAINTAINED side needs a leg within rearm_far of spot
+        sides = maintain if maintain is not None else ("CALL", "PUT")
         if len(legs) < cfg.max_legs:
-            for right in ("CALL", "PUT"):
+            for right in sides:
                 has_near = any(l["right"] == right and abs(l["strike"] / spot - 1) <= cfg.rearm_far
                                for l in legs)
                 if not has_near:
@@ -167,6 +223,13 @@ def simulate(idx, cfg: HConfig, compact=None):
                                         strike=nl["strike"], exp=nl["exp"], n=nl["n"], px=nl["entry_cost"],
                                         leg_ret=0.0, held_days=0))
                         legs.append(nl)
+
+        # 5. track each leg's IV (today's EOD) so tomorrow's intraday BS uses prior-day IV
+        if iv_by_key is not None:
+            for l in legs:
+                iv = iv_by_key.get((td, l["right"], l["exp"], l["strike"]))
+                if iv is not None and iv > 0:
+                    l["iv_ref"] = iv
 
         e = _equity(cash, legs)
         peak_deploy = max(peak_deploy, 1 - cash / e if e > 0 else 0)

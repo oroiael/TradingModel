@@ -28,7 +28,7 @@ engines, identical P&L), so bear_call is a built-in control.
   fights a negative VRP plus execution cost; buying premium harvests it.
 * **But this is not free money, and three honest caveats dominate:**
   1. **It's a fat-tail / regime bet.** `long_call`'s +83% headline is driven by
-     2023 (+125%/trade) and the **unverified 2026 melt-up (+482%/trade)**; the
+     2023 (+125%/trade) and the **2026 melt-up (+482%/trade, confirmed real)**; the
      same structure was **−49%/trade in the 2022 bear.** Win rates are **25–45%** —
      you lose small often and win huge rarely.
   2. **"Invest 100%" is ruin, again.** A long-premium trade loses 100% of premium
@@ -79,7 +79,7 @@ at best and negative on average.
 
 Defined risk (max loss = the debit) caps the frequent misses, so the debit spread
 survives the bear that destroys the naked long call — while still capturing the
-up-tail. *2026 is the unverified melt-up; see `README.md` §2.
+up-tail. *2026 is the melt-up regime (confirmed real by the user); see `README.md` §2.
 
 ---
 
@@ -183,7 +183,7 @@ From the data, in priority order:
 ## 5. Honest limitations
 
 * **In-sample, one instrument, 4.5 years, two big up-regimes.** The long-side edge
-  leans on 2023 and the **unverified 2026 melt-up**; treat the magnitudes as
+  leans on 2023 and the **2026 melt-up (confirmed real)**; treat the magnitudes as
   regime-conditional, not a stationary edge. Excluding 2026, the long side is
   still positive but far less extreme, and 2022 remains a large loss.
 * **Signal thresholds are standard, not optimized** (SMA50, RSI 50, 20-day

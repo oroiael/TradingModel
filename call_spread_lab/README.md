@@ -33,7 +33,17 @@ theoretical edge lives *inside the bid/ask spread*) are below.
 > beats buy-and-hold (fixes the 2024 decay that ruins passive strangles), and your
 > frequent-harvest instinct is the right drawdown dial. Same two caveats hold:
 > "invest 100%" is a −96% drawdown (fractional sizing mandatory) and the edge is
-> regime-dependent (2023's steady grind was negative; 2026 is unverified).
+> regime-dependent (2023's steady grind was negative). See Part 4 for the intraday
+> harvest model and the vol-regime rotation that neutralizes the 2023 loss.
+
+> **Part 4 — intraday harvesting + the 2023 rotation** (`FINDINGS_4_intraday_and_rotation.md`):
+> modeling harvests *intraday* (BS at the 5-min high/low with the contract's own IV)
+> raises return and cuts the strangle's drawdown from −25% to −16% (return benefit
+> is slip-sensitive, drawdown benefit is robust). And the 2023 failure is a
+> **realized-vol collapse** (0.83 vs 0.99–1.31; VRP was ~0 in *both* 2023 and 2026,
+> so vol — not VRP or trend — is the separator): a rvol-drop rotation to cash turns
+> 2023 from −14% to **+11%** and lowers drawdown, at a cost of overall CAGR — a risk
+> dial, not a free win. **2026 is confirmed real** (user), so that caveat is dropped.
 
 ---
 
@@ -89,14 +99,15 @@ Files:
   ≈$0.04 *below* mid → quotes are marginally *rich*, i.e. a small volatility risk
   premium exists — see §5.)
 
-**Data caveat — 2026.** From ~April 2026 the underlying rises from ~$47 to a peak
-of **$300** with repeated 20–30% single-day moves. That magnitude is
-extraordinary for SOXL and I cannot independently verify it is real (knowledge
-cutoff Jan 2026). **But it is internally consistent**: the options'
-`underlying_price` matches the independent 5-min close at a ratio of **1.000**
-every month, and the strikes quoted (up to $425, clustered at the ~$180–300
-underlying) cohere with it (`investigate_2026.py`). It is therefore included as a
-legitimate **extreme melt-up stress regime** and always reported separately.
+**2026 — confirmed real (updated).** From ~April 2026 the underlying rises from
+~$47 to a peak of **$300** with repeated 20–30% single-day moves. This was flagged
+for review because the magnitude is extraordinary; the **user has confirmed 2026
+is actual market history — it is what happened.** It is also internally consistent
+in the data: the options' `underlying_price` matches the independent 5-min close
+at a ratio of **1.000** every month, and the strikes quoted (up to $425, clustered
+at the ~$180–300 underlying) cohere with it (`investigate_2026.py`). It is a real,
+extreme melt-up regime and is still reported separately for clarity, not because
+it is doubted.
 
 The regimes the backtest spans (this is why the dataset is a good test bed):
 
@@ -106,7 +117,7 @@ The regimes the backtest spans (this is why the dataset is a good test bed):
 | 2023 | $9 → $31 (+240%) | strong bull | bleeds |
 | 2024 | $28 → $27, ranged to $68 | volatile round-trip | bleeds |
 | 2025 | $28 → $42, crashed to $8 in Apr | whipsaw | bleeds |
-| 2026 H1 | $47 → $181 (peak $300) | extreme melt-up (unverified) | worst |
+| 2026 H1 | $47 → $181 (peak $300) | extreme melt-up (confirmed real) | worst |
 
 ---
 

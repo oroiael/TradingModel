@@ -43,8 +43,8 @@ banks the spikes before they decay.** With survivable sizing:
    fully-deployed long premium gets shredded in low-movement stretches. The
    attractive numbers above require **fractional sizing (~10–15% of equity per
    leg).** Sizing dominates survival, again.
-2. **Regime-dependent and partly on unverified data.** The edge leans on
-   2024–2026 (and 2026 is the unverified melt-up, see `README.md` §2), and the one
+2. **Regime-dependent.** The edge leans on
+   2024–2026 (2026 is the melt-up, confirmed real; see `README.md` §2), and the one
    steady bull year (2023) was **negative (−14%)** — a strangle needs *movement /
    reversals*, and a smooth grind gives it little to harvest.
 
@@ -113,7 +113,7 @@ most; the 20% fill rule already charges the bid/ask cost on every trade.
 
 The single most important line is **2024**: a passive strangle *loses ~75%* there
 (the probe), but the active harvest *makes +68%* — direct evidence that harvesting,
-not just being long vol, is where the value is. *2026 is unverified.
+not just being long vol, is where the value is. *2026 confirmed real by the user.
 
 ---
 
@@ -137,8 +137,9 @@ not just being long vol, is where the value is. *2026 is unverified.
   high-variance strategy.
 * **In-sample grid.** 120/7.5% is the best *cell* in this sample; trust the
   *region* (120–150 DTE) more than the exact cell. Forward results will differ.
-* **Regime + 2026.** Leans on 2024–2026; 2026 is unverified; 2023 was negative.
-  Do not annualize +44% as a durable expectation.
+* **Regime.** Leans on 2024–2026 (2026 confirmed real); 2023 was negative — see
+  Part 4 for the vol-regime rotation that neutralizes it. Do not annualize +44% as
+  a durable expectation.
 * **Daily EOD marks only.** Real harvesting is intraday — spikes that appear and
   fade within a day are neither captured nor charged here. No commissions/taxes;
   early assignment on the (long) legs is not a risk since we are the holder.
