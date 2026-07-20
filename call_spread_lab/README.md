@@ -25,6 +25,16 @@ theoretical edge lives *inside the bid/ask spread*) are below.
 > and mid-trade stops *hurt*, while buying *weakness* and sizing small are what
 > actually control the (still very large) drawdowns.
 
+> **Part 3 — active long-strangle harvesting** (`FINDINGS_3_strangle_harvest.md`):
+> hold a long OTM call *and* put and actively harvest whichever leg the move
+> inflates. This is the **first genuinely attractive risk/reward in the project** —
+> being long SOXL's chronically-cheap volatility and banking the spikes. Best
+> region **120–150 DTE, 5–10% OTM** (best cell +44% CAGR / −36% DD), harvesting
+> beats buy-and-hold (fixes the 2024 decay that ruins passive strangles), and your
+> frequent-harvest instinct is the right drawdown dial. Same two caveats hold:
+> "invest 100%" is a −96% drawdown (fractional sizing mandatory) and the edge is
+> regime-dependent (2023's steady grind was negative; 2026 is unverified).
+
 ---
 
 ## 1. How to run / reproduce (on any platform)
