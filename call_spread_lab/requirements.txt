@@ -1,0 +1,5 @@
+# call_spread_lab — pinned-ish deps. Any recent versions work; these are what
+# the study was run and verified on.
+pandas>=2.0
+numpy>=1.24
+matplotlib>=3.6
