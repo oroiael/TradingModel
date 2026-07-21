@@ -50,6 +50,9 @@ class HConfig:
     real_exit: str = "limit"    # real-hi harvest fill: "limit" (fill at the +take%
                                 # threshold, realistic for a limit order) or "high"
                                 # (sell at the intraday high -- optimistic upper bound)
+    harvest_mode: str = "threshold"  # "threshold" (sell at +take%) or "trailing"
+    arm_pct: float = 0.50       # trailing: arm the stop once the leg is up this much
+    trail_pct: float = 0.30     # trailing: exit when the leg falls this far off its peak
 
 
 def build_hilo(fm):
@@ -124,10 +127,17 @@ def _equity(cash, legs):
 
 
 def simulate(idx, cfg: HConfig, compact=None, intraday=None, regime_sides=None,
-             real_hi=None):
+             real_hi=None, real_hilo=None):
     """real_hi = {(td,right,exp,strike) -> option's REAL 5-min intraday high that
     day}; when present for a leg it is the PREFERRED harvest signal (exit at
-    high*(1-slip)), ahead of the BS model, ahead of the EOD quote."""
+    high*(1-slip)), ahead of the BS model, ahead of the EOD quote.
+
+    real_hilo = {(td,right,exp,strike) -> (day_high, day_low)} enables the TRAILING
+    stop (cfg.harvest_mode='trailing'): once a leg is up >= arm_pct, ratchet a peak
+    on the daily highs and exit when the daily low falls trail_pct below that peak,
+    filling at the stop level (peak*(1-trail_pct))*(1-slip). The stop is checked
+    against the peak established through PRIOR days (today's high updates the peak
+    only after the check), so there is no same-day high/low ordering assumption."""
     """intraday = (hilo_by_td, iv_by_key, slip) enables modeled intraday harvests:
     a leg is harvested if its Black-Scholes value at the day's 5-min high (calls)
     or low (puts), using the contract's own prior-EOD IV, clears the take
@@ -168,9 +178,35 @@ def simulate(idx, cfg: HConfig, compact=None, intraday=None, regime_sides=None,
                 keep.append(l)
         legs = keep
 
-        # 3. harvest: REAL intraday high (preferred) -> BS model -> EOD quote
+        # 3. harvest
         keep = []
-        for l in legs:
+        if cfg.harvest_mode == "trailing" and real_hilo is not None:
+            # --- TRAILING STOP: let winners run, exit on a pullback off the peak ---
+            for l in legs:
+                hd = (pd.Timestamp(td) - pd.Timestamp(l["entry_date"])).days
+                harvested = False
+                hl = real_hilo.get((td, l["right"], l["exp"], l["strike"]))
+                if hl is not None:
+                    ohi, olo = hl
+                    peak = l.get("peak", l["entry_cost"])
+                    # check the stop against the peak from PRIOR days first
+                    if l.get("armed") and olo <= peak * (1 - cfg.trail_pct):
+                        px = peak * (1 - cfg.trail_pct) * (1 - slip)
+                        cash += l["n"] * px * CONTRACT
+                        log.append(dict(date=td, action="harvest_trail", right=l["right"],
+                                        strike=l["strike"], exp=l["exp"], n=l["n"], px=px,
+                                        leg_ret=px / l["entry_cost"] - 1, held_days=hd))
+                        harvested = True
+                    else:                       # then ratchet the peak / arm with today's high
+                        if ohi > peak:
+                            l["peak"] = ohi
+                        if not l.get("armed") and ohi / l["entry_cost"] - 1 >= cfg.arm_pct:
+                            l["armed"] = True
+                if not harvested:
+                    keep.append(l)
+            legs = keep
+        else:
+          for l in legs:
             hd = (pd.Timestamp(td) - pd.Timestamp(l["entry_date"])).days
             harvested = False
             if real_hi is not None:
