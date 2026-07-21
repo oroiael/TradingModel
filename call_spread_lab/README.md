@@ -45,6 +45,16 @@ theoretical edge lives *inside the bid/ask spread*) are below.
 > 2023 from −14% to **+11%** and lowers drawdown, at a cost of overall CAGR — a risk
 > dial, not a free win. **2026 is confirmed real** (user), so that caveat is dropped.
 
+> **Part 5 — intraday 5-min OPTION data** (`FINDINGS_5_intraday_option_data.md`):
+> confirmed access to the `raw_data/SOXL_intraday_5m_exp_*` files (282 files, ≈1.5 GB,
+> 104 expirations, 2024–2025, ~75 days pre-expiry). Trade OHLC/vwap, not bid/ask;
+> near-the-money is dense (vwap present ~99% of bars) and **exactly consistent with
+> the daily feed** (intraday 16:00 close = daily close, corr 1.0000). Used to
+> **validate the Part-4 Black-Scholes intraday model**: bar-by-bar corr 0.98
+> (unbiased), harvest-peak corr 0.995 (BS +3.4% optimistic — covered by a 5% slip),
+> and on real prices intraday harvesting beats close-only by +11%/leg while the BS
+> model reproduces the real result to +0.4%/leg. Part 4 stands on validated footing.
+
 ---
 
 ## 1. How to run / reproduce (on any platform)
