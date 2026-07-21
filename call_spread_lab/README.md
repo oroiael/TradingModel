@@ -65,6 +65,16 @@ theoretical edge lives *inside the bid/ask spread*) are below.
 > recommendation: 120-DTE strangle, harvest at the CLOSE, sized fractionally, with
 > the vol-regime rotation.** The intraday data was decisive — diagnostically.
 
+> **Part 7 — trailing stop, walk-forward validated** (`FINDINGS_7_trailing_walkforward.md`):
+> the one intraday rule that adds value. A fixed profit target caps the fat-tail
+> winners; a **trailing stop** (let the leg run, exit on a pullback at the stop
+> level) keeps them. Out-of-sample walk-forward (choose arm/trail on past data only,
+> trade the next window) gives **+82% CAGR** on a 60-DTE strangle vs **+5%** for
+> close-harvesting under identical windowing — close to the +99% in-sample best
+> (small honesty tax), with a **stable** parameter pick (arm 25%/trail 15% in 7/8
+> windows) and **+74% even with no optimization**. The first robustly OOS edge in
+> the project — but at a **−60% drawdown** and leaning on SOXL's fat-tail regimes.
+
 ---
 
 ## 1. How to run / reproduce (on any platform)
