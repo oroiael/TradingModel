@@ -70,6 +70,40 @@ validated by walk-forward, stable in its parameter choice, and present even with
 any optimization. The price of admission is a **~60% drawdown** and a return level
 that leans on SOXL's fat-tail regimes. Real edge, aggressive risk.
 
+## Why 60 DTE, and what about 90–180? (`run_tenor_coverage.py`)
+
+60 DTE was not eliminated-by-fiat for the others — but the tenor choice is
+entangled with a data limit, so here is the honest picture.
+
+**Data limit:** the intraday 5-min option files start only **~50 days before
+expiry** (median lookback 50d; 25th–75th 43–50d). So the trailing signal can see:
+~100% of a 30-DTE hold, ~83% of 60 DTE, ~56% of 90, **~42% of 120, ~28% of 180.**
+Long-tenor holds are *unmanaged early* (the stop can't operate before the data
+starts) — though the leg still gets trailed in its final ~50 days, so trailing
+exits still fire on ~70–77% of legs at every tenor.
+
+**Tenor result (EOD close-harvest vs trailing arm25%/trail15%, 2022–2026):**
+
+| DTE | EOD CAGR | trailing CAGR |
+|--:|--:|--:|
+| 30 | −15% | **+163%** |
+| 45 | +23% | +89% |
+| 60 | +15% | +99% |
+| 90 | +2% | +15% |
+| 120 | +44% | +44% (tie) |
+| 150 | +17% | +1% |
+| 180 | −0% | +15% |
+
+**Read:** the trailing edge is a **short-tenor phenomenon** — huge at 30–60 DTE,
+gone by ~120 DTE (ties EOD), slightly negative at 150. Two reasons, both real: (a)
+long holds are **data-handicapped** (only ~30–40% covered), and (b) **structurally**
+the 120-DTE *EOD* harvest is already the sweet spot (+44%), leaving little for a
+stop to add — trailing's spike-capture pays most on shorter, higher-gamma legs.
+So the two approaches want *different* tenors: **EOD → 120–150 DTE; trailing →
+30–60 DTE.** Caveat: only **60 DTE is walk-forward-validated**; the 30-DTE +163% is
+a single in-sample config on spiky short-dated options and is almost certainly more
+fragile — do not take that magnitude at face value.
+
 ## Reproduce
 
 ```bash
@@ -77,4 +111,5 @@ git lfs pull --include="raw_data/SOXL_intraday_5m_exp_*.csv"
 cd call_spread_lab
 python3 run_harvest_points.py   # builds the real hi/lo/close cache (first run)
 python3 run_walkforward.py      # out-of-sample walk-forward + plot
+python3 run_tenor_coverage.py   # intraday coverage + EOD-vs-trailing by tenor
 ```
