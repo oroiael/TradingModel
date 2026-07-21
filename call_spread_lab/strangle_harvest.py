@@ -47,6 +47,9 @@ class HConfig:
     leg_frac: float = 0.50      # premium budget per leg as fraction of equity
     cap0: float = 100_000.0
     max_legs: int = 30
+    real_exit: str = "limit"    # real-hi harvest fill: "limit" (fill at the +take%
+                                # threshold, realistic for a limit order) or "high"
+                                # (sell at the intraday high -- optimistic upper bound)
 
 
 def build_hilo(fm):
@@ -120,7 +123,11 @@ def _equity(cash, legs):
     return cash + sum(l["n"] * l["last_mark"] * CONTRACT for l in legs)
 
 
-def simulate(idx, cfg: HConfig, compact=None, intraday=None, regime_sides=None):
+def simulate(idx, cfg: HConfig, compact=None, intraday=None, regime_sides=None,
+             real_hi=None):
+    """real_hi = {(td,right,exp,strike) -> option's REAL 5-min intraday high that
+    day}; when present for a leg it is the PREFERRED harvest signal (exit at
+    high*(1-slip)), ahead of the BS model, ahead of the EOD quote."""
     """intraday = (hilo_by_td, iv_by_key, slip) enables modeled intraday harvests:
     a leg is harvested if its Black-Scholes value at the day's 5-min high (calls)
     or low (puts), using the contract's own prior-EOD IV, clears the take
@@ -161,12 +168,25 @@ def simulate(idx, cfg: HConfig, compact=None, intraday=None, regime_sides=None):
                 keep.append(l)
         legs = keep
 
-        # 3. harvest: modeled intraday peak (if 5-min data) first, else EOD quote
+        # 3. harvest: REAL intraday high (preferred) -> BS model -> EOD quote
         keep = []
         for l in legs:
             hd = (pd.Timestamp(td) - pd.Timestamp(l["entry_date"])).days
             harvested = False
-            if hilo_by_td is not None and td in hilo_by_td and l.get("iv_ref", 0) > 0:
+            if real_hi is not None:
+                rh = real_hi.get((td, l["right"], l["exp"], l["strike"]))
+                if rh is not None and rh / l["entry_cost"] - 1 >= cfg.take:
+                    # "sell when up +take%" is a LIMIT order -> it fills at the
+                    # threshold when the intraday high reaches it, NOT at the high.
+                    # "high" mode is the optimistic upper bound (perfect timing).
+                    px = (rh if cfg.real_exit == "high"
+                          else l["entry_cost"] * (1 + cfg.take)) * (1 - slip)
+                    cash += l["n"] * px * CONTRACT
+                    log.append(dict(date=td, action="harvest_real", right=l["right"],
+                                    strike=l["strike"], exp=l["exp"], n=l["n"], px=px,
+                                    leg_ret=px / l["entry_cost"] - 1, held_days=hd))
+                    harvested = True
+            if not harvested and hilo_by_td is not None and td in hilo_by_td and l.get("iv_ref", 0) > 0:
                 hi, lo = hilo_by_td[td]
                 T = max((pd.Timestamp(l["exp"]) - pd.Timestamp(td)).days, 0) / 365.0
                 S_ext = hi if l["right"] == "CALL" else lo

@@ -1,5 +1,15 @@
 # SOXL Part 4 — Intraday Harvesting & the 2023 Vol-Regime Rotation
 
+> ⚠️ **CORRECTION (see `FINDINGS_6_real_intraday_correction.md`).** The intraday
+> harvesting result in §1 below was produced by selling at the intraday **peak**
+> (BS at the underlying's extreme). With the full real intraday option data
+> (2022–2026) and **realistic limit-order execution** ("sell when up +50%" fills at
+> +50%, not at the peak), intraday threshold-harvesting **underperforms EOD
+> close-harvesting at every tenor.** The §1 "intraday helps" conclusion does not
+> survive; the §2 vol-regime rotation is unaffected. Read Part 6 for the corrected
+> result. The realistic recommendation is the **120-DTE strangle harvested at the
+> CLOSE** (Part 3).
+
 Two follow-ups to the strangle harvest (Part 3):
 1. **Model intraday harvesting** — SOXL's spikes happen intraday and fade by the
    close; does catching them intraday beat harvesting at EOD?
