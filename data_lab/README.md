@@ -25,6 +25,7 @@ python3 run_all.py      # 3 modules + a synthesis; or run each module alone
 | `overnight_6y.py` | **re-tests finding B′ on 6 real years** (2020–2026, split-adjusted): out-of-sample verdict, by-year session attribution, 6y volatility drag, free-overlay protection re-validated on real 2022 | **5-min 2020-07→2026-07 (real)** |
 | `overnight_startstop_6y.py` | is a **6-month vol SMA** a useful start/stop for the overnight trade? (vs fast vol-target & trend filter) | 5-min underlying 2020–2026 |
 | `overnight_option_tenor.py` | do **short-dated options reprice more** on the overnight move? elasticity/theta/net by DTE | real intraday options 2022–2026 |
+| `bracket_weekly.py` | **hold vs write a weekly option bracket** + trade the underlying (delta-hedged): long vs short gamma, by year, tail protection | daily weekly options 2022–2026 |
 
 Charts land in `outputs/` (`underlying_signature.png`, `intraday_microstructure.png`,
 `options_surface.png`, `overnight_6y.png`).
@@ -282,3 +283,45 @@ option round-trip* pays too much premium to carry, at any tenor. Use the **ETF**
 overnight drift (1–3 bps); if you want option **convexity**, hold calls **continuously**
 rather than churning them every night. *Decisive missing data (unchanged): intraday
 option bid/ask — but the theta wall alone sinks the short-dated version even gross of spread.*
+
+### HOLD the weekly bracket + trade the underlying (`bracket_weekly.py`) — this works
+
+The right way to use short-tenor options here is **not to churn them** but to **hold a
+weekly bracket (call+put) as a standing position while you trade the *underlying***.
+Delta-hedging the held bracket with the underlying is the neutral, assumption-free
+version of "trade actively, let the options protect you," and it isolates the
+structural edge. Tested on 235 real weekly cycles (2022–2026), entered at real EOD
+bid/ask, hedged daily on the chain's EOD deltas, held to expiry:
+
+| structure (delta-hedged, %/wk of notional) | ann | win% | Sharpe | worst wk |
+|---|--:|--:|--:|--:|
+| **LONG straddle (ATM) = hold bracket** | **+41%** | 50% | **+0.95** | −14% |
+| SHORT straddle (ATM) = write bracket | −97% | 40% | −2.20 | −39% |
+| LONG strangle (~5% wings) | +31% | 45% | +0.74 | −11% |
+| SHORT strangle (~5% wings) | −76% | 46% | −1.82 | −39% |
+
+**Holding the bracket (long gamma) made +41%/yr, Sharpe 0.95, positive every year but
+2023; writing it (short gamma) lost −97%/yr, every year.** This is the same lesson as
+all prior work — *be long convexity on SOXL, never sell premium* — now shown for the
+exact structure you described. The delta-hedged long-gamma P&L is positive **by
+construction the harvested (realized − implied) variance**, corroborating the negative
+30-day VRP: SOXL's weekly moves are underpriced by weekly implied. Mechanism = **long
+the fat weekly tails**: it wins only ~half of weeks but the wins are bigger (P95 +8.7%
+vs P5 −6.5%), so it's a bet on kurtosis/convexity, not average vol — which is why it
+fails *only* in the calm, low-realized **2023** (the one +VRP year).
+
+Two things this nails from your framing:
+- **"If something gets away from you the options have protection"** — confirmed: the
+  long bracket's worst week is **−14% (bounded ≈ premium)** with a fat right tail that
+  *pays* on runaways, vs the short bracket's **−39% unbounded left tail**. Holding the
+  bracket *is* the insurance; writing it sells the insurance.
+- **"Trade actively on the underlying"** — I tested the neutral rules version (daily
+  delta hedging, **no assumed directional skill**). Any real directional edge you have
+  in the underlying is **additive on top**; if you have none, the long bracket still
+  pays and caps the loss. The one control it needs is a **realized-vs-implied (or plain
+  realized-vol) gate** — stand down when moves collapse below what implied charges
+  (2023), the same regime dial the overnight trade needs.
+
+*Caveats: EOD daily hedging (not continuous) — but that deliberately captures the
+overnight gaps where SOXL moves; deltas are the chain's stamped EOD greeks; it is an
+aggressive book (~12.6% of notional in premium at risk each week).*
