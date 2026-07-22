@@ -28,6 +28,7 @@ python3 run_all.py      # 3 modules + a synthesis; or run each module alone
 | `bracket_weekly.py` | **hold vs write a weekly option bracket** + trade the underlying (delta-hedged): long vs short gamma, by year, tail protection | daily weekly options 2022–2026 |
 | `overnight_bracket_combo.py` | put the **overnight ETF strategy inside a paid option bracket** (strike × tenor sweep) vs the free gate | overnight 6y + weekly options |
 | `two_sleeve.py` | **overnight + weekly-bracket as two sleeves**: correlation, tail hedge, blend frontier | both, per weekly cycle 2022–2026 |
+| `two_sleeve_gated.py` | add the **realized-vs-implied vol gate** (bracket) — closes the calm-2023 soft spot; asymmetric gating | both, per weekly cycle 2022–2026 |
 
 Charts land in `outputs/` (`underlying_signature.png`, `intraday_microstructure.png`,
 `options_surface.png`, `overnight_6y.png`).
@@ -380,3 +381,49 @@ realized-vol/trend dial.** That gives the overnight strategy's return with rough
 its drawdown, and the one shared weak spot (a calm, low-vol year like 2023) is exactly
 what the vol gate is there to dial down. *Caveat: the blend weight is in-sample, but the
 ~zero/negative-tail correlation and "any ⅓–½ mix beats both" hold across the frontier.*
+
+### Closing the 2023 soft spot with a vol gate (`two_sleeve_gated.py`)
+
+The blend's only losing year was the calm, +VRP **2023**. The fix is economically
+motivated, not a hack: the long-gamma **bracket** only pays when realized vol ≥ implied,
+so **gate the bracket** — put it on only when trailing 20d realized vol is at least
+**k×** the entry implied (both known at entry, no look-ahead). Swept:
+
+| gate k | % weeks on | bracket CAGR | Sharpe | maxDD | **2023** |
+|---|--:|--:|--:|--:|--:|
+| raw (always on) | 100% | +38% | 0.95 | −44% | **−11%** |
+| 0.80 | 86% | +51% | 1.20 | −33% | +2% |
+| **0.90** | 73% | +51% | **1.26** | **−23%** | **+6%** |
+| 1.00 | 55% | +30% | 1.12 | −35% | −17% |
+
+k≈0.8–0.9 is a robust plateau; **k=1.0 backfires** (too selective, catches the wrong
+2023 weeks) — a useful reminder not to over-tune. Crucially, the **same gate applied to
+the overnight sleeve HURTS it** (CAGR +22%→+2%): high realized vol is where overnight
+*earns* (2024 was high-vol). So the honest design is **asymmetric**:
+
+> **overnight → vol_target × TREND gate;  bracket → realized-vs-implied (VRP) gate.**
+> Same idea — size down when your edge isn't paying — read off the signal each sleeve
+> actually responds to.
+
+**The gated 40/60 blend:** CAGR **+44%**, Sharpe **1.47** (was 1.17), maxDD −37%, and by
+year:
+
+| year | ungated blend | **gated blend** |
+|---|--:|--:|
+| 2022 | +25% | +15% |
+| **2023** | **−7%** | **+2%** |
+| 2024 | +50% | +50% |
+| 2025 | +42% | +53% |
+| 2026 | +54% | +62% |
+
+The gate lifts 2023 into the black and improves 2025–26, at the cost of giving back some
+2022 (the backward-looking realized signal is late to a developing crash — implied leads
+realized, so it stood down during part of the 2022 selloff). Best-Sharpe gated blend is
+~**30% overnight / 70% bracket → Sharpe 1.47, CAGR +47%, maxDD −32%, positive every
+year.** Versus the raw overnight strategy we started from (full-6y Sharpe ~1.16, maxDD
+−77%), the finished book is **higher Sharpe at well under half the drawdown**.
+
+*Honest caveats: the gate's value leans on a single calm year (2023) — suggestive, not
+proven, on 5 years; it's backward-looking (misses the very start of a vol spike, costing
+some 2022 gamma); and it remains an aggressive book (~12.6% of notional in weekly premium
+at risk). The rule is swept and economically grounded, and never turns a good year bad.*
