@@ -1,0 +1,2 @@
+# small, regenerable result files -- keep as normal git text, not LFS
+*.csv -filter -diff -merge text

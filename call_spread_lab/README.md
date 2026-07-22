@@ -55,6 +55,26 @@ theoretical edge lives *inside the bid/ask spread*) are below.
 > and on real prices intraday harvesting beats close-only by +11%/leg while the BS
 > model reproduces the real result to +0.4%/leg. Part 4 stands on validated footing.
 
+> **Part 6 — full real intraday data CORRECTS Part 4** (`FINDINGS_6_real_intraday_correction.md`):
+> with the complete 5-min option set (2022–2026, 664 files, 660k contract-days) and
+> **realistic limit-order execution**, intraday threshold-harvesting **loses to EOD
+> close-harvesting at every tenor** (e.g. 60 DTE: EOD +15% vs intraday −30% CAGR).
+> The Part-4 "intraday helps" result was an artifact of selling at the intraday
+> *peak* (needs foresight); "sell when up +50%" actually fills at +50%, and
+> force-selling the fat-tail winners at a fixed threshold destroys the edge. **Net
+> recommendation: 120-DTE strangle, harvest at the CLOSE, sized fractionally, with
+> the vol-regime rotation.** The intraday data was decisive — diagnostically.
+
+> **Part 7 — trailing stop, walk-forward validated** (`FINDINGS_7_trailing_walkforward.md`):
+> the one intraday rule that adds value. A fixed profit target caps the fat-tail
+> winners; a **trailing stop** (let the leg run, exit on a pullback at the stop
+> level) keeps them. Out-of-sample walk-forward (choose arm/trail on past data only,
+> trade the next window) gives **+82% CAGR** on a 60-DTE strangle vs **+5%** for
+> close-harvesting under identical windowing — close to the +99% in-sample best
+> (small honesty tax), with a **stable** parameter pick (arm 25%/trail 15% in 7/8
+> windows) and **+74% even with no optimization**. The first robustly OOS edge in
+> the project — but at a **−60% drawdown** and leaning on SOXL's fat-tail regimes.
+
 ---
 
 ## 1. How to run / reproduce (on any platform)
