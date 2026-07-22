@@ -40,6 +40,14 @@ OPTION_FILES = {
     2026: "SOXL_Options_2026.csv",
 }
 FIVE_MIN_FILE = "SOXL_5min_3Years.csv"
+FIVE_MIN_6Y_FILE = "SOXL_5min_6Years.csv"
+
+# The ONE corporate action inside the 6-year window: Direxion's 15-for-1 forward
+# split, ex-date 2021-03-02 (raw file is unadjusted: prevC 636.49 -> open 42.99).
+# Verified from the data itself -- it is the only overnight gap outside [0.5, 2.0]
+# in six years, and dividing pre-split prices by 15 leaves zero residual jump.
+SPLIT_DATE = pd.Timestamp("2021-03-02")
+SPLIT_FACTOR = 15.0
 
 # Only the columns the lab actually consumes are read -- keeps ~1.5M-row load light.
 OPT_USECOLS = [
@@ -125,6 +133,43 @@ def load_5min(root=ROOT) -> pd.DataFrame:
     df["ts"] = pd.to_datetime(ts, format="%Y%m%d %H:%M:%S")
     df["date"] = df["ts"].dt.date
     return df.sort_values("ts", ignore_index=True)
+
+
+def load_5min_6y(root=ROOT, split_adjust=True) -> pd.DataFrame:
+    """Load the 6-year 5-minute underlying (2020-07 .. 2026-07), split-adjusted.
+
+    Same schema as load_5min. Pre-2021-03-02 OHLC are divided by SPLIT_FACTOR so
+    the series is continuous (back-adjusted, matching the post-split price scale).
+    Validated: overlap with the 3-year file is identical to 0.0000%.
+    """
+    p = Path(root) / FIVE_MIN_6Y_FILE
+    if not p.exists() or p.stat().st_size < 1000:
+        raise FileNotFoundError(f"{FIVE_MIN_6Y_FILE} missing or still an LFS pointer -- run 'git lfs pull'")
+    df = pd.read_csv(p)
+    ts = df["Date"].str.replace(" America/New_York", "", regex=False)
+    df["ts"] = pd.to_datetime(ts, format="%Y%m%d %H:%M:%S")
+    df["date"] = df["ts"].dt.date
+    if split_adjust:
+        pre = df["ts"] < SPLIT_DATE
+        for c in ("Open", "High", "Low", "Close"):
+            df.loc[pre, c] = df.loc[pre, c] / SPLIT_FACTOR
+    return df.sort_values("ts", ignore_index=True)
+
+
+def daily_oc_6y(root=ROOT) -> pd.DataFrame:
+    """Split-adjusted daily open(09:30)/close(15:55) + prev_close from the 6-year 5-min.
+
+    'close' is the 15:55 bar (last regular 5-min bar), matching the rest of the lab;
+    'open' is the 09:30 bar. Index = datetime date, sorted. No imputation."""
+    fm = load_5min_6y(root)
+    fm["hm"] = fm["ts"].dt.strftime("%H:%M")
+    o = fm[fm["hm"] == "09:30"].groupby("date")["Open"].first()
+    c = fm[fm["hm"] == "15:55"].groupby("date")["Close"].first()
+    df = pd.DataFrame({"open": o, "close": c}).dropna()
+    df.index = pd.to_datetime(df.index)
+    df = df.sort_index()
+    df["prev_close"] = df["close"].shift(1)
+    return df.dropna()
 
 
 if __name__ == "__main__":

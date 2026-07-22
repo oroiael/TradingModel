@@ -22,9 +22,16 @@ python3 run_all.py      # 3 modules + a synthesis; or run each module alone
 | `options_surface.py` | **volatility risk premium** (implied vs subsequent realized), term structure, **skew** (put vs call), vol-of-vol, IV/spot correlation | daily options 2022–2026 |
 | `run_all.py` | orchestrates + prints a synthesis (measured facts → suggested structures) | — |
 | `eval_overnight.py` | **evaluates finding B′** (overnight-drift capture) vs buy&hold & intraday, with cost sensitivity, by-year, regime robustness, and a documented proxy/assumption + additional-data section | 5-min 2023-07→2026-07 |
+| `overnight_6y.py` | **re-tests finding B′ on 6 real years** (2020–2026, split-adjusted): out-of-sample verdict, by-year session attribution, 6y volatility drag, free-overlay protection re-validated on real 2022 | **5-min 2020-07→2026-07 (real)** |
 
 Charts land in `outputs/` (`underlying_signature.png`, `intraday_microstructure.png`,
-`options_surface.png`).
+`options_surface.png`, `overnight_6y.png`).
+
+> **Data note (2026-07):** `SOXL_5min_6Years.csv` (real 5-min, 2020-07→2026-07)
+> replaces the earlier reconstruction as ground truth for 2020–2023H1. Loaded via
+> `data_loader.load_5min_6y()` / `daily_oc_6y()` with the 15:1 split back-adjusted.
+> It validated the reconstruction and turned the overnight test into a real
+> out-of-sample check — see `overnight_6y.py` and "Finding B′ RE-TESTED" below.
 
 ## Drawdown protection for the overnight strategy (`eval_overnight_protection.py`)
 
@@ -110,7 +117,7 @@ don't fund it by selling cheap calls.**
 |---|---|---|
 | A | **Volatility drag** — the leverage tax | arithmetic +87%/yr → geometric **+23%/yr**; **~64%/yr bled to choppiness** |
 | B | Direction is a **random walk** daily→monthly | variance ratios ~0.9 (z≈0), Hurst **0.49**, no significant return autocorrelation |
-| B′ | …but the return lives **overnight** | close→open **Sharpe 1.60** (+346%) vs intraday session **0.23** (+60%) |
+| B′ | …but the return lives **overnight** (structurally) | full-6y-real close→open **Sharpe 1.16 / drag 22%/yr** vs intraday **0.28 / hold 0.93**; the 3-year **Sharpe 1.60 was window-specific** (OOS 0.58) — see `overnight_6y.py` |
 | B″ | …and **extremes mean-revert** | day after a <−10% day: **+1.4% mean, 60% up** |
 | C | **Volatility clusters** & tails are fat/left | |r| autocorrelation persistent to 20d; skew **−0.37**, excess kurtosis **+2.8**; corr(ΔIV, return) **−0.57** |
 | D | **Options are cheap** (negative VRP) | 30d implied < next-30d realized by ~6–12%/yr **every year except 2023 (+2%)** |
@@ -127,7 +134,7 @@ volatility, convexity, and the overnight session are.
 
 Candidate structures to evaluate next, ranked by fit:
 1. **Long right-tail convexity** — buy the cheap calls (E) into the overnight up-drift (B′), fat tails (C), cheap options (D): long calls / call debit spreads / call ratio backspreads.
-2. **Overnight-drift capture** — long delta close→open, flat/hedged intraday (Sharpe 1.60 vs 0.23). *Untested and the single most striking fact.*
+2. **Overnight-drift capture** — long delta close→open, flat/hedged intraday. *Now tested on 6 real years (`overnight_6y.py`): the mechanical drag edge holds (drawdown/compounding beat buy&hold), but the drift is long-beta/regime-dependent and the Sharpe 1.60 was window-specific (OOS 0.58) — gate it with vol/trend.*
 3. **Long-vol, vol-timed** — own convexity because vol clusters (C) and is cheap (D); stand down when VRP turns positive (2023) or realized vol is low.
 4. **Tactical mean-reversion** on extremes (buy after big down days, B″).
 5. **Avoid selling premium**, especially puts (negative VRP + fat left tail).
@@ -160,6 +167,57 @@ bps, still Sharpe 1.39. Most striking: in the **choppy 2024**, overnight made
 is the 15:55 bar, not the 16:00 auction. **Highest-value additional data: daily
 open (or 5-min) for 2022–2023H1** to test the drift across a full bear — decisive
 for whether this is a persistent premium or a bull-period artifact.
+
+### Finding B′ RE-TESTED on 6 years of REAL 5-min (`overnight_6y.py`) — the OOS verdict
+
+The `SOXL_5min_6Years.csv` file (2020-07→2026-07) supplies exactly the missing data
+above. It is clean and trustworthy: 1,497 days, 78 bars/session, zero nulls, **one
+corporate action** (the 15:1 split 2021-03-02, back-adjusted ÷15 — the only overnight
+gap outside [0.5, 2.0] in six years), overlap with the 3-year file **identical to
+0.0000%**, and it **validates the 2022 put-call-parity reconstruction** (close error
+0.17%, corr 1.0000). So the 2020–2023H1 half is a genuine **out-of-sample** test of an
+edge discovered on 2023–2026.
+
+| window | strategy | CAGR | vol | Sharpe | maxDD | MAR |
+|---|---|--:|--:|--:|--:|--:|
+| **full 6y** | buy&hold | +51% | 111% | 0.93 | −91% | 0.57 |
+| **full 6y** | **overnight** | **+73%** | 66% | **1.16** | **−77%** | **0.94** |
+| **full 6y** | intraday | −12% | 87% | 0.28 | −91% | −0.14 |
+| **OOS 2020-07..2023-06** | buy&hold | +23% | 106% | **0.72** | −91% | 0.25 |
+| **OOS 2020-07..2023-06** | overnight | +19% | 57% | 0.58 | −77% | 0.24 |
+| **OOS 2020-07..2023-06** | intraday | +3% | 87% | 0.47 | −78% | 0.04 |
+| discovery 2023-07..2026 | overnight | +149% | 74% | **1.60** | −61% | 2.43 |
+
+**The honest verdict — two parts, only one of them robust:**
+
+1. **Robust (mechanical):** overnight has **~⅓ the volatility drag** of buy&hold on the
+   full 6 years (**22%/yr vs 62%/yr**) because it sits out the high-variance intraday
+   session. So it has **lower drawdown and lower vol than buy&hold in every sub-period**
+   and a **higher geometric return over the full sample** (+73% vs +51%). This is a
+   structural leverage-tax fact, and it holds.
+2. **NOT robust (the headline Sharpe):** the eye-popping **Sharpe 1.60 was specific to
+   the 2023–2026 window.** Out-of-sample it is **0.58 — below buy&hold's 0.72.** The
+   directional drift is **long beta and regime-dependent, not stationary:**
+
+   | year | overnight | intraday | who carried it |
+   |---|--:|--:|---|
+   | 2020 | +83% | +12% | overnight |
+   | 2021 | +98% | +17% | overnight |
+   | **2022** | **−97%** | −15% | overnight **caused the whole crash** |
+   | **2023** | +23% | **+125%** | **intraday** (overnight went quiet) |
+   | 2024 | +142% | −98% | overnight |
+   | 2025 | +73% | +38% | overnight |
+   | 2026 | +117% | +69% | overnight |
+
+**Conclusion:** the overnight session is genuinely the better place to hold SOXL —
+lower drag, lower drawdown, better compounding — but the *magnitude* of the edge was
+overstated by the bull-heavy 3-year window, and **the drift reverses hard in a bear
+(2022: essentially the entire −114% happened overnight)**. This is not a free Sharpe
+1.6; it is a long-beta exposure that must be **vol-/trend-gated**. Re-running the free
+overlays on the real 6 years confirms it: base overnight −77% maxDD → **combo
+vol_target × trend −55%** (CAGR +41%, Sharpe 1.07), matching the reconstruction-based
+protection result. *The earlier −61%/−76% drawdown figures are now superseded by the
+real −77% full-6y ground truth.*
 
 ### Overnight drift via cheap CALLS (`eval_overnight_calls.py`) — fails on cost
 
