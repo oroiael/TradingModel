@@ -23,6 +23,8 @@ python3 run_all.py      # 3 modules + a synthesis; or run each module alone
 | `run_all.py` | orchestrates + prints a synthesis (measured facts → suggested structures) | — |
 | `eval_overnight.py` | **evaluates finding B′** (overnight-drift capture) vs buy&hold & intraday, with cost sensitivity, by-year, regime robustness, and a documented proxy/assumption + additional-data section | 5-min 2023-07→2026-07 |
 | `overnight_6y.py` | **re-tests finding B′ on 6 real years** (2020–2026, split-adjusted): out-of-sample verdict, by-year session attribution, 6y volatility drag, free-overlay protection re-validated on real 2022 | **5-min 2020-07→2026-07 (real)** |
+| `overnight_startstop_6y.py` | is a **6-month vol SMA** a useful start/stop for the overnight trade? (vs fast vol-target & trend filter) | 5-min underlying 2020–2026 |
+| `overnight_option_tenor.py` | do **short-dated options reprice more** on the overnight move? elasticity/theta/net by DTE | real intraday options 2022–2026 |
 
 Charts land in `outputs/` (`underlying_signature.png`, `intraday_microstructure.png`,
 `options_surface.png`, `overnight_6y.png`).
@@ -242,3 +244,41 @@ round-trip.** (Holding calls *continuously* is a different, viable thing — tha
 just "long calls," already validated in the strategy work — but it does not
 isolate the overnight session.) *Highest-value data here: intraday option bid/ask;
 though the sensitivity is so steep the conclusion is robust to it.*
+
+### Does a SHORT-DATED option reprice more overnight? (`overnight_option_tenor.py`)
+
+Direct test of the intuition that *short-dated options reprice immediately on an
+overnight swing while longer-dated ones don't.* 41,073 real overnight call
+round-trips (2022–2026), underlying move measured 15:55→09:30 from the 6-year feed so
+it matches the option prints. **Elasticity** = option %-move per 1% underlying
+overnight move (regression through origin); **theta** = mean option move on ~flat
+nights (|underlying|<0.5%):
+
+| DTE bucket (ATM) | nights | elasticity | R² | theta/night (flat) | net @ h=5% |
+|---|--:|--:|--:|--:|--:|
+| **weekly 1–7D** | 2,229 | **+11.1** | 0.73 | **−8.2%** | −4.6% |
+| 2–3wk 8–20D | 2,346 | +6.3 | 0.81 | −2.5% | −7.6% |
+| monthly 21–45D | 1,245 | +4.4 | 0.83 | −1.7% | −7.6% |
+| quarterly 46–90D | 314 | +3.2 | 0.85 | +0.2% | −8.9% |
+| long 91–250D | 185 | +2.3 | 0.87 | ~0 | −9.0% |
+
+**Your intuition is correct on the mechanics.** Elasticity rises sharply as DTE
+falls: a **weekly ATM call moves ~11%** per 1% overnight underlying move (and tracks
+it — the up-night/down-night split is +50%/−41%), while a **90–250D call moves only
+~2.3%** (muted, dominated by time value/vega). Short-dated options *do* reprice most
+fully on the overnight gap — it is a delta/gamma-per-premium effect, and it's even
+stronger for OTM weeklies (elasticity +14.5).
+
+**But the same shortness that lifts elasticity raises both costs**, so it is *not* the
+fix: the weekly ATM call bleeds **−8%/night in theta on flat nights** (a night is a big
+slice of its remaining life) and cheap near-expiry options carry the **widest %-spreads**,
+worst at the 09:30 open. Net of a realistic ~5% haircut the overnight call round-trip
+**loses at every tenor** (weekly −4.6%/night, long −9.0%). The higher elasticity of the
+short-dated option is exactly cancelled by its higher theta + spread.
+
+**Bottom line for close→open option trading:** the option repricing you're picturing is
+real and largest for short-dated — but capturing the overnight drift with a *nightly
+option round-trip* pays too much premium to carry, at any tenor. Use the **ETF** for the
+overnight drift (1–3 bps); if you want option **convexity**, hold calls **continuously**
+rather than churning them every night. *Decisive missing data (unchanged): intraday
+option bid/ask — but the theta wall alone sinks the short-dated version even gross of spread.*
