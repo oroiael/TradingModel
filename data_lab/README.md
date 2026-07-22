@@ -82,3 +82,27 @@ bps, still Sharpe 1.39. Most striking: in the **choppy 2024**, overnight made
 is the 15:55 bar, not the 16:00 auction. **Highest-value additional data: daily
 open (or 5-min) for 2022–2023H1** to test the drift across a full bear — decisive
 for whether this is a persistent premium or a bull-period artifact.
+
+### Overnight drift via cheap CALLS (`eval_overnight_calls.py`) — fails on cost
+
+The natural refinement (use the cheap calls so down months are capped) was tested
+on **real intraday option prints, 2022–2026**: buy a call at 15:55, sell at the
+09:30 open. **Gross of spread the signal is real** (+5% 30D call: +3.2%/night,
+ann. Sharpe ~1.9, right-tail-driven). **But it does not survive the option bid/ask:**
+
+| half-spread h | mean/night | ann Sharpe | outcome |
+|---|--:|--:|---|
+| 0% | +3.2% | +1.9 | 21.6× |
+| **2.5%** | **−1.8%** | **−1.1** | **→ $0** |
+| 5% | −6.6% | −4.2 | → $0 |
+| 10% | −15.6% | −11.0 | → $0 |
+
+A nightly option round-trip pays ~2h of premium; near-money option spreads are
+~10% (h≈5%), widest at the 09:30 open. Even an optimistic 2.5% half-spread turns
++3.2%/night into −1.8% and ruin. The downside also isn't well-capped in bears
+(2022 gross −2.8%/night). **Conclusion: capture the overnight drift with the ETF
+(1–3 bps to trade), NOT with options — the microstructure kills the nightly
+round-trip.** (Holding calls *continuously* is a different, viable thing — that is
+just "long calls," already validated in the strategy work — but it does not
+isolate the overnight session.) *Highest-value data here: intraday option bid/ask;
+though the sensitivity is so steep the conclusion is robust to it.*
