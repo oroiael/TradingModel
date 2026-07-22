@@ -56,6 +56,54 @@ for a modest return give-up. A hard **stop-loss whipsaws** (kills return). Resid
 drawdowns stay large (−54% to −65%) — this is an aggressive 3× ETF strategy — but
 they can be cut meaningfully for free, and *not* worth insuring with rich puts.
 
+### Cheaper option structures + the best free overlay (`eval_protection_combined.py`)
+
+You asked to test *cheaper* hedges than the rich outright put and to combine the
+best **free** overlay. Every leg priced from real bid/ask, 2022–2026.
+
+**Cheaper protective puts, on the overnight book** (net cost = annualized option P&L):
+
+| structure | CAGR | maxDD | Sharpe | MAR | net cost/yr |
+|---|--:|--:|--:|--:|--:|
+| outright 7% put | +6% | −72% | 0.41 | 0.09 | −35% |
+| put spread 7/20% | +8% | −72% | 0.45 | 0.11 | −31% |
+| **tail put 15%** | **+14%** | **−71%** | **0.52** | **0.20** | **−27%** |
+| *(base, no hedge)* | *+42%* | *−76%* | *0.85* | *0.55* |
+
+Cheaper structures **do** cut the bleed (tail-put 15% ≈ −27%/yr vs outright −35%),
+but **all still gut return and barely move the −76% drawdown** — puts are too rich
+(skew +9%) to buy. Least-bad is the far **tail put**, still only MAR 0.20 vs base 0.55.
+
+**Collar** (sell a call to fund the put): can't go on this book — a continuous short
+call needs a continuous long, but the overnight strategy is long *only overnight*, so
+bolting one on just hands away the intraday upside it never took (a −99% **basis
+artifact**, not a real result). Tested fairly on **buy&hold**, the collar is *also* a
+losing trade (7%/7% collar: **−34% CAGR, −84% maxDD** vs buy&hold +16%/−90%): SOXL's
+**calls are cheap** (skew), so *selling* them is negative-EV just as *buying* puts is.
+**Both sides of the SOXL option market are priced against the hedger.**
+
+**Best free overlay, and free + a cheap option tail on top:**
+
+| config | CAGR | vol | Sharpe | maxDD | MAR |
+|---|--:|--:|--:|--:|--:|
+| base | +42% | 71% | 0.85 | −76% | 0.55 |
+| **vol_target (free)** | **+45%** | 57% | **0.93** | −65% | **0.69** |
+| **combo free (vol_target × trend)** | +28% | 40% | 0.82 | **−54%** | 0.52 |
+| combo free + put spread 7/20% | −5% | 40% | 0.06 | −57% | −0.10 |
+| combo free + tail put 15% | −7% | 50% | 0.11 | −68% | −0.10 |
+
+**Adding *any* paid option tail on top of the free overlay makes it worse** — the
+free overlay already removed most of the crash exposure, so the option just bleeds:
+combo free +28%/−54% collapses to −5%/−57% (put spread) or −7%/−68% (tail put), and
+the full-period drawdown actually **rises**. By-year, the tail doesn't even reliably
+cut the annual drawdown (2025/2026 are worse with it).
+
+**Recommendation:** the drawdown is best cut **for free, with no bought protection.**
+Use **combo vol_target × trend** for the smallest swing (−76% → −54%), or **vol_target
+alone** for the best return-per-drawdown (MAR 0.69 — and it *raises* return). The
+pricing verdict is unchanged and now symmetric: **don't insure with rich puts, and
+don't fund it by selling cheap calls.**
+
 ## What the data says (measured)
 
 | # | fact | number |
