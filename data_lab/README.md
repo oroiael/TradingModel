@@ -26,6 +26,8 @@ python3 run_all.py      # 3 modules + a synthesis; or run each module alone
 | `overnight_startstop_6y.py` | is a **6-month vol SMA** a useful start/stop for the overnight trade? (vs fast vol-target & trend filter) | 5-min underlying 2020–2026 |
 | `overnight_option_tenor.py` | do **short-dated options reprice more** on the overnight move? elasticity/theta/net by DTE | real intraday options 2022–2026 |
 | `bracket_weekly.py` | **hold vs write a weekly option bracket** + trade the underlying (delta-hedged): long vs short gamma, by year, tail protection | daily weekly options 2022–2026 |
+| `overnight_bracket_combo.py` | put the **overnight ETF strategy inside a paid option bracket** (strike × tenor sweep) vs the free gate | overnight 6y + weekly options |
+| `two_sleeve.py` | **overnight + weekly-bracket as two sleeves**: correlation, tail hedge, blend frontier | both, per weekly cycle 2022–2026 |
 
 Charts land in `outputs/` (`underlying_signature.png`, `intraday_microstructure.png`,
 `options_surface.png`, `overnight_6y.png`).
@@ -325,3 +327,56 @@ Two things this nails from your framing:
 *Caveats: EOD daily hedging (not continuous) — but that deliberately captures the
 overnight gaps where SOXL moves; deltas are the chain's stamped EOD greeks; it is an
 aggressive book (~12.6% of notional in premium at risk each week).*
+
+### Can finding B′ (overnight) live INSIDE the bracket? (`overnight_bracket_combo.py`, `two_sleeve.py`)
+
+Two ways to combine the **overnight-drift ETF** strategy with the **weekly bracket** —
+one fails, one is the real answer.
+
+**(a) Stuff the option into the overnight instrument — DOMINATED.** Holding a rolled
+put (or full bracket) *on top of* the overnight ETF and sweeping strike × tenor
+(2022–2026, real bid/ask): the put *does* cut the 2022 tail (−76% → −63%), and the far-
+OTM **−12% monthly** put is the least-bad (MAR 0.30, −20%/yr cost). But **every paid
+config is dominated on the CAGR-vs-drawdown frontier by the FREE vol/trend gate**:
+
+| config | CAGR | maxDD | MAR |
+|---|--:|--:|--:|
+| base overnight | +42% | −77% | 0.54 |
+| **free combo (vol_target × trend)** | +26% | **−55%** | 0.48 |
+| −12% monthly put (best paid) | +23% | −77% | 0.30 |
+| −5% **weekly** put | +11% | −80% | 0.13 |
+| free combo + −8% weekly put | −7% | −72% | −0.09 |
+
+Weekly puts are the **worst value** (max theta — the exact tenor that felt right is the
+wrong one to *buy and hold*). Worse, a continuously-held put often makes the *overall*
+drawdown **deeper**, because the strategy is exposed only overnight while the put bleeds
+24/7 — you pay for intraday insurance the strategy doesn't use. **Reducing exposure
+(free gate) beats insuring it (paid) here, because the puts are rich.**
+
+**(b) Run them as TWO SEPARATE SLEEVES — the free lunch.** The delta-hedged long-gamma
+bracket **profits in crashes** (2022: **+76%**) exactly when the overnight ETF **bleeds**
+(2022: **−51%**). Measured per weekly cycle, the two sleeves' correlation is **−0.01**,
+and **in the overnight sleeve's worst-decile weeks the bracket sleeve returns +2.9%** —
+it pays when the overnight bleeds. So the bracket is **self-funding crash insurance**
+(unlike a bought put, it earns a positive Sharpe on its own *and* hedges the tail):
+
+| blend (w overnight / bracket) | CAGR | Sharpe | maxDD | MAR |
+|---|--:|--:|--:|--:|
+| 100% overnight / 0% | +22% | 0.68 | −67% | 0.33 |
+| 0% / 100% bracket | +38% | 0.95 | −44% | 0.86 |
+| **~40% / 60% (best Sharpe)** | **+37%** | **1.17** | **−36%** | 1.02 |
+| 30% / 70% (best MAR) | +38% | 1.14 | −35% | 1.10 |
+
+By year the blend is positive every year **but the calm 2023** (−7%), and it turns the
+overnight strategy's 2022 disaster (−51%) into **+12%**. The blend beats *both* sleeves
+on Sharpe **and** drawdown — a genuine diversification benefit grounded in the economics
+(long gamma pays in the crashes long beta suffers), not curve-fitting.
+
+**Answer to "what's optimal for this to work":** you can't fuse them into one instrument
+— the bracket's edge *needs* the delta hedge that an overnight tilt would replace, and
+buying the option outright is dominated by the free gate. **Run the gated overnight and
+the delta-hedged weekly bracket side by side (~⅓–½ in overnight), governed by the same
+realized-vol/trend dial.** That gives the overnight strategy's return with roughly half
+its drawdown, and the one shared weak spot (a calm, low-vol year like 2023) is exactly
+what the vol gate is there to dial down. *Caveat: the blend weight is in-sample, but the
+~zero/negative-tail correlation and "any ⅓–½ mix beats both" hold across the frontier.*
