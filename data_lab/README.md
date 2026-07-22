@@ -26,6 +26,36 @@ python3 run_all.py      # 3 modules + a synthesis; or run each module alone
 Charts land in `outputs/` (`underlying_signature.png`, `intraday_microstructure.png`,
 `options_surface.png`).
 
+## Drawdown protection for the overnight strategy (`eval_overnight_protection.py`)
+
+First, **2022 is now usable**: `reconstruct_underlying.py` rebuilds the intraday
+underlying from the option chain via **put-call parity** (S ≈ Call − Put + K),
+validated to **0.15% median error, corr 1.0000** vs the daily underlying and
+0.15–0.29% vs the real 5-min feed. Adding 2022 shows the overnight drift
+**reverses in a bear** (2022 overnight −65%), so the *true* full-period drawdown is
+**−76%**, not −61%. The question: can options/pricing mitigate it?
+
+Overlays on the overnight strategy, full 2022–2026 (MAR = CAGR / |maxDD|):
+
+| overlay | CAGR | vol | Sharpe | **maxDD** | MAR |
+|---|--:|--:|--:|--:|--:|
+| base (no protection) | +42% | 71% | 0.85 | **−76%** | 0.55 |
+| **vol_target 60%** (free) | **+45%** | 57% | **0.93** | −65% | **0.69** |
+| **trend: flat below SMA50** (free) | +37% | 49% | 0.89 | **−57%** | 0.65 |
+| combo vol_target × trend (free) | +28% | 40% | 0.82 | −54% | 0.52 |
+| dd_stop −25% (free) | −6% | 9% | −0.69 | −26% | −0.24 |
+| **rolled 7% OTM put** (paid, real bid/ask) | +14% | 62% | 0.53 | −72% | 0.20 |
+
+**The pricing tells the story you asked about:** the **rolled protective put costs
+~27%/yr net** (SOXL puts are *rich* — skew +9%) and **barely dents the drawdown**
+(−76% → −72%), gutting return (+42% → +14%). Paying for options protection here is
+a bad trade *because of the pricing*. The best mitigation is **free and comes from
+the volatility clustering the data analysis found**: **vol-targeting cuts maxDD to
+−65% while *raising* return and Sharpe**; the **trend filter cuts maxDD to −57%**
+for a modest return give-up. A hard **stop-loss whipsaws** (kills return). Residual
+drawdowns stay large (−54% to −65%) — this is an aggressive 3× ETF strategy — but
+they can be cut meaningfully for free, and *not* worth insuring with rich puts.
+
 ## What the data says (measured)
 
 | # | fact | number |
