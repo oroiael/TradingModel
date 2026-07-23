@@ -30,6 +30,7 @@ python3 run_all.py      # 3 modules + a synthesis; or run each module alone
 | `two_sleeve.py` | **overnight + weekly-bracket as two sleeves**: correlation, tail hedge, blend frontier | both, per weekly cycle 2022–2026 |
 | `two_sleeve_gated.py` | add the **realized-vs-implied vol gate** (bracket) — closes the calm-2023 soft spot; asymmetric gating | both, per weekly cycle 2022–2026 |
 | `reconcile.py` / `debug_bracket.py` / `bracket_reality.py` | **AUDIT** — put everything on one basis; find & bound the bracket exit-assumption error; corrected exit-dependent range | both, 2022–2026 |
+| `full_backtest.py` | **unified $100k backtest** of the whole book (gated overnight + gated bracket), validated engine, optimistic vs pessimistic exit, allocation frontier | both, 2022–2026 |
 
 Charts land in `outputs/` (`underlying_signature.png`, `intraday_microstructure.png`,
 `options_surface.png`, `overnight_6y.png`).
@@ -464,3 +465,35 @@ year.** Versus the raw overnight strategy we started from (full-6y Sharpe ~1.16,
 proven, on 5 years; it's backward-looking (misses the very start of a vol spike, costing
 some 2022 gamma); and it remains an aggressive book (~12.6% of notional in weekly premium
 at risk). The rule is swept and economically grounded, and never turns a good year bad.*
+
+## Unified $100k backtest of the whole book (`full_backtest.py`)
+
+One account, start **$100,000**, weekly rebalanced, winnings reinvested, 2022–2026, on
+the **validated per-cycle bracket engine** (a continuous daily builder was written and
+**discarded** — it over-stated the bracket ~2× via daily volatility-pumping and failed
+validation). Book = **gated overnight ETF** (vol_target × trend) + **VRP-gated weekly
+bracket** (delta-hedged straddle). Because the bracket's edge hinges on the expiry exit,
+every allocation is shown at **both** bounds — exercise-at-intrinsic (optimistic) and
+sell-at-bid (pessimistic).
+
+| allocation (overnight/bracket) | exercise: final $ / CAGR / Sharpe / maxDD | sell-at-bid: final $ / CAGR / Sharpe |
+|---|---|---|
+| 100% / 0% | $244k / +22% / 0.68 / **−67%** | $244k / +22% / 0.68 |
+| 50% / 50% | **$480k / +41% / 1.41 / −43%** | $227k / +20% / 0.81 |
+| 30% / 70% | $565k / +47% / 1.47 / −32% | $198k / +16% / 0.67 |
+| 0% / 100% | $650k / +51% / 1.26 / −23% | $145k / +9% / 0.39 |
+
+**Read:** a balanced **50/50 book turns $100k into ~$480k (optimistic) or ~$227k
+(pessimistic)** — CAGR **+20% to +41%**, Sharpe **0.81 to 1.41** — the spread being
+entirely the exercise assumption. It is **positive every year** (2022 +4%, 2023 +2%,
+then +52/+52/+64%). Crucially, **even at the pessimistic floor the bracket still earns
+its place as insurance**: it cuts the book's drawdown from the overnight-only **−67%** to
+**~−45%** and lifts Sharpe (0.68 → 0.81) for a trivial return give-up. The upside
+(disciplined exercise of ITM legs) is what turns it into a return-enhancer too.
+
+**Honest recommendation:** hold a **moderate bracket sleeve (≈40–60%)** — enough to cut
+the drawdown roughly in half, not so much that the book depends on the optimistic
+exercise capture. The 30/70 has the best Sharpe but leans hardest on the least-certain
+assumption. Drawdowns are weekly-sampled (≈ daily for this smooth blend). Standing
+caveats: 5-year sample with a single calm regime (2023), aggressive book (~12.6% of
+notional in weekly premium), in-sample gate/weights.
