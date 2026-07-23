@@ -29,6 +29,7 @@ python3 run_all.py      # 3 modules + a synthesis; or run each module alone
 | `overnight_bracket_combo.py` | put the **overnight ETF strategy inside a paid option bracket** (strike × tenor sweep) vs the free gate | overnight 6y + weekly options |
 | `two_sleeve.py` | **overnight + weekly-bracket as two sleeves**: correlation, tail hedge, blend frontier | both, per weekly cycle 2022–2026 |
 | `two_sleeve_gated.py` | add the **realized-vs-implied vol gate** (bracket) — closes the calm-2023 soft spot; asymmetric gating | both, per weekly cycle 2022–2026 |
+| `reconcile.py` / `debug_bracket.py` / `bracket_reality.py` | **AUDIT** — put everything on one basis; find & bound the bracket exit-assumption error; corrected exit-dependent range | both, 2022–2026 |
 
 Charts land in `outputs/` (`underlying_signature.png`, `intraday_microstructure.png`,
 `options_surface.png`, `overnight_6y.png`).
@@ -287,7 +288,43 @@ overnight drift (1–3 bps); if you want option **convexity**, hold calls **cont
 rather than churning them every night. *Decisive missing data (unchanged): intraday
 option bid/ask — but the theta wall alone sinks the short-dated version even gross of spread.*
 
-### HOLD the weekly bracket + trade the underlying (`bracket_weekly.py`) — this works
+### ⚠️ CORRECTION (audit, `reconcile.py` / `debug_bracket.py` / `bracket_reality.py`)
+
+**The bracket numbers below were overstated. Read this first.** An audit prompted by a
+"these don't reconcile" question found three problems:
+
+1. **Annualization** — `bracket_weekly.py` reported *arithmetic* (mean/wk × 52 = **+41%**);
+   the honest *geometric* CAGR of the same series is **+38%**.
+2. **Exit assumption (the big one)** — it settled the expiring straddle at **intrinsic**.
+   On expiry day the *mid* ≈ intrinsic, but the **bid is ~1–2%/wk below intrinsic**
+   (spreads 10–19%, volume ~5; 97% of ITM expiry bids are below intrinsic). Intrinsic is
+   only realized by **exercising** the ITM leg — if you **sell at the bid** the edge
+   nearly vanishes. Per weekly cycle: **+38% CAGR (exercise@intrinsic) vs −11% (sell@bid).**
+   The apparent "vol harvest" is really the **expiry-day spread you avoid by exercising**,
+   not a realized-over-implied edge.
+3. **`reconcile.py` over-corrected** (closed early at 3 DTE at the bid, −37%) — too harsh.
+
+**Corrected, exit-dependent range** (`bracket_reality.py`, geometric, per weekly cycle):
+
+| | exercise ITM @ intrinsic (optimistic) | sell @ bid (pessimistic) |
+|---|--:|--:|
+| bracket alone | +38% CAGR, Sharpe 0.95 | **−11% CAGR, Sharpe −0.07** |
+| 40/60 blend | +37% CAGR, Sharpe 1.17 | **+5% CAGR, Sharpe 0.32** |
+
+So the bracket is **not a reliable standalone alpha engine** — realistically (if you
+close by selling) it's ~breakeven. **What survives at the pessimistic exit is the crash
+hedge:** corr(overnight, bracket) ≈ −0.03, in the overnight sleeve's worst weeks the
+bracket still returns **+2.0%**, and 2022 bracket@bid is **+58%**. So it is best justified
+as **cheap tail insurance** (crash-positive, roughly negative carry unless you exercise),
+not as the +40% engine originally claimed. The two-sleeve and gated sections below inherit
+this caveat: their optimistic (Sharpe 1.17 / 1.47) numbers assume exercise-at-intrinsic;
+the honest floor is much lower. **Also note:** the overnight-vs-bracket CAGR comparisons
+mix capital bases (overnight = return on full notional you post; bracket = return on
+notional but only ~12.6% premium at risk), so Sharpe is the only clean cross-comparison.
+
+---
+
+### HOLD the weekly bracket + trade the underlying (`bracket_weekly.py`) — *see correction above*
 
 The right way to use short-tenor options here is **not to churn them** but to **hold a
 weekly bracket (call+put) as a standing position while you trade the *underlying***.
