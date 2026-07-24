@@ -1,2 +1,4 @@
 __pycache__/
 *.pyc
+
+drift_lab/out/*.parquet
