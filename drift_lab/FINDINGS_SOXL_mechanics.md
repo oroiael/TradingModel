@@ -117,6 +117,43 @@ untradable footprint in SOXL's own price: last-15-min drift ~+8bp on up-days and
 on big down-days (corr +0.06 on big-move days), with close-bar volume 2.4× an average
 bar — within the normal U-shape, not a distinct rebalance spike.
 
+## Can you trade these mechanics? (rebalance predictability + leading indicators)
+
+**Is the daily rebalance predictable? Yes — deterministically.** A 3× fund must trade
+`L(L−1)·AUM·r = 6·AUM·r` of index exposure at the close to reset for tomorrow — **buy on
+up days, sell on down days.** At SOXL's ~$23B NAV that's **~$1.4B per 1% index move
+(~$4B on a 3% day)**, plus SOXS in the same direction. **Timing is fixed** (at/near the
+16:00 close); **size and sign are situational** — a known function of *that day's* index
+move, readable in real time from SOXX. So it is both time-based *and* situational, and
+predictable in principle.
+
+**Does the index lead? Mechanically yes, tradeably no.** SOXX leads SOXL only in the
+trivial 3× sense (the reverse lead-lag is ~0; the forward edge is sub-tick — see the
+drift work). The one genuine leading indicator is that the intraday SOXX move tells you
+the close rebalance flow in advance — but its **price impact is not monetizable in this
+data:**
+
+- **No end-of-day momentum in the index:** open→15:30 predicts 15:30→close at corr
+  **+0.02** (nil). The ~$4B flow is smoothed by swap-dealer pre-hedging and doesn't push
+  SOXX in a tradeable way.
+- **A weak overnight reversal exists** (close run-up → overnight, corr **−0.087**; strong
+  up-closes fade −9bp, weak closes bounce +30bp) — but it tracks the **last-25-min** move,
+  **not the day's move**, so it is generic close-print mean-reversion, *not* an LETF-flow
+  signature. Traded ("fade the close overnight" on SOXX) it is ~Sharpe 1 gross but **52%
+  hit, ~+10bp/trade against 77bp median overnight risk**, degrading to ~0.7 after spread
+  and fat overnight tails — marginal and fragile, and not actually the rebalance.
+- **Data gap:** the underlying 5-min series ends 15:55, so the **16:00 closing auction —
+  where the MOC rebalance actually prints — is not captured.** Testing the LETF impact
+  seriously needs closing-auction / MOC-imbalance data.
+
+**The one mechanic that is genuinely a trade is the volatility decay — but it's short
+vol, not free money.** The −3σ² decay is large (~−40%/yr at 37% index vol; measured
+−3.10), harvestable by shorting the fund (or delta-neutral shorting the SOXL/SOXS pair).
+But borrow costs eat it, and you are short gamma: the 2023 (+224%) and 2026 (+277%)
+trends would obliterate a naive short. It pays in chop and blows up in trends. The
+financing (~2× rates) you simply pay as a holder — the actionable takeaway is the SAI's:
+**SOXL is a short-term vehicle; don't carry it.** Reproduce: `rebalance_tradability.py`.
+
 ## Tie-back to the option / "drift" work
 The 111% realized vol and 3× structure are exactly why the earlier drift study measured
 **~4.5× near-ATM option elasticity** and very rich premiums — the options are priced off
