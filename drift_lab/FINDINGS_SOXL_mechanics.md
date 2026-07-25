@@ -154,6 +154,24 @@ trends would obliterate a naive short. It pays in chop and blows up in trends. T
 financing (~2× rates) you simply pay as a holder — the actionable takeaway is the SAI's:
 **SOXL is a short-term vehicle; don't carry it.** Reproduce: `rebalance_tradability.py`.
 
+**The decay/carry harvest, measured (short-SOXL / long-3×SOXX, daily-rebalanced, real
+data).** Gross it looks like a goldmine — **~8%/yr, Sharpe 2.46**, worst day −1.8%, and it
+*rises with rates* (Sharpe 4–5 in 2023–25). But that gross carry **is SOXL's financing
+drag**, and to hold the leveraged hedge you must fund $2 at ~the same short rate — which
+offsets it almost exactly: 2023 net −0.6%, 2024 +1.5%, 2025 +1.8%, 2026 −1.0%. **Net ≈
+breakeven** (−1%…+2%/yr) before daily-rebalance costs — you can't harvest the financing
+because replicating the position pays it back. Daily rebalancing also does **not** capture
+the σ² decay (it resets with the fund); capturing that means *not* rebalancing, which
+reintroduces the naive-short blow-up (short SOXL unhedged: **−224% in 2023, −277% in
+2026**). Reproduce: `decay_harvest.py`.
+
+*The SOXL/SOXS pair is the one genuinely-different case and is still open:* shorting both
+funds needs **no leveraged long to fund** (you hold the short proceeds as cash), collects
+**both expense ratios** (0.75% + 1.00%), and hinges on **SOXS's rate sensitivity** (an
+inverse fund can *earn* on its cash in high-rate regimes) and **borrow on both legs**.
+Those are real frictions a synthetic SOXS would fabricate, so settling it needs **actual
+SOXS 5-min data** (not yet in the repo).
+
 ## Tie-back to the option / "drift" work
 The 111% realized vol and 3× structure are exactly why the earlier drift study measured
 **~4.5× near-ATM option elasticity** and very rich premiums — the options are priced off
