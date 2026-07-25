@@ -63,6 +63,25 @@ def decay_law(reg):
     print(f"  theory for 3x daily reset: slope = -L(L-1)/2 = -3.00  |  measured = {cf[0]:.2f}")
     print(f"  intercept -> ~{cf[1]*(252/21)*100:+.1f}%/yr structural drag (expense 0.75% + swap financing + dividends)")
 
+def drag_decomposition(reg):
+    """Split SOXL's shortfall vs 3x into volatility decay + swap financing + expense.
+    Financing is identified by its near-perfect correlation with the rate cycle."""
+    print("\n"+"="*70,"\n(5) DRAG DECOMPOSITION: volatility decay vs swap financing\n","="*70,sep="")
+    reg=reg.copy(); reg["yr"]=reg["date"].dt.year
+    # approx avg effective fed funds by year (public record; context for the correlation)
+    ffr={2020:0.1,2021:0.1,2022:1.9,2023:5.0,2024:5.1,2025:4.4,2026:4.3}
+    rows=[]
+    for y,g in reg.groupby("yr"):
+        gap=g["rL"].sum()-3*g["rX"].sum(); decay=-3*np.sum(g["rX"]**2)
+        struct=(gap-decay)*252/len(g)      # annualized structural residual
+        rows.append((y,len(g),struct*100,ffr.get(y)))
+        print(f"  {y}: var-decay {decay*100:+6.1f}%  structural(financing+expense) {struct*100:+6.1f}%/yr  (~fedfunds {ffr.get(y)}%)")
+    R=pd.DataFrame(rows,columns=["yr","n","struct","ffr"])
+    f=R[(R.yr>=2021)&(R.yr<=2025)]
+    c=np.corrcoef(f["struct"],f["ffr"])[0,1]; b=np.polyfit(f["ffr"],f["struct"],1)[0]
+    print(f"  corr(structural drag, fed funds)={c:+.2f}  slope={b:.2f}%/1% funding  (theory -(L-1)=-2 => swap financing)")
+    print("  => structural residual is SWAP FINANCING ~ 2x the short rate (near 0 at ZIRP), + 0.75% expense.")
+
 def holdings():
     h=pd.read_csv(os.path.join(ROOT,"SOXL.csv"),skiprows=4)
     h["p"]=pd.to_numeric(h["HoldingsPercent"],errors="coerce")
@@ -74,4 +93,4 @@ def holdings():
           f"{h.loc[has,'p'].sum()+h.loc[swap,'p'].sum():.1f}% exposure (target 300%) | cash collateral {h.loc[cash,'p'].sum():.1f}%")
 
 if __name__=="__main__":
-    reg=daily_3x(); intraday_3x(); decay_law(reg); holdings()
+    reg=daily_3x(); intraday_3x(); decay_law(reg); drag_decomposition(reg); holdings()

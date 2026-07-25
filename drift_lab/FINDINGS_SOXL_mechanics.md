@@ -79,13 +79,32 @@ SOXX and the fact sheet — and physical + swap sums to **exactly 300%.** The la
 block is collateral, not a directional position (my first pass mis-labelled it as cash
 exposure; corrected here).
 
-### 5. Fees & financing drag — CONSISTENT with 0.75% + swap financing
-The decay regression's intercept isolates the drag that is *not* volatility:
-**≈ −5.5%/yr**. The fund's stated net expense is 0.75%/yr, so the balance (~4–5%/yr) is
-**swap financing** (the cost of ~2.4× borrowed notional at 2022–26 short rates) plus
-dividend/tracking terms — exactly the SAI's listed factors (c) financing, (d) expenses,
-(e) dividends. (Precise split needs the index's total-return vs price definition; SOXX
-here is a price series.)
+### 5. Fees & financing drag — DECOMPOSED, and the financing identified by the rate cycle
+SOXL's shortfall vs "3× the index" has two parts. The big one is the **volatility
+decay** above (−3σ², tens of %/yr in volatile years). What's left after removing it is a
+**structural residual**, and its *time profile* proves what it is:
+
+| year | volatility decay | structural residual | ~avg fed funds |
+|--:|--:|--:|--:|
+| 2020 | −10.4% | **+2.0%** | 0.1% |
+| 2021 | −27.4% | **−1.7%** | 0.1% |
+| 2022 | −58.1% | −3.7% | 1.9% |
+| 2023 | −24.3% | −9.1% | 5.0% |
+| 2024 | −36.4% | **−12.4%** | 5.1% |
+| 2025 | −47.2% | −10.0% | 4.4% |
+
+The residual is **≈0 in the 2020–21 ZIRP years and grows to −10…−12%/yr once rates hit
+~5%.** Across 2021–25 it correlates with the fed funds rate at **−0.96**, with a slope of
+**−1.96 ≈ −(L−1) = −2** — i.e. **≈ 2× the short rate.** That is exactly swap financing on
+the ~2× borrowed notional a 3× fund carries. So the drag decomposes as:
+
+- **volatility decay** = −3σ² (measured −3.10; the SAI's own compounding table), *plus*
+- **swap financing** ≈ 2 × the short-term funding rate (0% at ZIRP → ~10–12%/yr at 5%), *plus*
+- **expense** 0.75%/yr (stated; it's the small piece left at ZIRP).
+
+These are precisely the SAI's listed factors (b) volatility, (c) financing, (d) expenses.
+The financing is no longer a guess — its −0.96 correlation with the rate cycle and its
+−2 slope pin its identity from the data alone.
 
 ### 6. "Over-/under-exposed when volatile near the close" — NOT visible in price
 The one claim the data does **not** corroborate at the price level: realized
@@ -105,10 +124,15 @@ this 3×-leveraged underlying. Nothing in the fund mechanics changes the drift
 conclusions; it explains their magnitude.
 
 ## Honest limitations / what would sharpen this
-- **SOXX ≠ the index exactly.** SOXX is a faithful 1× proxy (R² 0.997 vs SOXL implies
-  it), but for a to-the-basis-point fee/financing decomposition you'd want the
-  **ICESEMIT total-return index series itself**, and the fund's **daily swap financing
-  rate** (in the annual report), to split the ~5.5%/yr drag cleanly.
+- **SOXX vs the index.** SOXX is validated as a faithful proxy against the fact sheet's
+  *own* published ICESEMIT returns — SOXX price runs ~1.5%/yr under ICESEMIT-TR (its
+  0.35% fee + dividend payout), and matches YTD/1Y/3Y/5Y to within ~1–2%/yr. I tried to
+  pull the raw index (`^ICESEMIT` total return is on Yahoo Finance) for a per-basis-point
+  cross-check, but **this session's egress policy blocks financial-data hosts**
+  (query1.finance.yahoo.com → 403), so it is not fetchable from here. It isn't needed for
+  the decomposition — the rate-cycle identification (§5) resolves the financing without
+  it — but if you upload `^ICESEMIT` daily TR levels I can add the pure-index version, and
+  the fund's **annual report** would give the exact *contractual* swap financing rate.
 - The **close-exposure tracking** claim (§6) needs the fund's **intraday NAV / holdings**,
   not prices, to test.
 - One housekeeping note: a **`.env` file was committed to `main`** in this batch — if it
