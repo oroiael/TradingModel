@@ -69,14 +69,33 @@ short-gamma bleed into a controlled harvest:
 
 ## The natural enhancement (your options toolkit)
 
-The tail is always the **SOXL-short leg in a melt-up.** A cheap **OTM SOXL call overlay**
-converts this into a *defined-risk* short-vol trade — you keep the decay harvest and cap
-the crash-up. Alternatively, express the whole view as **short option premium** (e.g.
-short SOXL strangles) for literal weekly cash instead of shorting the ETFs, sidestepping
-SOXS borrow entirely. Both are directly testable on the intraday option data already in
-this repo — say the word and I'll backtest the call-capped and the short-premium versions.
+The tail is always the **SOXL-short leg in a melt-up.** I backtested the two option
+variants on the real intraday option data (2022–2026, entry at real trade prices, expiry
+settled at intrinsic, 5% sell-slippage). **Neither beats the bare pair — options don't
+improve the harvest.**
+
+| construction (2022–2026, same capital axis) | CAGR | Sharpe | maxDD | win-rate |
+|---|--:|--:|--:|--:|
+| **1) bare drift-band pair (gross 2×)** | **+8.1%** | **0.79** | **−8.5%** | 61% mo |
+| 2) call-capped pair (25% OTM call overlay) | +18.6% | 0.59 | −23.1% | 39% mo |
+| 3) naked weekly short strangle (5% OTM) | **−49.8%** | **−0.89** | **−94.7%** | 61% wk |
+
+- **Selling premium fails outright.** A naked weekly SOXL strangle loses **~−50%/yr with a
+  −95% drawdown at every strike** (3/5/8% OTM all ≈ −47…−55%), *despite winning 56–65% of
+  weeks* at ~+2%/wk — the classic short-vol trap. SOXL's ~14% weekly vol means the tail
+  weeks (worst ≈ −32%) bury the premium. You cannot sell premium on a 3× ETF naked.
+- **Buying protection is too dear to help.** SOXL's ~100% IV makes an OTM call overlay cost
+  **~30–40%/yr**; it doesn't cap risk, it converts the trade into a lumpy long-vol bet that
+  looked high-return only because 2024/2026 were melt-ups — with **worse Sharpe (0.59) and
+  worse drawdown (−23%)** than the bare pair. And the **band already caps the pair's
+  realized tail** (−8.5%), so the calls are expensive redundancy.
+
+**Conclusion: the delta-neutral, band-rebalanced ETF pair is the construction.** Its
+*dynamic* delta-neutral risk control is exactly what the static option structures lack.
+The only real open lever remains **SOXS borrow cost** (excluded by request), not options.
 
 ## Reproduce
 ```bash
-python3 drift_lab/vol_harvest.py
+python3 drift_lab/vol_harvest.py       # the ETF-pair construction
+python3 drift_lab/option_harvest.py    # the 3-way option comparison (loads option data, ~5 min)
 ```
