@@ -119,8 +119,45 @@ gross 3–4× under PM (~$20–25K/yr net cash, −18% worst drawdown), a hard l
 dry powder — not max PM.** Borrow, broker PM numbers, gap-stress, and taxes are the
 pre-trade items, not more backtesting.
 
+## The mirror trade (breakout rotation) — doesn't work, and the index does NOT lead
+
+The opposite construction — **rotate between the funds: long SOXL above an upper band, long
+SOXS below a lower band, flip on rate-of-change** — is a synthetic *long* straddle
+(long gamma: wins in trends, bleeds in chop). Tested every natural variant on real data
+(daily, realistic next-bar execution):
+
+| rotation (signal on the index) | CAGR | Sharpe | maxDD |
+|---|--:|--:|--:|
+| Donchian 20/40d breakout | −39% / −53% | 0.1 | −99% |
+| MA-cross 50/100/200 | −35…−40% | 0.2 | −98% |
+| Bollinger 1.5–2σ | −48…−51% | ~0 | −99% |
+| ROC-gated | −27…−34% | ~0 | −96% |
+| **buy-hold SOXX (1×)** | **+35%** | **1.00** | −46% |
+| buy-hold SOXL (3×) | +53% | 0.94 | −90% |
+
+**Every rotation loses badly and is dominated by simply buying and holding SOXX.** Rotating
+between two decaying 3× ETFs is whipsaw × leverage × decay — fatal. (The odd parameter that
+"works," e.g. Donchian 60d +9% / Bollinger 2.5σ +17%, still carries −85…−94% drawdowns and
+is single-point curve-fit, not signal.)
+
+**Does the underlying index lead? No — not in any tradeable way.** Two clean tests:
+1. **Signal source doesn't matter:** the same system fed by the **index (SOXX)** vs the
+   **fund (SOXL)** gives identical results (−39.1% vs −37.8%). Because SOXL = 3×SOXX
+   *contemporaneously* (R² 0.96 bar-by-bar, 0.997 daily), a breakout in one is a breakout in
+   the other at the same instant — there is no earlier signal to read off the index.
+2. **All apparent edge is lookahead:** acting **next bar** (real) returns −39%; acting on the
+   **same-bar** signal (impossible — it needs that bar's close) returns +140%. The gap is
+   pure look-ahead bias, consistent with the drift study (sub-tick lead-lag, zero reverse
+   causality). You cannot front-run the rotation with the index.
+
+So the rotation is the **worst of both worlds**: long-vol (loses in chop) + directional
+timing that the mechanics say doesn't exist + the leveraged-ETF decay. If you're bullish
+semis, buy-hold SOXX/SOXL; if you want to harvest vol, use the short pair above. Reproduce:
+`rotate.py`.
+
 ## Reproduce
 ```bash
 python3 drift_lab/vol_harvest.py       # the ETF-pair construction (leverage sweep incl.)
 python3 drift_lab/option_harvest.py    # the 3-way option comparison (loads option data, ~5 min)
+python3 drift_lab/rotate.py            # the breakout-rotation mirror + index-lead test
 ```
