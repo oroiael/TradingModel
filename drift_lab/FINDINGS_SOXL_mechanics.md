@@ -165,12 +165,27 @@ the σ² decay (it resets with the fund); capturing that means *not* rebalancing
 reintroduces the naive-short blow-up (short SOXL unhedged: **−224% in 2023, −277% in
 2026**). Reproduce: `decay_harvest.py`.
 
-*The SOXL/SOXS pair is the one genuinely-different case and is still open:* shorting both
-funds needs **no leveraged long to fund** (you hold the short proceeds as cash), collects
-**both expense ratios** (0.75% + 1.00%), and hinges on **SOXS's rate sensitivity** (an
-inverse fund can *earn* on its cash in high-rate regimes) and **borrow on both legs**.
-Those are real frictions a synthetic SOXS would fabricate, so settling it needs **actual
-SOXS 5-min data** (not yet in the repo).
+**The SOXL/SOXS pair, settled on real SOXS data.** SOXS validates as −2.99× SOXX daily
+(R² 0.992). Shorting both funds equal-dollar, daily-rebalanced, is genuinely better than
+the index hedge because there's **no leveraged long to fund** — the carry survives:
+**gross +3.3%/yr, Sharpe 0.88, max drawdown just −2.5%, market-neutral** (beta +0.017).
+But it is *not* free money, for two measured reasons:
+
+- **The carry is thin and rate-cancelling, not rate-growing.** It collects the two expense
+  ratios (0.75% + 1.00%) plus a small financing differential — and the differential nearly
+  cancels because **SOXL pays financing while SOXS, an inverse fund, *earns* on its cash**
+  in high-rate years. So the pair made +5–6%/yr in the 2021–22 low-rate years but only
+  **+0.2–0.6%/yr in 2023–24 at ~5% rates** — the opposite of the index-hedge version.
+- **Frictions eat it.** Net is positive only if **SOXS borrow < ~2.7%/yr** (SOXS borrow
+  1%→+1.8%, 3%→−0.2%, 5%→−2.2%, 10%→−7.2%), and inverse LETFs are frequently
+  hard-to-borrow; plus ~5%/day rebalance turnover adds ~2%/yr in ETF spread/impact.
+
+**Verdict:** a real, low-drawdown, market-neutral ~3.3%/yr gross carry that is
+**breakeven-to-negative after realistic SOXS borrow and turnover** — viable only with
+cheap SOXS borrow and cheap execution (an institutional inventory desk), not for a
+retail-cost trader. Still captures no σ² decay. Reproduce: `decay_harvest.py`. (Borrow-rate
+history for SOXL/SOXS would replace the sweep with an exact net; not in the repo, and this
+session's egress blocks financial-data hosts.)
 
 ## Tie-back to the option / "drift" work
 The 111% realized vol and 3× structure are exactly why the earlier drift study measured
