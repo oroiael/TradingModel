@@ -1,3 +1,6 @@
+import warnings
+warnings.filterwarnings("ignore", category=UserWarning, module="google.protobuf")
+
 import os
 import threading
 import time
@@ -16,7 +19,6 @@ class IBapi(EWrapper, EClient):
         self.error_flag = False
 
     def nextValidId(self, orderId: int):
-        # Confirms connection is fully established and serverVersion is populated
         super().nextValidId(orderId)
         self.connected_event.set()
 
@@ -35,15 +37,17 @@ class IBapi(EWrapper, EClient):
         self.req_complete.set()
 
     def error(self, *args):
-        # Uses *args to catch all parameters safely regardless of ibapi version changes
         if 162 in args:
-            print(f"[!] Historical Data Pacing Violation or Error: {args}")
+            print(f"[!] Historical Data Error (Code 162): {args}")
             self.error_flag = True
             self.req_complete.set()
         elif 502 in args:
             print("[!] Couldn't connect to TWS on the specified port.")
             self.req_complete.set()
-        # Suppress normal startup connection messages (codes 2104, 2106, 2158)
+        elif 200 in args:
+            print(f"[!] Contract Routing Error: {args}")
+            self.error_flag = True
+            self.req_complete.set()
         elif not any(code in args for code in [2104, 2106, 2158]):
             if any(isinstance(x, int) and x < 1000 and x != -1 for x in args):
                 print(f"[-] IBKR Message: {args}")
@@ -52,15 +56,14 @@ def run_loop():
     app.run()
 
 # --- Configuration ---
-TWS_PORT = 7497  # Change to 7497 if using a Paper Trading account
-SYMBOL = "SOXS"
+TWS_PORT = 7497          # 7496 for Live Pro, 7497 for Paper
+SYMBOL = "SOX"       # Index Symbol
 YEARS_TO_FETCH = 6
 # ---------------------
 
 app = IBapi()
-app.connect("127.0.0.1", TWS_PORT, clientId=999)
+app.connect("127.0.0.1", TWS_PORT, clientId=998) # Changed ClientID to prevent conflicts
 
-# Start socket in a separate thread
 api_thread = threading.Thread(target=run_loop, daemon=True)
 api_thread.start()
 
@@ -72,93 +75,94 @@ if not app.connected_event.wait(timeout=15):
 
 print(f"Successfully connected! Server version: {app.serverVersion()}")
 
-# Define Contract
+# Define Contract as an Index
 contract = Contract()
+contract.conId = 416898
 contract.symbol = SYMBOL
-contract.secType = "STK"
-contract.exchange = "SMART"
+contract.secType = "IND"     # 'IND' specifically designates an Index
+contract.exchange = "PHLX"  
 contract.currency = "USD"
 
-# Calculate total date range
 end_date = datetime.now()
 start_date = end_date - timedelta(days=YEARS_TO_FETCH * 365)
 current_end = end_date
 
-# --- RESUMABLE CHECKPOINT SETUP ---
-file_name = f"{SYMBOL}_5min_{YEARS_TO_FETCH}Years.csv"
+file_name = f"{SYMBOL}_Daily_{YEARS_TO_FETCH}Years.csv"
 
-# Load existing file to pick up where we left off if interrupted
+# Setup Checkpoint Resumption
 if os.path.exists(file_name):
-    print(f"[*] Found existing {file_name}. Inspecting to resume download...")
     existing_df = pd.read_csv(file_name)
     if not existing_df.empty:
         oldest_date_str = str(existing_df['Date'].min())
-        # Split out any trailing timezone strings (like America/New_York)
-        parts = oldest_date_str.split()
-        clean_oldest = f"{parts[0]} {parts[1]}"
-        current_end = datetime.strptime(clean_oldest, "%Y%m%d %H:%M:%S")
-        print(f"[*] Resuming download backward from: {current_end.strftime('%Y-%m-%d %H:%M:%S')}\n")
+        # For daily bars, IBKR returns "YYYYMMDD" (8 characters)
+        if len(oldest_date_str) == 8:
+            current_end = datetime.strptime(oldest_date_str, "%Y%m%d")
+        else:
+            parts = oldest_date_str.split()
+            current_end = datetime.strptime(f"{parts[0]}", "%Y%m%d")
+        print(f"[*] Found existing file. Resuming backward from: {current_end.strftime('%Y-%m-%d')}\n")
 
 print(f"Starting fetch for {SYMBOL} back to {start_date.strftime('%Y-%m-%d')}")
-print("This will take approximately 25-30 minutes due to IBKR API pacing limits...\n")
 
 while current_end > start_date:
-    end_date_str = current_end.strftime("%Y%m%d %H:%M:%S")
-    print(f"Requesting 1 week of data up to: {end_date_str}")
+    end_date_str = current_end.strftime("%Y%m%d %H:%M:%S US/Eastern")
+    print(f"Requesting 1 YEAR of data up to: {end_date_str}")
     
     app.data = []
     app.req_complete.clear()
     app.error_flag = False
     
+    # Request: 1 Year duration, 1 day bars
     app.reqHistoricalData(reqId=1, contract=contract, endDateTime=end_date_str, 
-                          durationStr="1 W", barSizeSetting="5 mins", 
+                          durationStr="1 Y", barSizeSetting="1 day", 
                           whatToShow="TRADES", useRTH=1, formatDate=1, 
                           keepUpToDate=False, chartOptions=[])
     
-    # Circuit breaker: 30-second timeout prevents infinite hanging if socket stalls
     if not app.req_complete.wait(timeout=30):
-        print("[!] Socket timed out waiting for TWS response. Retrying this chunk...")
+        print("[!] Socket timed out. Retrying...")
         continue
     
     if app.error_flag:
-        print("[!] Encountered a pacing error. Cooling down for 60 seconds...")
-        time.sleep(60)
-        continue
+        print("[!] Encountered an error. Check symbol/routing. Cooling down for 10 seconds...")
+        time.sleep(10)
+        # If TRADES fails for an index, it might require MIDPOINT. 
+        # You can manually change 'whatToShow="MIDPOINT"' above if code 162 persists.
+        break
         
     if not app.data:
-        print("[-] No data received for this week (holiday/no trading). Stepping back 1 week.")
-        current_end -= timedelta(days=7)
+        print("[-] No data received. Stepping back 1 year.")
+        current_end -= timedelta(days=365)
         time.sleep(2)
         continue
 
-    # --- CHECKPOINT SAVE ---
+    # Save Chunk
     chunk_df = pd.DataFrame(app.data)
     write_header = not os.path.exists(file_name)
     chunk_df.to_csv(file_name, mode='a', header=write_header, index=False)
-    print(f"[*] Successfully checkpointed {len(chunk_df)} rows to disk.")
+    print(f"[*] Successfully checkpointed {len(chunk_df)} daily bars to disk.")
 
-    # Get earliest date in current chunk to set the end_date for NEXT chunk
+    # Parse next date to step backwards
     try:
         first_date_str = str(app.data[0]['Date'])
-        # Drop trailing timezone names by extracting only YYYYMMDD and HH:MM:SS
-        parts = first_date_str.split()
-        clean_date_str = f"{parts[0]} {parts[1]}"
-        current_end = datetime.strptime(clean_date_str, "%Y%m%d %H:%M:%S")
+        # Handle Daily format "YYYYMMDD"
+        if len(first_date_str) == 8:
+            current_end = datetime.strptime(first_date_str, "%Y%m%d")
+        else:
+            parts = first_date_str.split()
+            current_end = datetime.strptime(f"{parts[0]}", "%Y%m%d")
     except Exception as e:
-        print(f"[!] Date parse error ({e}), falling back to 7-day subtraction.")
-        current_end -= timedelta(days=7)
+        print(f"[!] Date parse error ({e}), falling back to 365-day subtraction.")
+        current_end -= timedelta(days=365)
     
     print("Waiting 11 seconds to respect IBKR pacing rules...")
     time.sleep(11)
 
-# Disconnect API
 app.disconnect()
 
-# Final cleanup: sort chronologically and remove any overlapping edge rows
 if os.path.exists(file_name):
-    print("\n[*] Performing final sort and deduplication on saved dataset...")
+    print("\n[*] Performing final sort and deduplication...")
     final_df = pd.read_csv(file_name)
     final_df.drop_duplicates(subset=['Date'], inplace=True)
     final_df.sort_values(by='Date', inplace=True)
     final_df.to_csv(file_name, index=False)
-    print(f"[SUCCESS] Cleaned and finalized {len(final_df)} total rows in {file_name}")
+    print(f"[SUCCESS] Cleaned and finalized {len(final_df)} trading days in {file_name}")
