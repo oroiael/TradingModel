@@ -94,8 +94,33 @@ improve the harvest.**
 *dynamic* delta-neutral risk control is exactly what the static option structures lack.
 The only real open lever remains **SOXS borrow cost** (excluded by request), not options.
 
+## Sizing on $150K + portfolio margin
+
+Dollar figures from the daily backtest (band 55%, 2020–2026), net = after ~5.5%/yr
+combined SOXL+SOXS borrow. "Net cash" is what you could sweep; risk is in % of equity so
+it scales honestly with leverage (Sharpe stays ~1.1 throughout):
+
+| gross | CAGR | net/yr | net cash $/yr | med month $ | maxDD | worst day | verdict |
+|--:|--:|--:|--:|--:|--:|--:|---|
+| **2× (Reg-T)** | +12% | +7% | **~$9.8K** | ~$2,400 | −9% | −3.1% | safe base |
+| 4× (PM) | +24% | +13% | ~$19.7K | ~$5,700 | −18% | −6.2% | survivable |
+| 6× (PM) | +36% | +20% | ~$29.5K | ~$9,800 | −26% | −9.2% | aggressive |
+| 10× (PM) | +59% | +32% | ~$47.6K | ~$27K | −40% | −15% | **ruin risk** |
+
+~65% of months are positive at every leverage. **Portfolio margin is what unlocks the
+upper rows:** the pair is delta-hedged, so a ±15% index stress nets ≈0 and PM charges
+margin on the tiny residual (a few % of gross) instead of Reg-T's 50% of gross short — so
+$150K can carry gross 5–10× instead of ~2×. **That linearly scales both the cash AND the
+drawdown/gap risk.** This is short volatility with leverage — the XIV/LTCM shape — so the
+in-sample −9…−40% drawdowns are *not* the worst possible: a single overnight
+semiconductor gap larger than 2020–2026 contained can't be rebalanced through and, at 10×,
+a ~−45% gap wipes the account (PM liquidates fast). **Recommended for a $150K account:
+gross 3–4× under PM (~$20–25K/yr net cash, −18% worst drawdown), a hard leverage cap, and
+dry powder — not max PM.** Borrow, broker PM numbers, gap-stress, and taxes are the
+pre-trade items, not more backtesting.
+
 ## Reproduce
 ```bash
-python3 drift_lab/vol_harvest.py       # the ETF-pair construction
+python3 drift_lab/vol_harvest.py       # the ETF-pair construction (leverage sweep incl.)
 python3 drift_lab/option_harvest.py    # the 3-way option comparison (loads option data, ~5 min)
 ```
