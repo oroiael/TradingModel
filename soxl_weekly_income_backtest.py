@@ -84,7 +84,9 @@ import pandas as pd
 from soxl_options_loader import load_raw_options
 
 ROOT = Path(__file__).resolve().parent
-STOCK_CSV = ROOT / "SOXL_5min_3Years.csv"
+STOCK_CSV = ROOT / "SOXL_5min_6Years.csv"   # 2020-07..2026-07; verified
+                                            # byte-identical to the 3-year
+                                            # file on all 754 shared days
 OUT_CSV = ROOT / "soxl_weekly_backtest_results.csv"
 
 # ------------------------- documented assumptions --------------------------

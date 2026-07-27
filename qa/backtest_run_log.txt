@@ -1,35 +1,35 @@
-Wrote soxl_weekly_backtest_results.csv: 131 weekly rows, 51 columns
+Wrote soxl_weekly_backtest_results.csv: 235 weekly rows, 51 columns
 
 ========================================================================
 QA CHECKS (spec Quality Control #1-2)
 ========================================================================
-  cash ledger reconciles every week:       PASS (131 weeks)
+  cash ledger reconciles every week:       PASS (235 weeks)
   cash never negative:                     PASS
-  sweep sum == final side account:         PASS (33,125.21 vs 33,125.20)
+  sweep sum == final side account:         PASS (28,695.06 vs 28,695.04)
   sweep == 5% of positive realized gains: PASS
-  call sales priced from REAL quotes:      131/131
-  put purchases priced from REAL quotes:   6/6
+  call sales priced from REAL quotes:      235/235
+  put purchases priced from REAL quotes:   10/10
   warnings during run:                     1
     - 2025-05-19: could not price put (no quoted whole-dollar puts listed with 120-180 DTE on 2025-05-19)
 
 ========================================================================
 SUMMARY
 ========================================================================
-  Window:                2024-01-02 -> 2026-07-02  (131 weeks)
+  Window:                2022-01-03 -> 2026-07-02  (235 weeks)
   Start capital:           150,000.00
-  End trading balance:     416,893.17
-  Side (swept) account:     33,125.20
-  End total:               450,018.37
-  Total return:                200.0%
-  Call premium collected:  634,015.80 over 131 weekly sales (avg 4,839.82)
-  Cash interest earned:      7,942.01  (opt #1a, 4.5%)
-  Weekly top-up buys:    38 (opt #1b)
-  Drawdown OTM sales:    2 (opt #2)
-  Calls assigned:        32
+  End trading balance:     298,451.80
+  Side (swept) account:     28,695.04
+  End total:               327,146.84
+  Total return:                118.1%
+  Call premium collected:  520,640.40 over 235 weekly sales (avg 2,215.49)
+  Cash interest earned:      6,923.03  (opt #1a, 4.5%)
+  Weekly top-up buys:    77 (opt #1b)
+  Drawdown OTM sales:    13 (opt #2)
+  Calls assigned:        46
   Put rolls:             0
-  Put DTEs chosen (120-180 scan): [123, 136, 172, 178, 179, 179]
+  Put DTEs chosen (120-180 scan): [123, 137, 172, 178, 179, 179, 179, 179, 179, 179]
   Protective exits:      0
-  Weeks w/ realized loss:7 of 131
+  Weeks w/ realized loss:11 of 235
 
   Both legs are priced from REAL file quotes (raw ThetaData
   exports, full window). BS-with-file-IV survives only as a

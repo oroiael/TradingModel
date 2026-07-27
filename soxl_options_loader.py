@@ -22,7 +22,8 @@ from pathlib import Path
 import pandas as pd
 
 ROOT = Path(__file__).resolve().parent
-RAW_FILES = ("SOXL_Options_2024.csv", "SOXL_Options_2025.csv",
+RAW_FILES = ("SOXL_Options_2022.csv", "SOXL_Options_2023.csv",
+             "SOXL_Options_2024.csv", "SOXL_Options_2025.csv",
              "SOXL_Options_2026.csv")
 USECOLS = ["expiration", "strike", "right", "bid", "ask", "implied_vol",
            "trade_date", "underlying_price"]

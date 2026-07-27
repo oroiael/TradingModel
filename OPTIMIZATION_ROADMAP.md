@@ -241,3 +241,53 @@ maintained by repeatedly selling shares at lows. The earlier +334% at
 "90%" (section 9) was inflated by its broken hedge; the honest
 whole-hedge 90% number is +286.6%. Practical maximum: ~90%.
 Default currently 95% per user direction; recommendation is 90%.
+
+## 11. ROBUSTNESS TEST on 2022-2023 data (2026-07-27) — CHANGES CONCLUSIONS
+
+New files on main (SOXL_Options_2022/2023.csv, SOXL_5min_6Years.csv)
+supplied the missing bear-market regime. Data verified: every Monday has
+a <=7 DTE weekly, every day has 120+ DTE listings, whole strikes near
+spot on all 501 days, no crossed quotes; the 6-year 5-min file is
+byte-identical to the 3-year file on all 754 shared days. 2022 pre-split
+adjusted strikes (37.67 = 113/3) are correctly excluded by the
+whole-number rule. Loader and STOCK_CSV extended: window is now
+2022-01-03 -> 2026-07-02 (235 weeks, 1,516,524 option rows).
+
+### Full-window results (235 weeks) vs the old 131-week window
+
+| config          | 2024-26 return | FULL return | FULL CAGR | FULL maxDD |
+|-----------------|----------------|-------------|-----------|------------|
+| plain put 75/10 | +180.5%        | +122.1%     | 19.3%     | −43.0%     |
+| spread65 75/10  | +235.5%        | +165.2%     | 24.1%     | −56.9%     |
+| spread65 85/5   | +283.5%        | +194.3%     | 27.0%     | −61.9%     |
+| spread65 90/5   | +286.6%        | +190.1%     | 26.6%     | −63.2%     |
+| spread65 95/5   | +200.0%        | +118.1%     | 18.8%     | −64.0%     |
+| no hedge        | +230.4%        | +121.0%     | 19.2%     | −75.7%     |
+
+### Year-by-year (return / max DD); SOXL: 2022 −86.6%, 2023 +235.8%,
+### 2024 −2.5%, 2025 +51.7%, 2026H1 +235.1%
+
+| config          | 2022          | 2023         | 2024        | 2025        |
+|-----------------|---------------|--------------|-------------|-------------|
+| plain put 75/10 | −43.0%/−43.0% | +42.5%/−24.2%| +25.8%/−19.5%| +37.7%/−22.6%|
+| spread65 75/10  | −52.5%/−56.9% | +65.6%/−25.3%| +27.4%/−25.4%| +61.1%/−34.9%|
+| spread65 85/5   | −58.7%/−61.9% | +78.6%/−29.3%| +32.1%/−30.6%| +66.4%/−40.2%|
+| no hedge        | −70.3%/−75.7% | +140.4%/−33.8%| +7.7%/−43.1%| +63.1%/−55.6%|
+
+### Conclusions that CHANGED
+
+1. **The spread's weakness is now measured, not hypothesized.** In 2022's
+   slow grind SOXL fell through the 65% short strike and stayed there, so
+   the spread stopped protecting: −52.5% vs the plain put's −43.0%.
+   Every 2024-26 return figure was regime-flattered; all fall ~40%.
+2. **Risk-adjusted, the four configs are nearly tied** (CAGR/|maxDD|:
+   plain 0.45, spread65 0.42, spread65-85/5 0.44, no-hedge 0.25). The
+   spread buys return with drawdown almost 1:1. Only the *unhedged* case
+   is clearly inferior — the hedge itself is validated.
+3. **95% invested is confirmed dominated in both windows** (+118.1%,
+   −64.0% — worse than 75% on both axes). Practical max stays ~85-90%.
+4. **Choice is now explicitly regime-dependent**: spread65 wins if
+   crashes are V-shaped (2025-style), plain put wins if they grind
+   (2022-style). A regime-switched hedge (full put when trend/vol
+   signals stress, spread otherwise) is the natural next test — it needs
+   the VIX/SOX series in section 4.5.
