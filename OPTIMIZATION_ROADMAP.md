@@ -390,3 +390,62 @@ All on the full 235-week window, plain put / invest 85% / sweep 5%.
   Sizing note: the PMCC must be EXPOSURE-matched (invest x balance /
   spot), not premium-matched -- premium sizing levers it ~6x and blew up
   the first run (corrected before reporting).
+
+## 14. Applying the base trade to FAS (2026-07-27) — BLOCKED ON DATA
+
+**FAS_5min_6Years.csv is on main and is clean**: 117,036 bars, 1,506
+trading days (2020-07-23 → 2026-07-22), no duplicate timestamps, no
+non-positive prices, zero OHLC violations, every Monday 09:30 and 10:00
+bar present (281/281), and — unlike SOXL — **no unadjusted splits
+anywhere in six years**. (SOXL_5min_6Years.csv contains one unadjusted
+split at 2021-03-02, ratio 16.51; it sits outside the 2022-2026 backtest
+window so no result reported so far is affected, but the file must not be
+used before that date without adjustment.)
+
+**There is NO FAS option data in the repository.** The only option
+exports on main are SOXL (2022-2026) and TQQQ (2024-2026). The base trade
+is an options strategy — weekly call quotes plus 120-180 DTE put quotes —
+so it cannot be priced for FAS from real data, and per spec parameters
+#1/#6/#7 synthesising those prices (e.g. Black-Scholes on SOXL's IV
+surface) would be inventing the very numbers the result depends on.
+NOT DONE for that reason.
+
+### Delivered instead
+
+1. **Engine generalized to any symbol.** `set_symbol()` switches the
+   5-minute bar file and the option exports; `soxl_options_loader` now
+   takes a `symbol` argument and searches root, `raw_data/`, and
+   `<symbol>_raw_data/`, skipping missing years. Verified: SOXL results
+   unchanged (+118.1%, QA PASS) and the generic path loads TQQQ's real
+   exports (887,452 rows, 627 trade dates). FAS runs the moment its
+   exports land — no further code work.
+2. **FAS vs SOXL character, 2022-01-03 → 2026-07-21 (1,140 days):**
+
+| | total | ann vol | max DD | worst day | weeks with >10% move |
+|---|-------|---------|--------|-----------|----------------------|
+| FAS  | +24.1%  | 55.6%  | −67.7% | −21.9% | 18.9% |
+| SOXL | +119.9% | 116.9% | −90.4% | −30.7% | 49.1% |
+| corr(daily FAS,SOXL) = 0.510 |
+
+### What this predicts for FAS (hypotheses to TEST, not results)
+
+- FAS carries **half SOXL's volatility**, so weekly call premium per
+  dollar invested will be materially smaller: the income engine — which
+  supplied *all* net profit on SOXL — runs slower. The hedge is
+  correspondingly cheaper, so the net effect is genuinely unknown until
+  measured.
+- FAS's shallower tail (−68% vs −90%) means the protective put insures
+  less catastrophe. Since the SOXL work showed the full put is what makes
+  aggressive dip-buying survivable, the optimal coverage and invest
+  fraction may well differ — they must be re-run, not inherited.
+- Roll/exit triggers will fire even more rarely (18.9% vs 49.1% of weeks
+  exceed a 10% move), reinforcing the section-13 finding that these rules
+  are near-inert.
+
+### Requested
+
+`FAS_Options_2022.csv` … `FAS_Options_2026.csv` — same raw ThetaData
+export format as the SOXL files. With those five files the full analysis
+(base trade, hedge frontier, invest ladder, no-underlying arms) reruns on
+FAS unchanged. A `TQQQ_5min_6Years.csv` would likewise unlock TQQQ, whose
+option exports are already present.

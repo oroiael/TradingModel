@@ -86,10 +86,24 @@ from soxl_options_loader import load_raw_options
 ROOT = Path(__file__).resolve().parent
 SOX_CSV = ROOT / "SOX_Daily_6Years.csv"     # PHLX Semiconductor Index,
                                             # regime signal source
-STOCK_CSV = ROOT / "SOXL_5min_6Years.csv"   # 2020-07..2026-07; verified
-                                            # byte-identical to the 3-year
-                                            # file on all 754 shared days
+# Symbol-generalized (2026-07-27). SYMBOL selects both the 5-minute bar
+# file (<SYMBOL>_5min_6Years.csv) and the raw option exports
+# (<SYMBOL>_Options_<year>.csv). Use set_symbol() to switch.
+SYMBOL = "SOXL"
+STOCK_CSV = ROOT / f"{SYMBOL}_5min_6Years.csv"   # verified byte-identical
+                                            # to the 3-year file on all
+                                            # 754 shared days (SOXL)
 OUT_CSV = ROOT / "soxl_weekly_backtest_results.csv"
+
+
+def set_symbol(sym):
+    """Point the engine at a different underlying. Both the 5-minute bar
+    file and the raw option exports must exist for `sym`; the option data
+    is what gates whether the strategy can be priced at all."""
+    global SYMBOL, STOCK_CSV, OUT_CSV
+    SYMBOL = sym
+    STOCK_CSV = ROOT / f"{sym}_5min_6Years.csv"
+    OUT_CSV = ROOT / f"{sym.lower()}_weekly_backtest_results.csv"
 
 # ------------------------- documented assumptions --------------------------
 RISK_FREE = 0.045          # constant r for BS (not in data files)
@@ -226,14 +240,15 @@ class Market:
         self.day_last = st.groupby("date").last()[["Close", "time"]]
         self.trading_days = sorted(st["date"].unique())
 
-        opt = load_raw_options()
+        opt = load_raw_options(symbol=SYMBOL)
         self.opt_by_day = dict(tuple(opt.groupby("trade_date")))
         self.opt_dates = sorted(self.opt_by_day)
 
         # SOX index regime signals (causal: shifted one day, so a decision
         # on day d only sees data through d-1's close)
         self.sox = None
-        if SOX_CSV.exists() and SOX_CSV.stat().st_size > 1000:
+        if SYMBOL == "SOXL" and SOX_CSV.exists() \
+                and SOX_CSV.stat().st_size > 1000:
             sx = pd.read_csv(SOX_CSV)
             sx["date"] = pd.to_datetime(sx["Date"], format="%Y%m%d").dt.date
             sx = sx.set_index("date").sort_index()

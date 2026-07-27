@@ -22,21 +22,42 @@ from pathlib import Path
 import pandas as pd
 
 ROOT = Path(__file__).resolve().parent
-RAW_FILES = ("SOXL_Options_2022.csv", "SOXL_Options_2023.csv",
-             "SOXL_Options_2024.csv", "SOXL_Options_2025.csv",
-             "SOXL_Options_2026.csv")
+# Symbol-generalized (2026-07-27): any underlying whose raw ThetaData
+# exports follow the <SYMBOL>_Options_<YEAR>.csv convention can be loaded.
+# Files are searched in the repo root and in the raw_data/ and
+# <symbol>_raw_data/ subdirectories; missing years are simply skipped, so
+# a symbol with partial history loads what exists.
+YEARS = (2022, 2023, 2024, 2025, 2026)
+RAW_FILES = tuple(f"SOXL_Options_{y}.csv" for y in YEARS)
 USECOLS = ["expiration", "strike", "right", "bid", "ask", "implied_vol",
            "trade_date", "underlying_price"]
 
 
-def load_raw_options(root=ROOT, verbose=False):
+def option_files(symbol="SOXL", root=ROOT):
+    """Existing raw export paths for `symbol`, newest-year last."""
+    root = Path(root)
+    found = []
+    for y in YEARS:
+        for cand in (root / f"{symbol}_Options_{y}.csv",
+                     root / "raw_data" / f"{symbol}_Options_{y}.csv",
+                     root / f"{symbol.lower()}_raw_data"
+                     / f"{symbol}_Options_{y}.csv"):
+            if cand.exists() and cand.stat().st_size > 1000:
+                found.append(cand)
+                break
+    return found
+
+
+def load_raw_options(root=ROOT, verbose=False, symbol="SOXL"):
     frames = []
-    for name in RAW_FILES:
-        p = Path(root) / name
-        if not p.exists() or p.stat().st_size < 1000:
-            raise FileNotFoundError(
-                f"{name} missing or still a Git LFS pointer -- run "
-                "'git lfs pull'")
+    paths = option_files(symbol, root)
+    if not paths:
+        raise FileNotFoundError(
+            f"no {symbol}_Options_<year>.csv exports found (looked in "
+            f"{root}, raw_data/, {symbol.lower()}_raw_data/) -- if the "
+            "files are present, run 'git lfs pull'")
+    for p in paths:
+        name = p.name
         df = pd.read_csv(p, low_memory=False, usecols=USECOLS)
         for c in ("trade_date", "expiration"):
             fmt = "%m/%d/%y" if "/" in str(df[c].iloc[0]) else "%Y-%m-%d"
@@ -60,7 +81,9 @@ def load_raw_options(root=ROOT, verbose=False):
 
 
 if __name__ == "__main__":
-    f = load_raw_options(verbose=True)
+    import sys
+    sym = sys.argv[1] if len(sys.argv) > 1 else "SOXL"
+    f = load_raw_options(verbose=True, symbol=sym)
     print(f"merged: {len(f):,} rows, {f['trade_date'].nunique()} trade "
           f"dates, {min(f['trade_date'])} -> {max(f['trade_date'])}, "
           f"DTE {f['dte'].min()}-{f['dte'].max()}")
