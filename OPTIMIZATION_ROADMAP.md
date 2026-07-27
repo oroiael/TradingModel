@@ -331,3 +331,62 @@ Caveat: only 10 hedge decisions exist in 4.5 years, so this is a thin
 statistical test — but the failure mechanism is structural, not noise.
 Conclusion: keep the hedge choice STATIC. Use the plain put when
 drawdown control matters more, spread65 when return matters more.
+
+## 13. Put-role tests (a),(b),(d) and NO-UNDERLYING variants (2026-07-27)
+
+All on the full 235-week window, plain put / invest 85% / sweep 5%.
+
+### (a) protective-exit rule, (b) partial coverage, (d) deep-ITM harvest
+
+| test                      | return  | CAGR  | maxDD  | CAGR/|DD| | put spend |
+|---------------------------|---------|-------|--------|-----------|-----------|
+| reference (exit on, 100%) | +161.5% | 23.7% | −45.5% | **0.52**  | $315,870  |
+| (a) exit OFF              | +161.9% | 23.7% | −45.5% | **0.52**  | $317,175  |
+| (a) exit UNCONDITIONAL    | +15.4%  |  3.2% | −51.9% | 0.06      | $862,608  |
+| (b) coverage 75%          | +146.0% | 22.0% | −55.1% | 0.40      | $219,966  |
+| (b) coverage 50%          | +133.5% | 20.6% | −61.4% | 0.34      | $142,933  |
+| (b) coverage 25%          | +159.0% | 23.4% | −67.6% | 0.35      | $78,806   |
+| (d) deep-ITM harvest 20%  | +115.2% | 18.5% | −52.9% | 0.35      | $287,699  |
+| (d) deep-ITM harvest 30%  | +115.2% | 18.5% | −52.9% | 0.35      | $287,699  |
+
+- **(a) The spec's −15% conditional exit is dead weight**: it fires once in
+  4.5 years and turning it off changes nothing (+161.9% vs +161.5%, same
+  −45.5% DD). Making it unconditional is catastrophic (40 exits, +15.4%)
+  — confirms the earlier whipsaw finding on more data.
+- **(b) Partial coverage is strictly worse.** Every reduction cuts return
+  AND deepens drawdown (0.52 -> 0.34-0.40 risk-adjusted). The hedge is not
+  merely insurance: full coverage is what lets the weekly top-up buy dips
+  aggressively. Half-hedging keeps the cost and loses the enabling effect.
+- **(d) Deep-ITM harvesting hurts** (−46 points). It fires once; selling a
+  deep-ITM put mid-crash surrenders exactly the protection that was about
+  to pay. The exercise-vs-sell study was right about the *mechanics* of
+  which exit is cheaper, but wrong as a *strategy* trigger.
+
+### No-underlying variants (never hold shares)
+
+| strategy                        | return  | CAGR  | maxDD  | CAGR/|DD| |
+|---------------------------------|---------|-------|--------|-----------|
+| A) cash-secured weekly puts     | −51.8%  | −14.9%| −66.1% | −0.23     |
+| B) PMCC (long call + weeklies)  | +79.4%  | 13.8% | −54.5% | 0.25      |
+| C) SOXL buy & hold              | +152.3% | 22.7% | −89.2% | 0.25      |
+| D) shares + put (the strategy)  | +161.5% | 23.7% | −45.5% | **0.52**  |
+| E) shares, cash when SOX<200dma | +57.7%  | 10.6% | −45.2% | 0.23      |
+| E2) shares, cash when SOX rv>45%| +79.7%  | 13.9% | −59.4% | 0.23      |
+
+- **A) Cash-secured weekly puts lose money outright** on a 3x ETF:
+  $818k of premium collected against $914k of cash-settled assignment
+  losses across 111 assigned weeks of 235. Selling ATM weekly puts takes
+  the full downside and forgoes all upside — the worst of both.
+- **B) PMCC works but is inferior**: exposure-matched long calls
+  (120-180 DTE, cheapest per day) plus weekly shorts return +79.4% at
+  −54.5% DD. The long call's time decay replaces the put's premium cost
+  without capping the downside as effectively.
+- **E/E2) Signal-gated de-risking to cash destroys return** (+57.7% /
+  +79.7% vs +161.5%) while barely improving drawdown (−45.2% vs −45.5%).
+  70 (resp. 44) weeks in cash sold at lows and bought back higher: the
+  same lag failure as section 12, now on the equity leg.
+- **Holding shares WITH the put is the best structure tested**, and by a
+  wide margin risk-adjusted (0.52 vs 0.23-0.25 for everything else).
+  Sizing note: the PMCC must be EXPOSURE-matched (invest x balance /
+  spot), not premium-matched -- premium sizing levers it ~6x and blew up
+  the first run (corrected before reporting).

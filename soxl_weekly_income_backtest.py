@@ -152,6 +152,21 @@ EXIT_MODE = "conditional"  # "conditional" (spec 2.c.v: exit at -15% only
 EXIT_DROP = 0.15           # spec 2.c.v
 HEDGE_ENABLED = True       # put-policy lab: False runs the covered-call
                            # machine with NO protective put at all.
+NO_STOCK_ON_STRESS = False # test 2026-07-27: when True and REGIME_RULE is
+                           # set, liquidate the whole position (shares,
+                           # put, call buyback) on any week whose SOX
+                           # signal reads STRESS, sit in interest-earning
+                           # cash, and re-enter when it reads CALM.
+PUT_COVERAGE = 1.0         # test (b) 2026-07-27: fraction of round lots
+                           # hedged (1.0 = every lot, 0.5 = half). Cuts
+                           # premium spend proportionally; the unhedged
+                           # remainder carries full downside.
+DEEP_ITM_HARVEST = None    # test (d) 2026-07-27: when the held put is
+                           # this fraction ITM ((K-spot)/spot) AND its bid
+                           # still exceeds intrinsic (time value left to
+                           # capture -- the exercise-vs-sell study's only
+                           # mechanically favorable unwind), sell it and
+                           # re-strike ATM. None = off.
 REGIME_RULE = None         # SOX regime filter (2026-07-27). When set, the
                            # hedge TYPE is chosen at each put purchase from
                            # SOX_Daily_6Years.csv using only data through
@@ -167,6 +182,11 @@ PUT_SPREAD_SHORT_FRAC = 0.65   # put-spread hedge (user-adopted
                                # both legs. Recovers ~30% of hedge cost;
                                # protection stops below the short strike
                                # (a ~35%-deep band). None = plain long put.
+
+
+def target_lots(shares):
+    """Round lots to hedge at the configured coverage fraction."""
+    return int((shares // 100) * PUT_COVERAGE)
 
 
 # ------------------------------ Black-Scholes ------------------------------
@@ -404,6 +424,71 @@ def run(mkt=None):
         flows += interest
         r["cash_interest"] = round(interest, 2)
 
+        # ---- signal-gated de-risking (test 2026-07-27): flatten to cash
+        # while SOX reads STRESS; skip all entry/hedge/call logic. ----
+        stress_now, sdesc = mkt.regime(entry) if NO_STOCK_ON_STRESS \
+            else (False, "")
+        if NO_STOCK_ON_STRESS and stress_now:
+            if call is not None:
+                mid, spr, vsrc = call_mark(mkt, call, entry, s_entry)
+                cost_c = mkt.exec_price(mid, spr, "BUY") * \
+                    call["contracts"] * 100
+                prem = call["premium_ps"] * call["contracts"] * 100
+                cash -= cost_c
+                flows -= cost_c
+                realized += prem - cost_c
+                r.update({"call_outcome": "BOUGHT_BACK_DERISK",
+                          "call_close_cost": round(cost_c, 2),
+                          "call_realized_pnl": round(prem - cost_c, 2),
+                          "call_pricing_source": vsrc})
+                call = None
+            if put is not None:
+                px, psrc = close_put(mkt, put, entry, s_entry)
+                proceeds = px * put["contracts"] * 100
+                pnl = proceeds - put["cost_ps"] * put["contracts"] * 100
+                cash += proceeds
+                flows += proceeds
+                realized += pnl
+                r.update({"put_action": "SOLD_DERISK",
+                          "put_sell_price": round(px, 4),
+                          "put_sell_proceeds": round(proceeds, 2),
+                          "put_realized_pnl": round(pnl, 2),
+                          "put_pricing_source": psrc})
+                put = None
+            if shares:
+                pnl = (s_entry - basis) * shares
+                cash += s_entry * shares
+                flows += s_entry * shares
+                realized += pnl
+                r.update({"stock_action": "SOLD_DERISK",
+                          "stock_sell_price": round(s_entry, 4),
+                          "stock_realized_pnl": round(pnl, 2)})
+                shares = 0
+            sweep = SWEEP_FRACTION * realized if realized > 0 else 0.0
+            cash -= sweep
+            flows -= sweep
+            side_account += sweep
+            r.update({"basis_price": "", "friday_1530_price":
+                      round(mkt.pre_close_price(settle), 4),
+                      "friday_close_price": round(mkt.day_close(settle), 4),
+                      "move_vs_basis_pct": "", "realized_gain_total":
+                      round(realized, 2),
+                      "swept_to_side_account": round(sweep, 2),
+                      "side_account_balance": round(side_account, 2),
+                      "cash_ledger_reconciled":
+                      abs((begin_cash + flows) - cash) < 0.01,
+                      "end_shares": 0, "end_share_value": 0.0,
+                      "end_put_value": 0.0, "call_liability_value": 0.0,
+                      "put_strike": "", "put_expiration": "",
+                      "put_contracts": 0,
+                      "end_cash": round(cash, 2),
+                      "end_total_balance": round(cash, 2),
+                      "end_total_with_side": round(cash + side_account, 2),
+                      "regime_note": f"DE-RISKED TO CASH: {sdesc}"})
+            rows.append(r)
+            prev_settle = settle
+            continue
+
         # ---- Part 2: underlying entry / weekly top-up (opt #1b) ----
         # HEDGE-PRIORITY SIZING (fix 2026-07-18): the share purchase is
         # sized so that cash can still cover hedging every new round lot
@@ -420,7 +505,7 @@ def run(mkt=None):
             if buy > 0 and hedge_ps is not None:
                 held_lots = put["contracts"] if put else 0
                 while buy > 0:
-                    lots_needed = max((shares + buy) // 100 - held_lots, 0)
+                    lots_needed = max(target_lots(shares + buy) - held_lots, 0)
                     if (buy * s_entry + lots_needed * hedge_ps * 100
                             <= cash):
                         break
@@ -450,7 +535,7 @@ def run(mkt=None):
                 held_lots = put["contracts"] if put else 0
                 sold = 0
                 while shares >= 100:
-                    need = max(shares // 100 - held_lots, 0) * h_ps * 100
+                    need = max(target_lots(shares) - held_lots, 0) * h_ps * 100
                     if need <= cash:
                         break
                     shares -= 1
@@ -486,8 +571,8 @@ def run(mkt=None):
                 warnings.append(f"{entry}: could not price put ({note})")
         # opt #1b: keep the hedge ratio when weekly top-ups add a new
         # round lot -- buy additional contracts of the SAME put.
-        if put is not None and shares // 100 > put["contracts"]:
-            add = shares // 100 - put["contracts"]
+        if put is not None and target_lots(shares) > put["contracts"]:
+            add = target_lots(shares) - put["contracts"]
             rq = mkt.quote(entry, "PUT", put["strike"], put["expiration"])
             rq_s = (mkt.quote(entry, "PUT", put["short_strike"],
                               put["expiration"])
@@ -621,7 +706,8 @@ def run(mkt=None):
                     or (ROLL_DOWN_MOVE is not None
                         and move <= -ROLL_DOWN_MOVE)
                     or (HARVEST_MULT is not None
-                        and val_ps >= HARVEST_MULT * put["cost_ps"])):
+                        and val_ps >= HARVEST_MULT * put["cost_ps"])
+                    or deep_itm_harvest(mkt, put, settle, s_1530)):
                 # Roll: sell the held put at its real mark, re-strike ATM.
                 # Direction/trigger recorded in put_action: roll-UP on
                 # +move (user rule), roll-DOWN / profit-HARVEST are
@@ -630,7 +716,10 @@ def run(mkt=None):
                             else ("HARVESTED" if HARVEST_MULT is not None
                                   and val_ps >= HARVEST_MULT
                                   * put["cost_ps"]
-                                  else "ROLLED_DOWN"))
+                                  else ("DEEP_ITM_HARVESTED"
+                                        if deep_itm_harvest(mkt, put, settle,
+                                                            s_1530)
+                                        else "ROLLED_DOWN")))
                 px, mark_src = close_put(mkt, put, settle, s_1530)
                 proceeds = px * put["contracts"] * 100
                 pnl = proceeds - put["cost_ps"] * put["contracts"] * 100
@@ -750,6 +839,21 @@ def run(mkt=None):
             warnings.append(f"{settle}: cash went negative ({cash:,.2f})")
 
     return pd.DataFrame(rows), warnings
+
+
+def deep_itm_harvest(mkt, put, d, spot):
+    """Test (d): True when the put is >= DEEP_ITM_HARVEST fraction ITM AND
+    its real bid still exceeds intrinsic -- i.e. time value remains that
+    an exercise would forfeit and that deeper ITM quotes typically lose
+    (see the exercise-vs-sell study). Spread positions are excluded: the
+    short leg's own intrinsic makes the comparison meaningless."""
+    if DEEP_ITM_HARVEST is None or put.get("short_strike"):
+        return False
+    intrinsic = put["strike"] - spot
+    if intrinsic <= 0 or intrinsic / spot < DEEP_ITM_HARVEST:
+        return False
+    row = mkt.quote(d, "PUT", put["strike"], put["expiration"])
+    return row is not None and float(row["bid"]) > intrinsic
 
 
 def _leg_mark(mkt, d, strike, exp, spot, t_years):
@@ -938,9 +1042,9 @@ def open_put(mkt, d, spot, shares, cash_avail):
     the listed whole-dollar strike nearest `spot` (spec 1.d / parameter
     #5), priced from the file's actual bid/ask with the spec #6 long-side
     rule.  The full scan outcome is recorded in pricing_source."""
-    contracts = shares // 100
+    contracts = target_lots(shares)
     if contracts == 0:
-        return None, "fewer than 100 shares"
+        return None, "fewer than 100 shares (or zero coverage)"
     cands = mkt.scan_put_candidates(d, spot)
     if not cands:
         return None, (f"no quoted whole-dollar puts listed with "
