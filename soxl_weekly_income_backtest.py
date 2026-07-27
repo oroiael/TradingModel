@@ -84,6 +84,8 @@ import pandas as pd
 from soxl_options_loader import load_raw_options
 
 ROOT = Path(__file__).resolve().parent
+SOX_CSV = ROOT / "SOX_Daily_6Years.csv"     # PHLX Semiconductor Index,
+                                            # regime signal source
 STOCK_CSV = ROOT / "SOXL_5min_6Years.csv"   # 2020-07..2026-07; verified
                                             # byte-identical to the 3-year
                                             # file on all 754 shared days
@@ -150,6 +152,15 @@ EXIT_MODE = "conditional"  # "conditional" (spec 2.c.v: exit at -15% only
 EXIT_DROP = 0.15           # spec 2.c.v
 HEDGE_ENABLED = True       # put-policy lab: False runs the covered-call
                            # machine with NO protective put at all.
+REGIME_RULE = None         # SOX regime filter (2026-07-27). When set, the
+                           # hedge TYPE is chosen at each put purchase from
+                           # SOX_Daily_6Years.csv using only data through
+                           # the PRIOR close (causal): "stress" -> full
+                           # plain put, "calm" -> put spread. Options:
+                           #   "ma200"  : SOX below its 200-day average
+                           #   "rv45"   : SOX 20d realized vol > 45%
+                           #   "either" : either of the above
+                           # None = always use PUT_SPREAD_SHORT_FRAC.
 PUT_SPREAD_SHORT_FRAC = 0.65   # put-spread hedge (user-adopted
                                # 2026-07-18): sell a put at ~65% of the
                                # long strike, SAME expiration, real quotes
@@ -198,6 +209,39 @@ class Market:
         opt = load_raw_options()
         self.opt_by_day = dict(tuple(opt.groupby("trade_date")))
         self.opt_dates = sorted(self.opt_by_day)
+
+        # SOX index regime signals (causal: shifted one day, so a decision
+        # on day d only sees data through d-1's close)
+        self.sox = None
+        if SOX_CSV.exists() and SOX_CSV.stat().st_size > 1000:
+            sx = pd.read_csv(SOX_CSV)
+            sx["date"] = pd.to_datetime(sx["Date"], format="%Y%m%d").dt.date
+            sx = sx.set_index("date").sort_index()
+            c = sx["Close"]
+            self.sox = pd.DataFrame({
+                "close": c,
+                "ma200": c.rolling(200).mean(),
+                "rv20": c.pct_change().rolling(20).std() * np.sqrt(252),
+            }).shift(1)
+
+    def regime(self, d):
+        """(is_stress, description) from SOX as of the prior close."""
+        if self.sox is None or REGIME_RULE is None:
+            return False, ""
+        idx = [x for x in self.sox.index if x <= d]
+        if not idx:
+            return False, "no SOX history"
+        row = self.sox.loc[idx[-1]]
+        if pd.isna(row["ma200"]) or pd.isna(row["rv20"]):
+            return False, "SOX signal warming up"
+        below = row["close"] < row["ma200"]
+        hivol = row["rv20"] > 0.45
+        stress = {"ma200": below, "rv45": hivol,
+                  "either": below or hivol}[REGIME_RULE]
+        return stress, (f"SOX {row['close']:.0f} vs200dma "
+                        f"{100*(row['close']/row['ma200']-1):+.1f}% "
+                        f"rv20 {100*row['rv20']:.0f}% -> "
+                        f"{'STRESS: full put' if stress else 'CALM: spread'}")
 
     # ---- stock ----
     def bar_close(self, d, hhmm):
@@ -913,8 +957,12 @@ def open_put(mkt, d, spot, shares, cash_avail):
 
     # Put-spread variant: sell a put at ~PUT_SPREAD_SHORT_FRAC of the long
     # strike, same expiration, real quote. cost_ps becomes the NET debit.
+    # With REGIME_RULE set, SOX stress forces the FULL put (no short leg).
     short_strike = None
-    if PUT_SPREAD_SHORT_FRAC:
+    stress, rdesc = mkt.regime(d)
+    if rdesc:
+        src += f"; REGIME[{REGIME_RULE}]: {rdesc}"
+    if PUT_SPREAD_SHORT_FRAC and not stress:
         ch = mkt.chain(d)
         srows = ch[(ch["right"] == "PUT") & (ch["expiration"] == exp)
                    & (ch["bid"] > 0)

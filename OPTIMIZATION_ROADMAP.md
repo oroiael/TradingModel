@@ -291,3 +291,43 @@ whole-number rule. Loader and STOCK_CSV extended: window is now
    (2022-style). A regime-switched hedge (full put when trend/vol
    signals stress, spread otherwise) is the natural next test — it needs
    the VIX/SOX series in section 4.5.
+
+## 12. SOX regime filter (2026-07-27) — TESTED AND REJECTED
+
+SOX_Daily_6Years.csv confirmed present on main and validated: 1,507 days
+(2020-07-24 → 2026-07-24), zero missing days across the backtest window,
+no gaps/dupes/bad prices. Independent cross-check: SOXL's daily-return
+beta to SOX is **3.01** (design = 3.0) with 0.953 correlation, which
+validates the SOXL and SOX files against each other. SOXX (1x) and SOXS
+(inverse 3x) also present; SOXS shows the expected −0.91 beta to SOXL
+and catastrophic decay (only usable as a short-horizon tactical hedge,
+not a carry position).
+
+Regime-switched hedge implemented (`REGIME_RULE`, causal — signals
+shifted one day so a decision sees only the prior close): SOX stress →
+full plain put, calm → spread65.
+
+| config (invest 75/10) | return  | CAGR  | maxDD  | CAGR/|DD| | 2022   |
+|-----------------------|---------|-------|--------|-----------|--------|
+| plain put (always)    | +122.1% | 19.3% | −43.0% | 0.45      | −43.0% |
+| spread65 (always)     | +165.2% | 24.1% | −56.9% | 0.42      | −52.5% |
+| regime ma200          | +101.0% | 16.7% | −54.5% | 0.31      | −56.1% |
+| regime rv45           | +134.1% | 20.7% | −54.5% | 0.38      | −56.1% |
+| regime either         | +101.0% | 16.7% | −54.5% | 0.31      | −56.1% |
+
+Same ordering at invest 85/5. **Every regime variant is worse than both
+static policies on return AND risk-adjusted return.**
+
+Why it fails (visible in the signal table at the 10 purchase dates): the
+single most damaging purchase, 2022-01-03, was made with SOX **+17%
+above its 200-day average** at 35% realized vol — no stress signal —
+and SOX then fell 37.7% over the following six months. The filter
+bought the cheap spread exactly when full protection was needed, then
+switched to expensive full puts in mid-2022 and late-2022 *after* the
+damage, carrying that cost through the recovery. Trend and vol signals
+are backward-looking; the hedge decision is forward-looking.
+
+Caveat: only 10 hedge decisions exist in 4.5 years, so this is a thin
+statistical test — but the failure mechanism is structural, not noise.
+Conclusion: keep the hedge choice STATIC. Use the plain put when
+drawdown control matters more, spread65 when return matters more.
