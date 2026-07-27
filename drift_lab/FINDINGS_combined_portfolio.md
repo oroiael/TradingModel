@@ -63,3 +63,5 @@ The blend is delta-neutral, so PM levers it cheaply. Scan (target portfolio vol)
   — a solid diversified cash engine, not a money machine.** The two things that would move it
   decisively are the two open gates: **real SOXS borrow** (rescues or sinks A) and an
   **independent-sample validation of B** (confirms or kills its recent strength).
+
+> **Update (residual_generalization):** B was later shown to be a common-2024-regime effect (FAS ex-2024 Sharpe −0.03; pooling amplifies not diversifies). The combined book above was carried by B, so its forward case is weaker than shown — see `FINDINGS_residual_generalization.md`.
