@@ -53,3 +53,34 @@ because it is efficiently priced (nothing leads it) and it decays (so holding it
 The edges that survive are both **market-neutral and structural**: the **vol-decay harvest**
 (short pair, band-rebalanced — robust, Sharpe ~1.1) and, as a maybe, **semi-residual
 mean-reversion** (Sharpe ~0.6, needs validation). Everything directional is a donation.
+
+## Addendum — deep ITM strategies (with or without the underlying)
+
+Probed the deep-ITM region directly (`itm_probe.py`). Two facts settle it:
+
+1. **Deep ITM has ~0 vega and low time premium — it *is* the underlying with leverage.**
+   A >20%-ITM SOXL call (~1 mo) carries median extrinsic **$0.79 = 1.7% of spot** (delta ≈1),
+   vs **8.8%** for the ATM. So deep ITM strips out the vega/IV premium and behaves like a
+   leveraged, defined-downside proxy for the shares.
+2. **Deep ITM is illiquid on SOXL.** Trade frequency by depth (5-min bars): ATM **44%**,
+   10–20% ITM 12%, 20–35% ITM **6%**, >35% ITM **3%** (median size ~2 contracts). Entry/exit
+   is costly and the marks are stale — the drift study's "can't trade the stale print" applies
+   in force here.
+
+**Consequence: there is no *new edge* in deep ITM — it's directional/leverage in disguise,
+so it inherits SOXL's proven lack of a timing edge.** Concretely:
+- **Deep ITM call (± underlying) = leveraged long** = leveraged buy-hold (great in this
+  up-cycle, but a *view*, not alpha). Its only genuine merits are capital efficiency, a
+  built-in stop (can't lose past the premium), no borrow, and — for a long-dated LEAP — low
+  annualized theta. A **deep-ITM LEAP call as a stock-replacement for a structural semis-bull
+  view** is a reasonable *expression*; it is not an edge.
+- **Deep ITM put = leveraged short** with defined risk — but you **cannot escape the harvest's
+  borrow/financing cost this way**: put-call parity embeds the carry in the option price, and a
+  long put is long-theta (the opposite of the short-vol harvest).
+- **No market-neutral edge lives in deep ITM** — the vol/decay harvest needs *vega* (ATM/OTM
+  or the ETFs, ~0 in deep ITM) and the residual stat-arb uses the linear ETFs. Deep ITM adds
+  nothing to either.
+
+**Verdict: no deep-ITM strategy "works" as alpha; it's a defined-risk, capital-efficient way
+to hold a directional view, hampered on SOXL by deep-strike illiquidity.** The edges remain
+the market-neutral ones.
