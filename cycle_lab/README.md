@@ -92,6 +92,65 @@ ate the protection.
 5. Deeper-OTM puts (5–10%) don't help; hedging sooner (3-day stall) adds
    P&L but burns even more premium and capital; waiting 10 days is worst.
 
+## Round 2 — deep-ITM covered calls, repair calls, full grid
+
+`python3 cycle_lab/grid_sweep.py` → `out/focused_variants.csv`, `out/grid_sweep.csv`.
+
+### Deep in-the-money covered call after a stall ("clears fast at max premium")
+
+Sell a call struck 5/10/20% *below* spot on the stalled lot — near-certain
+assignment at the strike, premium = intrinsic + time value at the bid:
+
+| variant (1% target, 5d stall) | total P&L | max DD | notes |
+|---|---:|---:|---|
+| cc just-OTM, 30d (round-1 pick) | +$17.3k | −$12.9k | baseline |
+| cc 5% ITM, 30d  | **+$17.5k** | −$12.1k | best of the ITM family |
+| cc 10% ITM, 30d | +$17.1k | **−$11.7k** | DD improves with depth |
+| cc 20% ITM, 30d | +$14.4k | −$10.7k | premium capture < forfeited recovery |
+| cc 10% ITM, **7d** | +$4.7k | −$14.4k | fast clear = worst P&L |
+| cc 20% ITM, 7d | +$4.7k | −$12.7k | |
+| cc just-OTM, 7d | +$6.2k | −$15.5k | |
+| repair call struck at lot entry, 30d | +$14.2k | −$21.8k | far-OTM ⇒ tiny premium, no cushion |
+
+Verdict on the idea: **depth helps a little, speed hurts a lot.** A 30-day
+call 5–10% ITM matches the just-OTM P&L with the lowest drawdowns of any
+variant tested (−$11–12k). But shortening to weeklies to "clear fast" cuts
+P&L by ~2/3: the month the stalled lot sits under a 30-day call is exactly
+when most of the recovery happens, and one week of time value is too small a
+fee to replace it. (Exception: with a 10-day stall rule, the 7-day 10%-ITM
+call is the *best* hedge mode — +$11–12k, −$11.5k DD — because slow-rebase
+variants otherwise die waiting.) Caveat: deep-ITM call bids are thin in real
+trading; the backtest sells at the EOD bid, and early assignment is not
+modeled (it would mostly help — the loss clears even faster).
+
+### Full grid — target 1/1.5/2/2.5/3% × stall 3/5/10d × hedge mode
+
+Top of each ranking (full table in `out/grid_sweep.csv`):
+
+| objective | winner | total P&L | max DD | max capital | ret on cap |
+|---|---|---:|---:|---:|---:|
+| Max total P&L | 3%/3d, no hedge | +$54.0k | −$42.5k | $112k | 48.2% |
+| Max return on capital | **1.5%/3d, no hedge** | +$50.9k | −$32.5k | $90.3k | **56.4%** |
+| Best P&L-per-drawdown | **1.5%/5d, cc just-OTM 30d** | +$21.4k | −$12.6k | $81.8k | 26.1% (ratio 1.70) |
+| Capital-constrained (1 lot) | 1.5%/3d, stop & reset | +$12.3k | −$12.1k | **$30.1k** | 41.0% |
+
+Grid-wide patterns:
+
+1. **1.5–2% target is the sweet spot at every stall/hedge setting.** 1% churns
+   too much for the gain; 2.5–3% stalls more often (192 stalls at 3%/3d) and
+   needs more capital.
+2. **Faster rebase (3-day stall) beats 5, and 10 is poison** — except when
+   paired with the fast-clearing ITM call, which exists precisely to fix the
+   slow-rebase problem.
+3. **Buying puts loses in every single grid cell** (−$53k to −$69k of put P&L
+   at 3-day stall). No configuration of this strategy wants long options at
+   SOXL's implied vol.
+4. **No-hedge maximizes P&L, covered calls maximize P&L/drawdown, stop-reset
+   maximizes capital efficiency.** Pick by constraint:
+   - risk-tolerant, ~$90k buying power → 1.5%/3d/no-hedge;
+   - smoothest equity curve → 1.5%/5d/just-OTM-or-5%-ITM 30d covered call;
+   - single-lot $30k account → 1.5%/3d/stop-and-reset.
+
 ## Caveats
 
 - No commissions/slippage: 1,460 stock round trips ≈ $3k at $2/round-trip,
