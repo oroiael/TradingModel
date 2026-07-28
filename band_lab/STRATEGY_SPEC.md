@@ -35,10 +35,30 @@ Status: **core strategy** as of 2026-07-28. Multi-day cycle strategy
 > Sizing: flat fraction f of the sleeve per trade — f=1.0 growth-seeking,
 > f=0.5 for a P(−30% DD/yr) ≤ ~5% risk budget (V11_SIZING_TESTS.md T5).
 
-Backtest references: in-sample 43.5 bp/traded-day, Sharpe 2.14 (2020-07 →
-2026-07); walk-forward OOS 36.3 bp/day, Sharpe 1.64 (2022–2026, yearly
-re-selection). Code: `churn_harvest.py`, `regime_gate.py`,
-`walk_forward_and_combo.py`.
+Backtest references (corrected engine): **59.6 bp/traded-day, Sharpe 2.87,
+worst day −8.0%, maxDD −32.1%** on gated days 2020-07 → 2026-07;
+walk-forward-supported (start-time OOS 60.6 bp / Sharpe 2.76; original
+config-selection OOS retained ~83% of in-sample edge). Code:
+`churn_harvest.py`, `regime_gate.py`, `walk_forward_and_combo.py`,
+`v5_corrected_rerun.py` (reference engine), `v11_`/`v8_`/`v5_`/`v6_*.py`.
+
+## 0.1 Variable status board (all audits as of 2026-07-28)
+
+| var | parameter | final value | program / evidence | status |
+|---|---|---|---|---|
+| V1 | dip depth | 1% (fixed) | swept 1–3% (grid + WF re-picks) | **tested** — adaptive depth still open |
+| V2 | entry anchor | session rolling high (prior bars) | vs failed band-edge fade; corrected engine | **tested** — VWAP/windowed anchors open |
+| V3 | profit target | +1% (next-bar fills) | swept 1–2% (grid + WF) | **tested** — adaptive target open |
+| V4 | stop | −4% | swept 2/3/4% twice (grid; V11-T2 risk-normalized) | **tested & confirmed** |
+| V5 | start time | **11:00** | full program; plateau 10:30–11:30; WF OOS 60.6 bp | **tested & moved** (was 10:30) |
+| V6 | EOD exit | flat at close | full program; overnight +17–26 bp REJECTED on role | **tested & held** — gap premium priced |
+| V7 | trade cap | 5/day | swept 1–10; Sharpe peak at 5 | **tested & confirmed** |
+| V8 | direction | long only | full program; short −17.7 bp honest fills; SSR 16.6% | **tested & closed** |
+| V9 | day filter | skip OR30 > trailing 80th pct | filter family tested; boundary unswept | **partially tested** |
+| V10 | vol gate | ATR5 ≥ 6% | quartiles + thresholds + WF; ramp rejected (V11-T6) | **tested** — lookback/hysteresis open |
+| V11 | sizing | flat f; **2-stop breaker**; pyramid for half-capital | six-test program + bootstrap | **tested & adopted** |
+| V12 | sleeve role | day sleeve = core | four splits; WF (core robust, satellite fragile) | **tested** |
+| — | engine | prior-bar trigger, next-bar target | lookahead bug found & fixed in V5 | **corrected** |
 
 ---
 
@@ -183,6 +203,124 @@ re-selection). Code: `churn_harvest.py`, `regime_gate.py`,
 | A10 | Regime continuity: SOXL keeps existing, keeps 3x leverage, semis stay volatile. A decade of 4% ATR5 would leave the gate off most of the time (by design — it fails safe to cash). | Opportunity cost, not loss. | Structural, fails safe. |
 
 ---
+
+## 2.5 Trade Mechanics — Trading Desk Instructions (IBKR Pro, Fixed pricing)
+
+Written as a runbook: a desk (or bot) following only this section should
+reproduce the backtested behavior. Instrument: SOXL, regular trading hours
+only, US/Eastern times throughout.
+
+### Account prerequisites
+- IBKR Pro, **Fixed** pricing, **margin-type account** — not for leverage
+  (none is used) but because up to 5 same-day round trips re-use proceeds;
+  a cash account risks free-riding/settlement violations.
+- Equity above the $25K PDT floor (the sleeve is a pattern day trader by
+  design). At the reference $150K sleeve this is a non-issue.
+- No short permissions, no options permissions needed. Nothing is ever
+  held overnight, so no overnight margin requirement applies.
+
+### Step 1 — pre-open gate (before 09:30, ~2 minutes)
+Compute **ATR5** = average over the last 5 completed sessions of
+(session High − session Low) / session Open × 100.
+- **ATR5 ≥ 6.0 → the sleeve is ON today.** ATR5 < 6.0 → OFF: no orders
+  today, re-check tomorrow. (Roughly half of all days are ON; in violent
+  regimes it stays ON for weeks — e.g. 13.9% at the data's last date.)
+- Scheduled half-days (early closes): treat as OFF.
+
+### Step 2 — 10:00 checkpoint: opening-range filter
+Compute **OR30** = (High − Low of 09:30–10:00) / 09:30 Open × 100.
+Compare to the **trailing 80th percentile** of OR30 (recompute monthly
+from the last 2 years; currently ≈ **5.4%**).
+- OR30 above the threshold → **stand down for the day** (this is the
+  trend/excursion-day signature; the dip-buy would fight it all day).
+- Otherwise proceed. Do NOT trade between 09:30 and 11:00 regardless —
+  the morning is observation only (it builds the session high the
+  trigger hangs from).
+
+### Step 3 — 11:00 activation: the resting entry order
+- Let **H** = the session high so far (09:30 → now, RTH prints only).
+- Maintain a **resting BUY LIMIT at 0.99 × H**, size = floor(f ×
+  sleeve equity / limit price) shares (f = 1.0 growth setting; see
+  Sizing below).
+- **Ratchet rule:** every time SOXL prints a new session high, raise the
+  limit to 0.99 × (new H). The limit only ever moves UP. This is not a
+  native IBKR order type: automate via API (modify order on new-high
+  events; 5-minute polling matches the backtest) or manage manually.
+  IBKR's native "trailing buy" trails the low, not the high — do not use
+  it, it is a different trade.
+
+### Step 4 — on fill: bracket immediately (OCA)
+The instant the entry fills at price **E**, place an OCA
+(one-cancels-all) pair:
+- SELL LIMIT at **1.01 × E** (the target), and
+- SELL STOP at **0.96 × E** (stop-market; accept slippage — the 4% stop
+  exists for disaster days, precision is not the point).
+While a position is open, the entry limit stays pulled (one position at
+a time). The backtest books target fills no earlier than the bar after
+entry; a real resting limit may occasionally do better — acceptable.
+
+### Step 5 — counters and the circuit breaker
+Maintain two counters from 11:00, reset daily:
+- **Fills (entries): max 5.** After the 5th entry resolves, done for the
+  day.
+- **Stop-outs: max 2.** The moment the second stop fires, cancel all
+  orders, done for the day. This breaker is load-bearing: it converts
+  the worst day from −11%+ to the −8% design guarantee, and the measured
+  edge after a second stop is negative — there is no discretion here.
+After every exit (target or first stop), recompute H (it may have risen
+while in-position), re-place the entry limit at 0.99 × H, and re-arm.
+
+### Step 6 — 15:55–16:00: flatten, no exceptions
+If a position is open at 15:55, replace the bracket with a market sell
+(or MOC order). **Nothing is ever held overnight** — this rule was
+re-challenged with data and retained deliberately: holding would add
+~17–26 bp/day and was rejected because the sample contains −20%+
+overnight gaps and the sleeve's role in the book is to carry zero gap
+risk. The forced sale of a loser at the close is the insurance premium,
+pre-paid knowingly.
+
+### Sizing (from the V11/V8 programs)
+- **Growth setting: f = 1.0** — each entry uses the full sleeve equity.
+  Accept: worst day −8%, maxDD ≈ −32% on active days, and a bootstrap
+  P(−30% DD within a year) near a coin flip.
+- **Risk-budget setting: per-unit pyramid at half capital** — two units
+  of f = 0.5: first unit at the normal trigger, second only if price
+  falls another 1% below the first entry; each unit carries its own
+  +1%/−4% bracket; the breaker counts unit-stops. (35.5 bp/day at
+  Sharpe 2.60 — dominates flat half-size.)
+- **Never trade above f = 1.0.** Leverage was tested and rejected:
+  Sharpe is flat in f, so margin buys tail risk and nothing else.
+
+### Costs at IBKR Pro Fixed (why this account type is fine)
+Fixed tier: $0.005/share, $1 min, ~0.35 bp regulatory on sells. At the
+reference sleeve ($150K, ~950 shares at $158): ≈ $4.75/side commission
++ ≈ $4.30 SEC/TAF on the sell ⇒ **≈ $14 ≈ 0.9 bp per round trip**. With
+~3.1 fills/day that is ~3 bp/day of commission against a 59.6 bp/day
+gross edge (~5%). Spread cost: entries and targets are resting limits
+(earn or neutral); stops and EOD flattens cross the spread (~0.6
+bp/side at a 1¢ spread). Realistic all-in drag ≈ 4–7 bp/day ⇒ **expected
+net ≈ 52–56 bp per traded day**. Cost scales DOWN with account size
+(the $1 minimums stop binding); below ~$20K/trade the minimums start to
+bite — this sleeve should not run under ~$25K for cost as well as PDT
+reasons.
+
+### Standing prohibitions (each closed by a test, not by taste)
+1. No trading before 11:00 (V5 — and the 09:35 mirage was a sim bug).
+2. No entries on OR30-filtered or gate-off days (V9/V10 — the edge on
+   those days is negative, not merely smaller).
+3. No shorts, in any wrapper, including SOXS (V8 — −17.7 bp/day under
+   honest fills; SSR binds 16.6% of gated days anyway).
+4. No overnight positions (V6 — priced and rejected on role).
+5. No third stop, no "one more trade" past the counters (V7/V11).
+6. No leverage (V11-T5).
+
+### Monitoring (live vs. backtest)
+Log every fill. Weekly, compare: fills/day (expect ≈ 3–3.5 on ON days),
+target-hit share (expect ≈ 75–80%), net bp/traded-day (expect ≈ 50s
+with wide variance — single weeks prove nothing). Investigate structural
+breaks, not noise: a month of fill counts far off the expectation means
+the market or the execution, not luck, has changed. Re-run the
+walk-forward yearly with the new data before re-committing capital.
 
 ## 3. Should we build a big combinatorial search engine?
 
