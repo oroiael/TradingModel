@@ -1,0 +1,8 @@
+scenario,P_dd_lt_30_pct,P_dd_lt_20_pct,median_dd_pct,median_yr_ret_pct,p5_yr_ret_pct
+gross f=1.00,14.5,61.5,-21.7,355.0,114.0
+gross f=0.67,1.3,18.0,-14.9,180.0,69.0
+gross f=0.50,0.1,3.3,-11.2,121.0,50.0
+gross pyramid,4.3,37.7,-17.7,141.0,40.0
+conserv f=1.00,26.7,74.5,-24.9,201.0,39.0
+conserv f=0.67,3.4,33.0,-16.9,117.0,31.0
+conserv f=0.50,0.5,9.1,-12.9,80.0,23.0

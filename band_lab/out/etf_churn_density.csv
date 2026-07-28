@@ -1,0 +1,3 @@
+symbol,median_range_%,scale_k,swings_1pct_mean,swings_1pct_median,swings_2pct_mean,zero_swing_days_%,gate_matched_%,gate6_ON_rate_%
+SOXL,6.67,1.0,15.0,14,5.9,0.0,6.71,66.9
+SOXS,6.79,1.017,15.3,14,5.9,0.0,6.83,68.7

@@ -1,0 +1,8 @@
+final_equity,total_ret_pct,cagr_pct,max_dd_pct,avg_deployed_pct,wins,stalls,soxs_pnl,test,target,stall,mode
+679479.0,353.0,40.0,-75.8,72.8,819,130,0.0,sizing=half_cash,2.0,4,none
+823597.0,449.1,46.1,-81.8,84.7,802,127,0.0,sizing=eq4,2.0,4,none
+728129.0,385.4,42.1,-71.4,63.1,819,130,0.0,sizing=eq6,2.0,4,none
+294905.0,96.6,16.2,-89.5,96.1,522,85,0.0,sizing=full,2.0,4,none
+2045422.0,1263.6,54.6,-77.9,72.8,1041,175,0.0,full_history,2.0,4,none
+2212675.0,1375.1,56.7,-77.0,74.6,564,201,0.0,full_history,4.0,4,none
+1894865.0,1163.2,52.7,-78.2,73.2,887,180,0.0,full_history,2.5,4,none

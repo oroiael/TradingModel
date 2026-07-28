@@ -1,0 +1,5 @@
+variant,bp_ON_day,cal_cagr_pct,max_dd_pct,episode_dd_pct,avg_f
+baseline f=1,66.6,118.5,-36.5,-36.5,1.0
+R1 half after 2 losses,61.2,105.2,-35.4,-35.4,0.94
+R2 half after 1 loss,49.7,79.5,-29.4,-29.4,0.82
+R3 half in -10% trailing DD,63.1,109.8,-37.0,-37.0,0.96
