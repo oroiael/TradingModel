@@ -292,7 +292,10 @@ pre-paid knowingly.
   Sharpe is flat in f, so margin buys tail risk and nothing else.
 
 ### Costs at IBKR Pro Fixed (why this account type is fine)
-Fixed tier: $0.005/share, $1 min, ~0.35 bp regulatory on sells. At the
+Confirmed against the published IBKR schedule (uploaded 2026-07-28):
+Fixed = $0.005/share, **$1.00 min per order, max 1% of trade value**
+(never binds at our sizes), exchange/clearing bundled, regulatory fees
+(SEC + FINRA TAF, sells only) passed through — ~0.35 bp. At the
 reference sleeve ($150K, ~950 shares at $158): ≈ $4.75/side commission
 + ≈ $4.30 SEC/TAF on the sell ⇒ **≈ $14 ≈ 0.9 bp per round trip**. With
 ~3.1 fills/day that is ~3 bp/day of commission against a 59.6 bp/day
@@ -302,7 +305,10 @@ bp/side at a 1¢ spread). Realistic all-in drag ≈ 4–7 bp/day ⇒ **expected
 net ≈ 52–56 bp per traded day**. Cost scales DOWN with account size
 (the $1 minimums stop binding); below ~$20K/trade the minimums start to
 bite — this sleeve should not run under ~$25K for cost as well as PDT
-reasons.
+reasons. Aside: at this sleeve's ~125K shares/month, IBKR Pro **Tiered**
+($0.0035/share bracket) with maker rebates on the resting entry/target
+limits could shave the commission line further — an optional account
+optimization, not a requirement; all published numbers assume Fixed.
 
 ### Standing prohibitions (each closed by a test, not by taste)
 1. No trading before 11:00 (V5 — and the 09:35 mirage was a sim bug).
