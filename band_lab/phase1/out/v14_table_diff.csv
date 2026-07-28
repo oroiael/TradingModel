@@ -1,0 +1,5 @@
+table,shape_ref,shape_built,status
+v14_costs,"(2, 9)","(2, 9)",IDENTICAL
+v14_plateau,"(9, 5)","(9, 5)",IDENTICAL
+v14_walkforward,"(5, 2)","(5, 2)",IDENTICAL
+v14_capital_rule,"(3, 5)","(3, 5)",IDENTICAL

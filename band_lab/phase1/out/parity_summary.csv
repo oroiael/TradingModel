@@ -1,0 +1,3 @@
+sleeve,ref_days,cleanroom_days,common_days,days_only_in_research,days_only_in_cleanroom,max_abs_diff,days_over_tol,PASS
+SOXL,787,787,787,0,0,4.163336342344337e-16,0,True
+SOXS,801,801,801,0,0,3.885780586188048e-16,0,True

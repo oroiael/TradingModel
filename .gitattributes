@@ -17,3 +17,4 @@ blend_results.csv -filter -diff -merge text
 drift_lab/out/*.csv -filter -diff -merge text
 cycle_lab/out/*.csv -filter -diff -merge text
 band_lab/out/*.csv -filter -diff -merge text
+band_lab/phase1/out/*.csv -filter -diff -merge text
