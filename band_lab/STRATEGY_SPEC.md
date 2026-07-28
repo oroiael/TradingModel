@@ -58,7 +58,7 @@ config-selection OOS retained ~83% of in-sample edge). Code:
 | V7 | trade cap | 5/day | swept 1–10; Sharpe peak at 5 | **tested & confirmed** |
 | V8 | direction | long only | full program; short −17.7 bp honest fills; SSR 16.6% | **tested & closed** |
 | V9 | day filter | skip OR30 > trailing 80th pct **unless 10:00 in top ⅓ of OR** | full program; boundary plateau-confirmed; direction rule +4.6 bp WF 5/5 | **tested & refined** |
-| V10 | vol gate | ATR5 ≥ 6% | quartiles + thresholds + WF; ramp rejected (V11-T6) | **tested** — lookback/hysteresis open |
+| V10 | vol gate | ATR5 ≥ 6% (5d, cliff, SOXL input) | full program: cutoff/lookback/form/input/hysteresis all confirmed; U-shape closed as era-noise | **tested & confirmed** |
 | V11 | sizing | flat f; **2-stop breaker**; pyramid for half-capital | six-test program + bootstrap | **tested & adopted** |
 | V12 | sleeve role | day sleeve = core | four splits; WF (core robust, satellite fragile) | **tested** |
 | — | engine | prior-bar trigger, next-bar target | lookahead bug found & fixed in V5 | **corrected** |
@@ -167,17 +167,19 @@ config-selection OOS retained ~83% of in-sample edge). Code:
   (+113.5 bp, n=54) — "skip only bottom-third mornings" may be the
   fuller rule.
 
-### V10. Regime gate — **trade only when ATR5 ≥ 6%** (known before open)
-- Role: the largest single discovery: the edge by ATR5 quartile is
-  −9 / +30 / +20 / +51 bp/day. Quiet tape = no edge; the churn income IS
-  the vol.
-- Tested: quartile decomposition + 6% and 8% absolute thresholds
-  (`regime_gate.csv`). 6% robust (7/7 years positive in-sample, survived
-  walk-forward); 8% doubles bp/day but on 168 days with negative years —
-  flagged overfit-prone.
-- Untested: ATR lookback (5d fixed), relative gates (ATR5 vs its own
-  percentile instead of absolute 6%), alternative vol inputs (overnight
-  gap vol, SOX index vol, VIX), gate hysteresis (enter at 6%, exit at 5%).
+### V10. Regime gate — **ATR5 ≥ 6% — fully confirmed** (V10 program)
+- Role: the largest single discovery: quiet tape = no edge; the churn
+  income IS the vol.
+- Tested (full program, `V10_GATE_TESTS.md`): cutoff 6.0 retained
+  (Sharpe standard; **5.5 recorded as the calendar-growth setting** —
+  127%/yr calendar CAGR vs 118.5%, −0.24 Sharpe); 5-day lookback
+  confirmed after exposing a matched-rate artifact that flattered
+  ATR10; percentile and vol-expansion forms rejected (calendar returns
+  collapse); **SOXX-derived gate selects 777/787 identical days** —
+  the signal is sector vol, validated as a fallback input; hysteresis
+  rejected by standard; the U-shaped Sharpe anomaly closed as era-noise;
+  burst-onset hypothesis refuted (episode LAST days are the strongest,
+  +80.6 bp — the edge peaks as bursts fade).
 
 ### V11. Per-trade sizing — **flat fraction, 2-stop circuit breaker**
 - Tested: full six-test program (`V11_SIZING_TESTS.md`,

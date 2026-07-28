@@ -131,6 +131,62 @@ downside:** none — reverts to the 6%/5d cliff.
 
 **Recommended order: T1 → T2 → T3 → T4 → T5.**
 
+---
+
+# RESULTS (run 2026-07-28, `v10_gate_tests.py` → `out/v10_results.csv`,
+# `out/v10_fine_map.csv`; V9-refined baseline 65.6 bp / Sharpe 3.09)
+
+**Headline: the incumbent gate — ATR5 ≥ 6.0%, 5-day lookback, absolute
+cliff, SOXL-derived — survives every test. V10 is the first program
+where every knob passes its audit unchanged.**
+
+**T1 — the U-shape is noise, not structure.** The fine map's mid-vol
+trough flips sign between era halves (ATR 8–9 bin: −71 bp in 2020–22,
++62 bp in 2023–26); the only era-stable feature is the one the gate
+already encodes — weak/negative below ~6, positive above. The U-shape
+question is closed as unactionable.
+
+**T2 — cutoff 6.0 retained; 5.5 documented as the growth alternative.**
+Per-day edge rises monotonically with the cutoff (81 bp at ≥8) but
+calendar compounding peaks LOW: the new calendar-CAGR column shows 5.5
+compounds best (127%/yr vs 118.5% at 6.0) by buying 129 more ON-days at
+~+22 bp each, at a cost of −0.24 Sharpe. By the prespecified Sharpe
+standard 6.0 stands; **ATR5 ≥ 5.5 is recorded as a legitimate
+growth-oriented setting** for an account prioritizing calendar
+compounding over per-day quality.
+
+**T3 — relative forms rejected; the gate is sector vol.** Percentile and
+vol-expansion forms post high per-day Sharpe on so few days that
+calendar returns collapse (34–61%/yr). The input-source test is the
+finding: a SOXX-derived gate (×3) selects **777 of the incumbent's 787
+days** and scores identically (65.1 vs 65.6 bp) — the gate measures the
+semiconductor sector's vol regime, not SOXL quirks, making it robust to
+instrument-specific data issues.
+
+**T4 — ATR5 lookback confirmed; the ATR10 "win" was an artifact.** At
+full-sample-matched ON-rates ATR10 looked better (Sharpe 3.28), but
+with honest fixed cutoffs ATR10 ≥ 6.0 scores 63.9/2.98 vs the
+incumbent's 65.6/3.09, the walk-forward drifts back to the incumbent by
+2024, and the day-overlap shows a ~100-for-68 day swap with no mean
+advantage. A textbook case of why matched-rate comparisons need a
+fixed-cutoff re-test before believing them.
+
+**T5 — whipsaw benign; burst-onset hypothesis REFUTED; hysteresis
+rejected.** 29 transitions/yr, median ON-episode 5 days. Edge by
+position in episode: first days are the WEAKEST (47.9 bp), last days the
+STRONGEST (80.6 bp) — the dip-buy earns most as a vol burst fades, the
+opposite of the burst-onset-alpha guess, and consistent with
+mean-reversion after climax. Hysteresis (on 6 / off 5) dilutes with
+sub-6 days (Sharpe 2.77) — rejected by standard; available as
+operational polish if desk whipsaw ever becomes a practical problem.
+
+## Decisions
+1. Gate unchanged in every dimension: **ATR5 ≥ 6.0, 5-day lookback,
+   absolute cliff, SOXL input.** V10 closed.
+2. Recorded, not adopted: ATR5 ≥ 5.5 as the calendar-growth setting;
+   SOXX-derived gate as a validated fallback input; hysteresis as
+   optional operational polish.
+
 **Aggregate bounds:** best case — a slightly lower or faster gate adds
 10–15% more ON-days (calendar compounding) and/or +2–4 bp/day, the
 U-shape is explained as burst-onset alpha, and the gate gains an
