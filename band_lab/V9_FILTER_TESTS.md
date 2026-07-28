@@ -123,6 +123,62 @@ sentence computable at 10:00 with no lookahead.
 
 **Recommended order: T1 → T2 → T3 → T4 → T5.**
 
+---
+
+# RESULTS (run 2026-07-28, `v9_filter_tests.py` → `out/v9_results.csv`,
+# `out/v9_decile_map.csv`; corrected engine, trailing thresholds only)
+
+**T1 — the edge does NOT die with OR30 size.** Decile map (gate-on,
+unfiltered): deciles 5–8 earn 56–83 bp; even decile 10 is positive
+(+28.7 bp, Sharpe 0.94). Size alone was never the mechanism — a first
+hint that the filter was throwing away good days for a bad reason.
+
+**T2 — the 80th percentile is on a genuine plateau.** pct60–pct80 span
+Sharpe 3.30–2.98 with pct80's neighbors within noise; no-filter scores
+50.5 bp / 2.20, so the filter family earns its keep. Boundary confirmed.
+
+**T3 — alternative forms all lose.** Absolute (OR30 < 4–7%) and
+ATR-relative (OR30 < k×ATR5) both underperform the trailing-percentile
+form across their grids (best challenger Sharpe 3.05 vs 2.98 with fewer
+days and no year-table advantage). The theoretically-pretty ATR-relative
+form was the program's biggest disappointment: 2.23–2.37 everywhere.
+Percentile form retained.
+
+**T4 — ADOPTED: direction-aware filter.** The conditional split on the
+306 currently-filtered days is night and day:
+
+| cohort (10:00 close position in OR) | n | mean | Sharpe |
+|---|---:|---:|---:|
+| up-morning (top third) | 129 | **+89.3 bp** | +3.58 |
+| mid | 54 | +113.5 bp | +3.60 |
+| down-morning (bottom third) | 123 | **−66.2 bp** | −2.40 |
+
+The filter's entire value is the down-mornings; violent UP mornings are
+among the best dip-buying days in the sample. The prespecified rule —
+**skip only if OR30 ≥ trailing 80th pct AND the 10:00 print sits in the
+bottom two-thirds of the opening range** — scores 65.6 bp/day, Sharpe
+3.09, +129 traded days/sample, worst day unchanged at −8.0%, year table
+consistent (38.5–86.7 bp). The T5 walk-forward picked it over every
+rival in all 5 years (OOS 67.0 bp, Sharpe 3.09), and the overlap
+analysis confirms the mechanism: it re-admits exactly the 129 up-morning
+days at +89.3 bp mean and drops nothing.
+
+**T5 extras.** Recompute cadence is a non-issue (monthly/quarterly/
+annual within 61–65 bp, Sharpe 3.03–3.21) — the form is robust, monthly
+stands. Post-hoc observation recorded but NOT adopted: the mid cohort
+(+113.5 bp, n=54) suggests re-admitting mid-mornings too ("skip only
+bottom-third mornings") — that rule was not prespecified, so it goes to
+the next annual walk-forward review, not into the spec.
+
+## Decisions
+1. Boundary 80th percentile: **confirmed** (plateau).
+2. Threshold form trailing percentile: **confirmed** (absolute and
+   ATR-relative rejected).
+3. **Direction-aware refinement adopted**: at 10:00, if OR30 ≥ threshold
+   but price sits in the top third of the opening range, trade the day
+   normally. +4.6 bp/day at equal tails.
+4. Recompute cadence monthly: confirmed robust.
+
 **Aggregate bounds:** best case — a re-tuned, possibly ATR-relative,
 possibly direction-aware filter re-admits 50–150 tradable days and adds
 ~2–6 bp/day with better regime robustness; realistic case — the boundary

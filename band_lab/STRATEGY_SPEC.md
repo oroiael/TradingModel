@@ -22,8 +22,11 @@ Status: **core strategy** as of 2026-07-28. Multi-day cycle strategy
 
 ## 0. Locked definition
 
-> On days when trailing 5-day average range (ATR5) ≥ 6% and the opening
-> 30-min range is not in the top quintile: starting at **11:00** (V5
+> On days when trailing 5-day average range (ATR5) ≥ 6% and the day is
+> not filtered out (opening 30-min range in the top quintile AND the
+> 10:00 print below the top third of that range — V9 program: violent
+> up-mornings trade normally, violent down/mid mornings stand down):
+> starting at **11:00** (V5
 > program, corrected engine — plateau 10:30–11:30, 11:00 best: 59.6
 > bp/day, Sharpe 2.87, walk-forward-supported), place a limit buy 1%
 > below the intraday rolling high (prior bars only); on fill, exit at
@@ -54,7 +57,7 @@ config-selection OOS retained ~83% of in-sample edge). Code:
 | V6 | EOD exit | flat at close | full program; overnight +17–26 bp REJECTED on role | **tested & held** — gap premium priced |
 | V7 | trade cap | 5/day | swept 1–10; Sharpe peak at 5 | **tested & confirmed** |
 | V8 | direction | long only | full program; short −17.7 bp honest fills; SSR 16.6% | **tested & closed** |
-| V9 | day filter | skip OR30 > trailing 80th pct | filter family tested; boundary unswept | **partially tested** |
+| V9 | day filter | skip OR30 > trailing 80th pct **unless 10:00 in top ⅓ of OR** | full program; boundary plateau-confirmed; direction rule +4.6 bp WF 5/5 | **tested & refined** |
 | V10 | vol gate | ATR5 ≥ 6% | quartiles + thresholds + WF; ramp rejected (V11-T6) | **tested** — lookback/hysteresis open |
 | V11 | sizing | flat f; **2-stop breaker**; pyramid for half-capital | six-test program + bootstrap | **tested & adopted** |
 | V12 | sleeve role | day sleeve = core | four splits; WF (core robust, satellite fragile) | **tested** |
@@ -148,15 +151,21 @@ config-selection OOS retained ~83% of in-sample edge). Code:
   half-capital risk-budget config — 35.5 bp/day, Sharpe 2.60, +58% over
   flat f=0.5 at the same capital ceiling, positive all 7 years.
 
-### V9. Day filter — **skip OR30 top-quintile days** (threshold = trailing
-80th percentile, known by 10:00)
-- Role: removes days carrying the excursion signature (trend days the
-  dip-buy would fight all day).
-- Tested: none / orq5 / gap2 (|gap|>2%) / orq5+gap2 / orq5+excursion-lag
-  across the whole grid. orq5 and gap2 are near-substitutes (both proxy
-  "violent morning"); walk-forward alternated between them, both worked
-  OOS. The 80th-percentile boundary itself was never swept, nor was
-  combining with the 1.9×OR30 range forecast for position sizing.
+### V9. Day filter — **direction-aware OR30 filter** (adopted 2026-07-28)
+- Rule: skip the day only if OR30 ≥ trailing 80th percentile AND the
+  10:00 print sits below the top third of the opening range.
+- Tested: full program (`V9_FILTER_TESTS.md`). Boundary 80 confirmed on
+  a plateau (60–80 within noise; no-filter clearly worse); absolute and
+  ATR-relative threshold forms rejected; recompute cadence robust.
+  The decile map showed OR30 *size* was never the mechanism — the
+  conditional split found the filtered days divide into up-mornings
+  (+89.3 bp, Sharpe 3.58) and down-mornings (−66.2 bp, Sharpe −2.40),
+  so direction, not violence, is what the filter was proxying.
+  Refinement walk-forward-picked 5/5 years: 65.6 bp/day, Sharpe 3.09,
+  +129 traded days, worst day unchanged. Recorded for next annual
+  review (not adopted, post-hoc): mid-morning cohort is also positive
+  (+113.5 bp, n=54) — "skip only bottom-third mornings" may be the
+  fuller rule.
 
 ### V10. Regime gate — **trade only when ATR5 ≥ 6%** (known before open)
 - Role: the largest single discovery: the edge by ATR5 quartile is
@@ -227,15 +236,18 @@ Compute **ATR5** = average over the last 5 completed sessions of
   regimes it stays ON for weeks — e.g. 13.9% at the data's last date.)
 - Scheduled half-days (early closes): treat as OFF.
 
-### Step 2 — 10:00 checkpoint: opening-range filter
+### Step 2 — 10:00 checkpoint: opening-range filter (direction-aware)
 Compute **OR30** = (High − Low of 09:30–10:00) / 09:30 Open × 100.
 Compare to the **trailing 80th percentile** of OR30 (recompute monthly
 from the last 2 years; currently ≈ **5.4%**).
-- OR30 above the threshold → **stand down for the day** (this is the
-  trend/excursion-day signature; the dip-buy would fight it all day).
-- Otherwise proceed. Do NOT trade between 09:30 and 11:00 regardless —
-  the morning is observation only (it builds the session high the
-  trigger hangs from).
+- OR30 below the threshold → proceed (normal day).
+- OR30 at/above the threshold → check WHERE the 10:00 print sits inside
+  the 09:30–10:00 range: **top third → proceed** (violent up-mornings
+  are among the best dip-buy days: +89 bp mean, V9 program); **middle or
+  bottom third → stand down for the day** (down-morning violence is the
+  one cohort with genuinely negative edge, −66 bp).
+- Do NOT trade between 09:30 and 11:00 regardless — the morning is
+  observation only (it builds the session high the trigger hangs from).
 
 ### Step 3 — 11:00 activation: the resting entry order
 - Let **H** = the session high so far (09:30 → now, RTH prints only).
