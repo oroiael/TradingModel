@@ -1,0 +1,118 @@
+========================================================================
+1. THE DAILY BAND
+========================================================================
+daily high-low range: median 6.7%  IQR 4.9-9.1%  90th pct 12.2%
+
+by year:
+year
+2020    5.1
+2021    5.9
+2022    9.3
+2023    6.1
+2024    6.3
+2025    6.1
+2026    8.5
+
+at the last close ($158) the median band is $11 wide, 90th pct $19
+
+harvestable churn (completed swings/day, 6-yr avg):
+  >=1% swings: mean 15.0/day  median 14  (days with 0: 0%)
+  >=2% swings: mean 5.9/day  median 5
+
+>=1% swings per day by year:
+year
+2020    10.8
+2021    11.8
+2022    21.4
+2023    12.9
+2024    14.5
+2025    14.0
+2026    19.6
+
+median fraction of the day's final range already set by:
+  10:00:00: 56%
+  10:30:00: 68%
+  11:30:00: 82%
+  13:00:00: 93%
+  15:00:00: 100%
+
+most volatile 5-min buckets: 09:35:00 (0.84%), 09:40:00 (0.77%), 09:45:00 (0.75%), 10:00:00 (0.66%)
+
+========================================================================
+2. SIGNALS FOR TODAY'S BAND WIDTH
+========================================================================
+corr with today's range:  |atr5| 0.51  |gap_pct| 0.30  |or30_pct| 0.62
+
+opening-30-min range quintile -> the day (medians):
+      or30_med  day_range_med  mult    zz1  trend_share
+or_q                                                   
+1         2.06           4.73  2.29  10.12         0.27
+2         2.81           5.55  1.98  12.64         0.28
+3         3.44           6.30  1.83  14.45         0.30
+4         4.30           7.93  1.84  16.48         0.32
+5         5.88          10.18  1.73  21.59         0.31
+
+rule of thumb: day range ~= 1.9 x opening-30-min range (median multiplier)
+
+|overnight gap| quartile -> day range / churn:
+       gap_med  range_med    zz1
+gap_q                           
+1         0.54       6.09  13.08
+2         1.65       6.31  13.51
+3         3.04       6.40  14.84
+4         5.78       8.11  18.79
+
+========================================================================
+3. EXCURSIONS: STEEP DROPS/CLIMBS AND THEIR CLUSTERING
+========================================================================
+'excursion day' = steepest 30-min move >= 5.5% (top decile)
+/home/user/TradingModel/band_lab/band_analysis.py:149: UserWarning: Could not infer format, so each element will be parsed individually, falling back to `dateutil`. To ensure parsing is consistent and as-expected, please specify a format.
+  tt = pd.to_datetime(daily.loc[daily["excursion"], "steep30_time"].astype(str))
+
+when the steep move happens (excursion days):
+steep30_time
+10    58%
+11    14%
+12     5%
+13     4%
+14     3%
+15    16%
+
+P(excursion day) unconditional: 10%
+P(excursion | excursion yesterday): 32%
+P(excursion | excursion in last 5 days): 21%
+
+high-vol day = range > 1.5x trailing 63d median (17% of days)
+P(high-vol | high-vol yesterday): 38%  (clustering vs 17% base)
+burst lengths: median 1d, 75th 1d, max 11d
+
+densest high-vol bursts (>= high-vol days in trailing 10 sessions):
+  around 2021-03-05: 9/10 days high-vol
+  around 2021-12-06: 10/10 days high-vol
+  around 2022-01-21: 9/10 days high-vol
+  around 2025-03-11: 9/10 days high-vol
+  around 2025-04-11: 9/10 days high-vol
+  around 2025-11-25: 9/10 days high-vol
+
+|gap| on excursion days: median 3.1% vs 2.2% normal
+OR30 on excursion days: median 5.7% vs 3.3% normal
+
+========================================================================
+4. PROTOTYPE: HARVEST THE CHURN, STAY SAFE ON BREAKOUTS
+========================================================================
+day plan, all in % of capital-per-trade (no compounding, no costs):
+  fade trades: 2179 (1.44/day), day-level win rate 39%
+  fade edge:  mean -1.10%/day  annual sum ~-278%
+  breakout rides: 745 days (49%), mean ride +0.27%
+  combined:  mean -0.97%/day
+
+by year (mean %/day):
+      fade_pnl  bo_pnl  both_pnl
+date                            
+2020     -0.85    0.07     -0.78
+2021     -1.07    0.30     -0.77
+2022     -1.78    0.18     -1.60
+2023     -0.68    0.21     -0.47
+2024     -0.95   -0.05     -1.00
+2025     -1.05    0.09     -0.96
+2026     -1.31    0.07     -1.24
