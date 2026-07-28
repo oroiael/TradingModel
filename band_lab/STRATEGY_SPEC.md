@@ -50,7 +50,7 @@ config-selection OOS retained ~83% of in-sample edge). Code:
 | var | parameter | final value | program / evidence | status |
 |---|---|---|---|---|
 | V1 | dip depth | 1% (fixed) | swept 1–3%; adaptive rejected (V1/V3 program: no migration) | **tested & confirmed** |
-| V2 | entry anchor | session rolling high (prior bars) | vs failed band-edge fade; corrected engine | **tested** — VWAP/windowed anchors open |
+| V2 | entry anchor | session rolling high (prior bars) | full program: windowed/VWAP/prior-close/reset all rejected; instant re-entry measured at +47.9 bp/day (~73% of edge) | **tested & confirmed — register complete** |
 | V3 | profit target | +1% (next-bar fills) | swept 1–2%; adaptive rejected on mechanism + OOS | **tested & confirmed** |
 | V4 | stop | −4% **absolute** | swept 2/3/4% twice; scaled-stop test broke worst-day (−20%) — it's the absolute, not the ratio | **tested & confirmed** |
 | V5 | start time | **11:00** | full program; plateau 10:30–11:30; WF OOS 60.6 bp | **tested & moved** (was 10:30) |
@@ -77,15 +77,18 @@ config-selection OOS retained ~83% of in-sample edge). Code:
   scales with the day's band); depth below 1% (needs 1-min data — 5-min
   bars can't resolve sub-1% triggers cleanly).
 
-### V2. Entry anchor — **rolling intraday high since the open**
-- Role: what a "dip" is measured from. Includes the pre-10:30 high.
-- Tested: only implicitly — the failed control (`band_analysis.py` §4)
-  anchored to the opening-range *low* (buy a static band edge) and lost
-  −1.1%/day, vs +43.5 bp for the rolling-high anchor. That comparison is
-  the single strongest structural result so far: **buy pullbacks in an
-  advancing/flat tape, never catch the falling band edge.**
-- Untested: VWAP anchor, previous-close anchor, rolling high over last N
-  bars only (forgetting the morning), midpoint anchors.
+### V2. Entry anchor — **rolling session high — confirmed, mechanism known**
+- Tested (full program, `V2_ANCHOR_TESTS.md`): windowed highs (1–3h),
+  VWAP references (0.5–1.5% below), prior-close, and reset-after-exit
+  anchors ALL rejected — the more an anchor forgets the session high,
+  the worse it does (monotone). Walk-forward picked the incumbent 4/5
+  years. T1 anatomy: every entry-depth bucket is profitable; the
+  1–4%-below-anchor re-entries are the BEST trades (31–33 bp/trade).
+- **Mechanism (the audit's central finding): instant re-entry below the
+  standing session high is worth +47.9 bp/day of the core's 65.6.** The
+  strategy is properly described as "on gated days, stay long below the
+  session high in +1% increments, with the 2-stop breaker as the escape
+  hatch" — the 1% dip is the cadence, not the edge.
 
 ### V3. Profit target — **+1%** from entry
 - Tested: 1 / 1.5 / 2%. 1% best after gating; 1.5% close (picked once in

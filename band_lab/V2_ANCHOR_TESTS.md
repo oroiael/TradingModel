@@ -125,6 +125,55 @@ order maintenance like the current ratchet).
 
 **Recommended order: T1 → T2 → T3 → T4 → T5.**
 
+---
+
+# RESULTS (run 2026-07-28, `v2_anchor_tests.py` → `out/v2_results.csv`,
+# `out/v2_anatomy.csv`)
+
+**Verdict: incumbent session-high anchor confirmed — and the program's
+T4 probe produced the single most important mechanism number in the
+whole audit: instant re-entry is worth +47.9 bp/day, ~73% of the
+strategy's edge.**
+
+**T1 — the quirk is the feature.** Every entry-depth bucket is
+profitable; the 1–4%-below-anchor entries (the "re-entries on fade
+days") carry the BEST per-trade edge (30.9–32.9 bp, 76–77% target rate),
+deep >4% entries remain positive (13.5 bp at a 14% stop rate), and the
+"true 1% dips" are the weakest per-trade (12.8 bp) though most numerous.
+The never-decaying anchor is not sloppy engineering — it is how the
+strategy stays exposed below a standing high.
+
+**T2–T4 — every rival loses, most of them badly.**
+
+| anchor | bp/day | Sharpe | trades/day |
+|---|---:|---:|---:|
+| **session high (incumbent)** | **65.6** | **3.09** | 3.17 |
+| windowed 3h / 2h / 1h | 59.9 / 51.6 / 37.1 | 2.87 / 2.51 / 1.85 | ~3 |
+| VWAP −0.5 / −1 / −1.5% | 30.4 / 27.3 / 14.7 | ≤1.76 | 1.4–2.0 |
+| prior close | 42.6 | 2.55 | 1.66 |
+| reset-after-exit | 17.7 | 1.00 | 2.80 |
+
+The pattern is monotone: the more an anchor "forgets" the session high
+(shorter windows, value references, resets), the worse it does. The
+walk-forward picked the incumbent in 4 of 5 years (OOS 65.4 bp, Sharpe
+3.03 ≈ the incumbent itself).
+
+**T4's number reframes what the strategy is.** Reset-after-exit — the
+incumbent minus instant re-entry, nothing else changed — collapses to
+17.7 bp/day. So the honest description of the core is no longer "buy 1%
+dips": it is **"on gated days, stay long below the session high,
+harvesting +1% increments, with a 2-stop circuit breaker as the escape
+hatch."** The 1% dip is the entry *cadence*; the willingness to re-enter
+immediately below a standing high is the engine. This also explains why
+V6 found the truncated positions mean-revert (they are the same
+below-the-high exposure carried to the bell) and why the V11 escalation
+exists (later trades sit deeper below the anchor).
+
+## Decisions
+1. V2 session-high anchor: **confirmed**; all rivals rejected. V2 closed.
+2. Mechanism documented: instant re-entry = +47.9 bp/day of the 65.6.
+3. **The variable register is now fully audited** — twelve of twelve.
+
 **Aggregate bounds:** best case — a rival anchor adds ~2–4 bp/day with a
 named mechanism (fade-day stale-anchor fix) and stays executable as
 pegged orders. Realistic case — the incumbent wins or ties everywhere,
