@@ -456,14 +456,87 @@ holding exactly as designed on a different instrument. That is
 consistent with the mechanism generalising, but n=63 concentrated in one
 bear market proves nothing on its own.
 
-**The obvious next test (deferred by instruction, sized here):** a
-percentile-matched gate. SOXL's 6% threshold admits 52% of its days; the
-SPXL ATR5 threshold that admits the same 52% is **2.94%**, which would
-yield **782 ON days** — a proper sample. That single change converts
-this from an untestable transfer into a real one. Whether the edge
-survives at SPXL's lower swing density is the open question, and it
-should be answered with the full protocol (walk-forward, plateau,
-mechanism) rather than by a single threshold swap.
+### 9.1 Vol-scaled SPXL cells — EXPLORATORY, NOT ADOPTED
+
+`spxl_scaling_test.py` → `out/spxl_scaling.csv`. Scaling factor: SPXL
+median range 2.92% / SOXL 6.67% = 0.44. Two independent derivations of
+the gate agree (6.0 × 0.44 = 2.6; percentile-matched = 2.94). Two knobs,
+commonly conflated: the **gate** decides WHICH DAYS trade, the **dip**
+decides HOW MANY TRADES per day. SPXL needed both rescaled.
+
+| cell | gate | dip/tgt | ON days | trades/day | bp/ON-day | Sharpe | win% | maxDD | yrs + |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|
+| A locked (§9) | 6.00 | 1.0% | 63 | 2.84 | 30.5 | 1.34 | 66.7 | −17.0% | 4/5 |
+| B gate-scaled only | 2.94 | 1.0% | 549 | **1.73** | **4.5** | 0.33 | 51.0 | −31.1% | 3/6 |
+| **C gate + dip scaled** | 2.94 | **0.5%** | 549 | **3.07** | **14.1** | 1.03 | 59.2 | −25.4% | 4/6 |
+| D fully scaled (stop 2%) | 2.94 | 0.5% | 549 | 3.31 | 12.9 | 1.05 | 61.7 | −25.4% | 4/6 |
+| SOXL reference | 6.00 | 1.0% | 787 | 3.17 | **65.6** | **3.09** | 63.7 | −36.5% | 6/6 |
+
+**The 0.5% dip was necessary and correct.** Cell B — rescaling only the
+gate — produced almost nothing (4.5 bp, Sharpe 0.33) because the 1% trigger
+starved the cadence to 1.73 trades/day. Halving the dip restored cadence to
+3.07/day (SOXL runs 3.17) and **tripled the edge** to 14.1 bp. A resolution
+check confirms this is not a 5-minute-bar artifact: same-bar exits 1.5% and
+within-one-bar 26.7% for cell C, versus 1.1% / 25.5% for SOXL at 1% levels —
+the tighter levels are proportionally no coarser, because SPXL's bars are
+proportionally smaller.
+
+**But the transferred edge is weak.** Even correctly scaled, SPXL delivers
+**21% of SOXL's bp/day at a third of the Sharpe** (1.03 vs 3.09), with the
+most recent year negative in every cell (2026: −37 to −38 bp).
+
+### 9.2 Should capital be allocated to SPXL? — the data says no
+
+The transfer test is already **fully signal-independent**: SPXL uses its own
+ATR5, its own trailing OR30 percentile, its own session high. No SOXL signal
+enters it. The only thing borrowed was the constant (6%), now rescaled. So
+the question is purely portfolio: is an independent SPXL sleeve worth
+funding? Three measurements say no.
+
+**(1) Splitting capital is monotonically value-destroying** (both sleeves
+sized to their own allocation; capital split, not duplicated):
+
+| w SOXL / w SPXL | bp/calendar-day | Sharpe | maxDD | CAGR |
+|---|---:|---:|---:|---:|
+| **1.00 / 0.00** | **35.7** | **2.26** | −36.5% | **133.7%** |
+| 0.90 / 0.10 | 32.7 | 2.23 | −34.6% | 118.3% |
+| 0.75 / 0.25 | 28.1 | 2.15 | −31.8% | 96.8% |
+| 0.50 / 0.50 | 20.5 | 1.91 | −26.8% | 64.5% |
+| 0.00 / 1.00 | 5.4 | 0.64 | −25.4% | 12.3% |
+
+Every dollar moved to SPXL lowers return *and* Sharpe. It does reduce
+drawdown — but **the f dial reduces drawdown far more cheaply**: 25% into
+SPXL buys maxDD −31.8% at Sharpe 2.15, whereas simply setting f=0.67 on
+SOXL alone gives −25.8% at Sharpe 3.09 (§6.8). Diversification that is
+dominated by turning your own size down is not diversification.
+
+**(2) The "independent" days are precisely the losing days.** This is the
+decisive finding for the question as asked:
+
+| SPXL days | n | mean | note |
+|---|---:|---:|---|
+| SOXL also ON | 445 | **+24.5 bp** | correlation with SOXL P&L **0.75** — a weaker, correlated copy |
+| **SOXL idle** | **104** | **−30.4 bp** | the genuine-diversification days: 53% win rate, **−31.6% of capital cumulatively** |
+
+SPXL's edge exists only when SOXL's regime is *also* hot. When the S&P is
+volatile but semis are calm — exactly the independence being proposed — the
+volatility is the wrong kind (slower and trendier rather than choppy), and
+the sleeve loses. Funding SPXL therefore buys correlated exposure on the
+good days and a negative-edge cohort on the independent ones.
+
+**(3) Standalone on separate capital**, SPXL earns 12.3% CAGR for a −25.4%
+drawdown (Sharpe 1.04). Positive expectancy, but a poor risk-reward for
+fresh capital, and not comparable to raising f on the proven sleeve.
+
+**Conclusion:** SPXL is not adopted, in any allocation. The mechanism
+partially transfers — which is genuine evidence that the SOXL edge is a
+volatility-churn phenomenon rather than a single-instrument artifact — but
+it does not transfer *strongly enough* to fund, and its independent days are
+negative. If additional capital ever needs deploying, the dial on the proven
+sleeve is the better instrument. Retesting SPXL with the full protocol
+(walk-forward, plateau, mechanism attribution) is only worth doing if the
+above conclusions are to be formally challenged; on these numbers it would
+be confirming a sleeve that is dominated before it starts.
 
 ## 8. Automation architecture (IBKR) — attended and unattended
 
@@ -612,6 +685,8 @@ conservative, flagged in STRATEGY_SPEC header):**
 **Transfer test (§9):**
 - `band_lab/transfer_test.py` — runs the locked rules verbatim on any
   `<SYM>_5min_6Years.csv` (SPXL run; FAS/TQQQ ready).
+- `band_lab/spxl_scaling_test.py` — vol-scaled SPXL cells, resolution
+  diagnostic, and the SOXL/SPXL overlap + portfolio analysis (§9.1–9.2).
 
 **Sizing verification (§6.7):**
 - `band_lab/sizing_verification.py` — exposure profile, exposure-matched
