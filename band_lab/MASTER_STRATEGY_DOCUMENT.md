@@ -224,6 +224,41 @@ Anyone uncomfortable with a −36.5% realized / −30%-per-year-near-coin-flip
 profile must run the half-capital per-unit pyramid variant (V11/V8) or
 the 25% SOXS overlay dial — not full size.
 
+### 6.6 Documented negatives: drawdown defenses tested and rejected
+
+Both tested 2026-07-28 after the §6.5 reconciliation; scripts in
+Appendix B, results in `out/put_overlay_curves.csv`, `out/v13_results.csv`.
+
+**Long-dated protective puts — rejected, mechanism decisive.** A rolling
+~180-DTE, 20%-OTM SOXL put overlay (real chains, ask/bid fills, sized to
+sleeve equity) made everything worse: CAGR 146→125%, **max DD −36.5% →
+−60.0%**, overlay cost ≈ −$634K/yr at compounded size, and it LOST a
+further $1.6M during the very drawdown it was meant to protect. Root
+cause: **SOXL rose +11.9% during the sleeve's worst drawdown** — the
+losing streaks are chop, not slides (corr of sleeve P&L with SOXL
+direction is only 0.4), so a put hedges a risk the sleeve does not have
+while paying 80–110% implied vol for it. Third independent confirmation
+that bought options are structurally unprofitable in this system
+(round-1 cycle puts, V8 short side, this).
+
+**Streak-based de-risking — rejected, and the measurement is the
+finding.** E[ON-day P&L | k prior consecutive losing days]: k=0 → 51 bp;
+k=1 → **96 bp (Sharpe 4.6)**; k=2 → 94 bp; k=3 → **151 bp**. The
+sleeve's own P&L mean-reverts: post-loss days are its BEST days, so any
+rule that cuts size after losses sells the recovery. All three
+prespecified rules confirmed it (halve-after-2-losses: −13 CAGR pts for
+1.1 DD pts; halve-after-1-loss: −39 CAGR pts for 7.1 DD pts;
+trailing-DD-trigger: strictly worse). None met the adoption bar.
+
+**Consequence — the completed risk story:** the worst day is capped by
+the breaker (−8%); losing streaks are neither predictable nor pruneable
+(their aftermath is the best edge in the book); therefore **the only
+legitimate drawdown controls are overall size (f, or the half-capital
+pyramid) and the 25% SOXS spot dial.** There is no clever overlay left
+untested; a validator should treat any proposed drawdown "fix" that
+de-risks after losses or buys optionality as pre-refuted by these two
+results unless it brings genuinely new evidence.
+
 ## 7. Double-check: verified, unverified, and items for third-party review
 
 **Verified in this work:**
@@ -412,6 +447,12 @@ conservative, flagged in STRATEGY_SPEC header):**
   conservative under the optimistic engine).
 - `band_lab/v5_start_time_tests.py` — V5 first pass (superseded by
   v5_corrected_rerun; retained as the bug-discovery record).
+
+**Drawdown-defense negatives (documented rejections, §6.6):**
+- `band_lab/put_overlay_test.py` — LEAP protective-put overlay (real
+  chains; rejected, made DD worse).
+- `band_lab/v13_streak_tests.py` — streak-based de-risking (rejected;
+  post-loss days are the best days).
 
 **Foundation research:**
 - `band_lab/band_analysis.py` — daily-band/excursion study + failed
