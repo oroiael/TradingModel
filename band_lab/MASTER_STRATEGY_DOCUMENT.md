@@ -7,30 +7,112 @@ loaders and the demoted satellite strategy).
 
 ---
 
-## 1. Executive summary
+## 1. Executive summary — in plain English
 
-The strategy trades SOXL (3x leveraged semiconductor ETF) long-only,
-intraday-only, on roughly half of all trading days — the days when the
-semiconductor sector's volatility regime is elevated. It buys 1%
-pullbacks below the session high, takes +1% profits, stops at −4%, quits
-after 2 stop-outs or 5 trades, and is always flat by the close.
+### What the trade is
 
-Backtested on 6 years of 5-minute bars (2020-07 → 2026-07):
-**65.6 bp per traded day gross, Sharpe 3.09, worst single day −8.0%**,
-with every one of its 12 rule parameters individually audited through
-prespecified test programs, walk-forward validation, and mechanism
-requirements. A conservative live expectation, after an out-of-sample
-haircut and IBKR Pro Fixed costs, is **~49 bp per traded day** — at
-$150,000 and full size that is **+$1,853/week on average but a median
-week of $0**, a 5th-percentile week of −$11,515, and ~1 week in 4 with
-no trading at all. The mean is carried entirely by high-volatility
-bursts; see §6.8 for the full table across sizing settings.
+Semiconductor stocks swing violently. SOXL is an ETF that multiplies
+those swings by three, and SOXS is its mirror image — it rises exactly
+when semiconductors fall. On a typical day SOXL travels about 6.7%
+between its high and its low, and it reverses direction by 1% or more
+roughly **fifteen times a day**. In six years of data there has not been
+a single day without one of those swings.
 
-The single most important research finding (Section 3): the strategy's
-edge is NOT "dip buying" per se. Removing only the instant-re-entry
-behavior costs 48 of the 66 bp — the engine is *staying long below the
-session high in +1% increments on high-volatility days*, with the 2-stop
-breaker as the escape hatch.
+This strategy is a machine for harvesting those reversals. It does one
+simple thing, over and over:
+
+> Wait until 11:00 in the morning. Watch the highest price the stock has
+> reached so far today. Place an order to buy 1% below that high. If it
+> fills, immediately place two exit orders: sell at 1% profit, or sell at
+> 4% loss — whichever comes first. When you exit, do it again. Stop after
+> five trades, or after two losses, whichever comes sooner. **Sell
+> everything before the closing bell, every single day, no exceptions.**
+
+That is the whole trade. It holds nothing overnight, uses no leverage, no
+options, and no short selling.
+
+Two further rules decide *whether to trade at all* on a given day, and
+they matter as much as the trade itself:
+
+1. **Only trade when the market is churning.** If the average daily swing
+   over the last five sessions was under 6%, the strategy sits in cash.
+   This turns it off roughly half the time — deliberately.
+2. **Skip violent down-mornings.** If the first 30 minutes are unusually
+   wild *and* the stock is sagging at 10:00, stand down for the day. This
+   was the one day-type that reliably lost money.
+
+Finally, the strategy runs on **both SOXL and SOXS at the same time**,
+capital split evenly. Because the two move in opposite directions, a bad
+day for one is usually a good day for the other.
+
+### Why it works
+
+**The money comes from timing, not from betting on direction.** That is a
+strong claim, so here is the proof: the same rules applied to SOXS — an
+instrument that lost essentially **100% of its value** over the six
+years — still earned 57.7 basis points per trading day. If the strategy
+were secretly just "being long a rising asset," SOXS would have destroyed
+it. Measured against simply buying at 11:00 and holding to the close, the
+strategy adds +39 bp/day on SOXL and +62 bp/day on SOXS. That difference
+is the actual edge.
+
+**The mechanism is staying invested below a stale ceiling.** The strategy
+anchors to the highest price of the day, which never resets downward. On
+a day that drifts lower it therefore keeps buying back in just beneath
+that old high, repeatedly. We tested removing only this behaviour and
+returns collapsed from 65.6 to 17.7 bp/day — **roughly three-quarters of
+the edge is the willingness to keep re-entering**, not the "buy a 1% dip"
+rule that appears on the surface.
+
+**The volatility filter does real work.** Sorted by how choppy the
+preceding week was, the quietest quarter of days *lose* money while the
+wildest quarter earn about five times the average. The strategy simply
+refuses to play when the game is not paying.
+
+**The pair works because the strategy's own filter picks the direction.**
+On mornings when SOXL sells off hard the filter benches SOXL — and those
+exact days are SOXS's best (+152 bp average). The two sleeves end up
+−0.70 correlated without ever being told about one another.
+
+### The results
+
+Six years of 5-minute data (2020–2026), after Interactive Brokers
+commissions and estimated spreads, both sleeves at a 50/50 split:
+
+| | |
+|---|---|
+| Days it trades | ~52% (in cash the rest of the time) |
+| Typical trading day | ~3 round-trip trades |
+| Winning days | ~64% |
+| **Worst possible day** | **−8%** — hard-capped by design (two 4% stops, then it stops for the day) |
+| Worst peak-to-trough loss | **−10.8%** out-of-sample |
+| Out-of-sample Sharpe ratio | **4.08** (versus 2.20 for SOXL alone) |
+| Weekly pattern | 64% of weeks profitable; the median week is small, the average is carried by volatile bursts |
+
+Every one of the strategy's twelve rules was tested individually against
+its alternatives, and each year's settings were chosen using only data
+available *before* that year — so these are results the rules produced on
+data they had never seen. In that out-of-sample test the pair beat the
+single sleeve in **all five years**.
+
+**What $150,000 would have become:** $8.6M over 5.5 years, with a peak
+drawdown near 10%. That figure deserves heavy scepticism, and §6.4
+explains why in detail — it assumes fills that 5-minute bars cannot fully
+verify, ignores the practical limits of trading ever-larger size, and
+covers a period containing two extraordinary volatility events. **The
+defensible claims are the per-day edge (~50 bp net on days it trades) and
+the risk profile (−8% worst day, ~−11% worst drawdown) — not the terminal
+figure.**
+
+### What could go wrong
+
+If semiconductor volatility permanently subsides the strategy stops
+trading and sits in cash, which is correct behaviour rather than a loss.
+The genuine unknowns are whether real-world fills match the backtest —
+the largest untested assumption in this work — and whether an edge
+validated on the data that shaped it persists live. The recommended path
+is paper trading, then small size, then scale; never straight to full
+capital.
 
 ## 2. The instrument and the opportunity
 
@@ -83,25 +165,35 @@ the audit found. The final mechanism picture, each element measured:
 
 ## 4. The locked rules
 
-> **Gate (pre-open):** trade today only if ATR5 ≥ 6.0%, where ATR5 =
-> 5-session trailing mean of (High−Low)/Open. Skip scheduled half-days.
+Applied **independently to each sleeve** on that sleeve's own price data
+(its own ATR5, its own opening range, its own session high). The sleeves
+never reference each other.
+
+> **Gate (pre-open):** trade this sleeve today only if its ATR5 ≥ 6.0%,
+> where ATR5 = 5-session trailing mean of (High−Low)/Open. Skip
+> scheduled half-days.
 > **Filter (10:00):** compute OR30 = (09:30–10:00 High−Low)/Open. If
-> OR30 ≥ its trailing-2yr 80th percentile (≈5.4% currently, recomputed
-> monthly) AND the 10:00 print is below the top third of that range →
-> stand down for the day.
+> OR30 ≥ its trailing-2yr 80th percentile (recomputed monthly) AND the
+> 10:00 print sits below the top third of that opening range → stand
+> down for the day.
 > **Trading window:** 11:00 → close. Maintain a resting buy limit at
-> 0.99 × session high (ratchets up only). On fill at E: OCA bracket —
-> sell limit 1.01×E, sell stop 0.96×E. After any exit, re-arm.
-> **Counters:** stop for the day after 5 entries or 2 stop-outs,
-> whichever first. **15:55–16:00: flatten, no exceptions.**
-> **Sizing:** flat fraction f of sleeve equity per trade — flat sizing
-> only. f=1.0 growth; f=0.5 risk-budget; any intermediate f permitted.
-> Never above f=1.0. No pyramiding (withdrawn — §6.7).
+> 0.99 × session high (ratchets up only, never down). On fill at E:
+> OCA bracket — sell limit 1.01×E, sell stop 0.96×E. After any exit,
+> recompute the session high and re-arm.
+> **Counters:** stop this sleeve for the day after 5 entries or 2
+> stop-outs, whichever comes first.
+> **15:55–16:00: flatten, no exceptions.**
+> **Structure:** run SOXL and SOXS sleeves in parallel, **w = 0.50**
+> capital each (walk-forward validated, §9.5/V14). Sizing within a sleeve
+> is a flat fraction f of that sleeve's capital — f=1.0 growth, lower f
+> to reduce risk. Never above f=1.0. No pyramiding, no leverage, no
+> shorts, nothing held overnight.
 
 Recorded alternatives (tested, documented, not default): gate at 5.5%
 (better calendar compounding, −0.24 Sharpe), SOXX-derived gate (validated
-fallback input), 25% SOXS overlay (drawdown dial, costs ~6 bp/day),
-mid-morning filter re-admission (flagged for next annual review).
+fallback input), pair weight anywhere in 0.375–0.75 (plateau; w≈0.75
+maximises return at a still-halved drawdown), mid-morning filter
+re-admission (flagged for next annual review).
 
 ## 5. Variables: how each was tested and what happened
 
@@ -373,6 +465,35 @@ For flat (non-compounding) $150K sizing, annual P&L ran $60K–$171K
 contributing zero (the filter needs ~6 months of threshold history).
 The CAGR column compounds fully and should be read with the §6.4
 warning: it is arithmetic, not a forecast.
+
+### 6.9 Week-by-week path, and the profit-sweep question
+
+`v15_weekly_sweep.py` → `out/v15_weekly_sweep.csv` (all 290 weeks). Pair
+at w=0.50, net of costs, $150,000 start, 2021-01 → 2026-07.
+
+Weekly texture: **290 weeks, 186 winning (64%)**, 42 with no trading at
+all. Weekly profit mean $29,216 against a **median of $7,148** — the
+average is carried by a minority of volatile weeks, and dollar figures
+grow with the compounding account (early weeks in the hundreds, late
+weeks in the hundreds of thousands). Best week +$818,679; worst
+−$437,387.
+
+A 5% weekly profit sweep to a cash account was tested (V15, appended to
+`V14_PAIR_PROTOCOL.md`). **It is not recommended as a risk instrument:**
+it costs $1,798,310 — 17.3% of terminal wealth — to hold 6.3% of wealth
+in cash, and improves max drawdown only from −9.4% to −9.2%. The
+cost-to-protection ratio stays near 2.2–2.7× at every sweep rate from 5%
+to 50%, because cash compounds at 0–4% against the account's ~115%. Even
+under a simulated edge *reversal* the sweep still underperforms, because
+the compounding forgone before the reversal exceeds the cash rescued.
+
+Critically, the sweep changes **no** strategy statistic — percentage
+returns, Sharpe, and percentage drawdown of the trading account are
+identical with or without it. It is purely a wealth-allocation overlay.
+If capital must leave the account for external reasons, the tested
+numbers price that decision precisely: roughly **15–17% of terminal
+wealth per 5 percentage points of sweep rate** at these compounding
+levels.
 
 ## 7. Double-check: verified, unverified, and items for third-party review
 
@@ -743,7 +864,14 @@ to pay for it. SOXL appears to be the only one of the three where it is.
 
 ## 8. Automation architecture (IBKR) — attended and unattended
 
-No code yet — this is the system design.
+> **BUILD SPECIFICATION: see `IMPLEMENTATION_SPEC.md`.** That document is
+> the normative, self-contained build prompt — exact rules, architecture,
+> state machine, safety systems, build phases, 16 acceptance tests, and a
+> single-source-of-truth constants block. This section remains as the
+> architectural overview; where the two differ, the implementation spec
+> governs.
+
+The system design in outline:
 
 ### 8.1 Platform components
 
@@ -920,7 +1048,14 @@ conservative, flagged in STRATEGY_SPEC header):**
   `cycle_lab/kill_switch.py` — cycle grids, $150K compounding engine,
   SMA100 kill-switch validation.
 
-**Documents:** `band_lab/STRATEGY_SPEC.md` (spec + status board + desk
+**Pair structure and weekly path:**
+- `band_lab/v14_pair_protocol.py` — full protocol on the SOXL+SOXS pair
+  (costs, walk-forward, plateau, attribution, capital rule, liquidity).
+- `band_lab/v15_weekly_sweep.py` — week-by-week engine and sweep tests.
+
+**Documents:** `band_lab/IMPLEMENTATION_SPEC.md` (build prompt),
+`band_lab/V14_PAIR_PROTOCOL.md` (pair plan + results + V15),
+`band_lab/STRATEGY_SPEC.md` (spec + status board + desk
 runbook), `band_lab/V*_TESTS.md` (per-variable plans + results),
 `band_lab/README.md`, `cycle_lab/README.md`, this document.
 

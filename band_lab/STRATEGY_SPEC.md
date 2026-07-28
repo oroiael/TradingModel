@@ -224,8 +224,7 @@ config-selection OOS retained ~83% of in-sample edge). Code:
 | A6 | No overnight positions ⇒ no margin, no gap risk, no borrow. PDT rules satisfied ($150K ≫ $25K). | — | Structural. |
 | A7 | The strategy family (long dip-buy mean reversion) was chosen after seeing the OR-fade fail **on the same data**. Walk-forward validates parameters, not the family choice. | Residual data-snooping bias that no in-sample test can remove. | Mitigable only by live/paper forward performance. |
 | A8 | ATR≥6% gate and OR30-quintile filter use full-sample constants in the fixed-config results (walk-forward recomputed the OR30 threshold from train data; the 6% was fixed throughout). | Small; walk-forward stability suggests low sensitivity. | Partially validated. |
-| A9 | Taxes ignored (all gains short-term). | Materially changes net returns by holder; not a model question. | Out of scope. |
-| A10 | Regime continuity: SOXL keeps existing, keeps 3x leverage, semis stay volatile. A decade of 4% ATR5 would leave the gate off most of the time (by design — it fails safe to cash). | Opportunity cost, not loss. | Structural, fails safe. |
+| A9 | Regime continuity: SOXL keeps existing, keeps 3x leverage, semis stay volatile. A decade of 4% ATR5 would leave the gate off most of the time (by design — it fails safe to cash). | Opportunity cost, not loss. | Structural, fails safe. |
 
 ---
 

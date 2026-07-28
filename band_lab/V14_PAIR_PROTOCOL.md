@@ -233,32 +233,22 @@ broker failure or operational catastrophe, not strategy
 underperformance — and the sleeve's design (flat overnight, −8% capped
 worst day, 2-stop breaker) makes that remote.
 
-## The real reason to sweep — and 5% is far too small for it
+## Recommendation
 
-Every gain here is **short-term** (the strategy is flat every night), so
-it is taxed at ordinary income rates, and a fully-reinvested account
-cannot pay that bill without liquidating anyway:
+**Do not use a profit sweep as a risk instrument.** It buys 0.2
+percentage points of drawdown for 17% of terminal wealth, and both the
+f dial and the pair weight are dramatically more efficient at converting
+return into risk reduction — the V14 matched-risk table shows the pair
+weight delivering 2.5–4.6× the CAGR of an equivalently de-risked single
+sleeve, while a sweep delivers essentially none.
 
-| year | trading profit | 5% swept | tax @35% | sweep covers |
-|---|---:|---:|---:|---:|
-| 2022 | $595,456 | $33,574 | $208,410 | 16% |
-| 2024 | $1,230,933 | $73,342 | $430,827 | 17% |
-| 2025 | $2,876,659 | $166,020 | $1,006,831 | 16% |
-| **total** | **$8,472,609** | **$542,977** | **$2,965,413** | **18%** |
-
-**A 5% sweep funds 18% of a 35% tax bill.** If the sweep's purpose is a
-tax reserve — which is the one unavoidable reason to move cash out — the
-rate must roughly equal the marginal tax rate (~35–45%), not 5%.
-
-**Recommendation.** Do not sweep for risk management; it buys 0.2
-percentage points of drawdown for 17% of terminal wealth, and the f dial
-and the pair weight are both far more efficient risk instruments. Do
-sweep for **taxes and any actual cash needs**, sized to the real
-liability (~35–45% of profits, or quarterly estimated payments), and
-book that as a cost of doing business rather than a risk control. The
-$150K → $8.6M path above assumes taxes are paid from outside the
-account; at a 35% sweep the terminal total is $2.96M, which is the more
-realistic after-tax picture of the same strategy.
+If capital must leave the account for reasons outside this study
+(withdrawals, external obligations, or simply a decision to bank
+realised gains), that is an allocation choice and the numbers above
+price it precisely: **each 5 percentage points of sweep rate costs
+roughly 15–17% of terminal wealth at these compounding rates.** Size it
+deliberately against the actual need rather than as a risk control, and
+book the cost knowingly.
 
 **Caveat:** every figure inherits the V14 caveats — estimated (not
 measured) spreads, 5-minute fill realism, and a compounded path that
