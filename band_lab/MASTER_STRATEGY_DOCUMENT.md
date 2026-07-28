@@ -255,14 +255,19 @@ prespecified rules confirmed it (halve-after-2-losses: −13 CAGR pts for
 1.1 DD pts; halve-after-1-loss: −39 CAGR pts for 7.1 DD pts;
 trailing-DD-trigger: strictly worse). None met the adoption bar.
 
-**Consequence — the completed risk story:** the worst day is capped by
+**Consequence — the risk story as it stood:** the worst day is capped by
 the breaker (−8%); losing streaks are neither predictable nor pruneable
-(their aftermath is the best edge in the book); therefore **the only
-legitimate drawdown controls are overall size (the f dial) and the 25%
-SOXS spot dial.** There is no clever overlay left untested; a validator
-should treat any proposed drawdown "fix" that de-risks after losses or
-buys optionality as pre-refuted by these two results unless it brings
-genuinely new evidence.
+(their aftermath is the best edge in the book); and every overlay tested
+to that point (puts, streak de-risking, pyramiding) was dominated by
+simply choosing a smaller f.
+
+> **SUPERSEDED IN PART (2026-07-28).** The claim that the f dial was the
+> *only* legitimate drawdown control held until SOXS was tested. A
+> SOXL+SOXS pair passed the full protocol (§9.5, `V14_PAIR_PROTOCOL.md`)
+> and beats the dial decisively at matched risk — e.g. at a −15%
+> drawdown budget the dial yields 34.6% CAGR while the pair yields
+> 121.4%. The rest of this section stands: de-risking after losses and
+> buying optionality remain pre-refuted.
 
 ### 6.7 The sizing dial — verified, and two of my own errors corrected
 
@@ -706,16 +711,28 @@ bp). The present test runs the **native long dip-buy on SOXS's own bars**
 the resting-buy-limit fill structure the whole edge depends on. V8 killed
 mirror-signal shorting; it never tested this.
 
-**STATUS: NOT ADOPTED — most promising open item in the project.** This
-is a full-sample result. Before any capital moves it needs the same
-protocol every SOXL variable received: yearly walk-forward with the
-weight selected on prior data only, plateau support around 50/50,
-mechanism attribution confirming the down-morning cohort drives it, and a
-cost re-accounting (a paired book roughly doubles trade count, and SOXS
-spreads are wider than SOXL's — the ~0.9 bp/round-trip arithmetic in §2.5
-must be re-derived for SOXS before the Sharpe 4.28 is believed).
-Practical items to verify: SOXS liquidity at intended size, and the
-capital rule on the 464 days both sleeves are ON simultaneously.
+**STATUS: PROTOCOL PASSED (2026-07-28) — see `V14_PAIR_PROTOCOL.md`.**
+Walk-forward 5/5 years with w=0.50 selected on prior data only (OOS
+Sharpe 4.08 vs solo 2.20, OOS maxDD −10.8% vs −37.7%); plateau confirmed
+(w 0.375–0.75); mechanism attribution confirms the SOXS-only
+down-morning cohort is the source (+117.2% of capital); costs
+re-derived — **SOXS costs 2.6× SOXL in bp** because IBKR charges per
+share and SOXS trades near $52 (net 48.1 vs 61.9 bp/day).
+
+**The pair beats the f dial decisively at matched risk:** at a −15%
+drawdown budget, dialling SOXL down to f=0.35 yields 34.6% CAGR while
+the pair at w≈0.725 yields 121.4% — 3.5×. At w≈0.75 the pair holds
+SOXL-alone's full-size CAGR (121.7% vs 121.5%) at **less than half the
+drawdown** (−15.7% vs −37.7%). Recommended structure: **w=0.50**
+(walk-forward validated; CAGR 114.9%, maxDD −13.0%, Sharpe 3.83).
+
+**Residual risk before capital moves:** the spread is *estimated* at 1¢,
+not measured — SOXS costs are already 2.6× SOXL's, and a true 2–3¢
+spread would cost a further 2–4 bp/day on that sleeve. Quote data or
+paper fills should settle it. Operationally the pair roughly doubles what
+the automation manages (two instruments, capital contention on 636 days),
+and the V6 flat-at-close rule becomes load-bearing: SOXS decayed ~100%
+over the sample, so any overnight hold there would be catastrophic.
 
 **What this does buy the core case:** two independent instruments show a
 positive edge once the constants are scaled to their volatility, with the
