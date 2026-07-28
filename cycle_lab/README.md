@@ -151,6 +151,66 @@ Grid-wide patterns:
    - smoothest equity curve → 1.5%/5d/just-OTM-or-5%-ITM 30d covered call;
    - single-lot $30k account → 1.5%/3d/stop-and-reset.
 
+## Round 3 — $150K compounding, wider grids, SOXS instead of options
+
+`python3 cycle_lab/compound_engine.py` → `out/compound_grid.csv`,
+`out/compound_focus.csv`, `out/compound_best_combos.csv`.
+
+Engine change: starts with **$150,000 cash, every lot sized from current
+capital, all proceeds reinvested** (no options at all). Grid: target
+1/1.25/1.5/1.75/2/2.5/3/4% × stall 1/2/3/4/5/7d × mode (no-hedge /
+stop-reset / SOXS-hedge with three exit rules) × lot sizing.
+
+### Max-return winner (2022-01-03 → 2026-07-02, 4.5 yrs)
+
+| config | final equity | CAGR | max DD | avg deployed |
+|---|---:|---:|---:|---:|
+| **2% target, 4d stall, no hedge, lot = equity/4** | **$823,597** | **46.1%** | −81.8% | 84.7% |
+| same, lot = half of cash | $679,479 | 40.0% | −75.8% | 72.8% |
+| same, lot = equity/6 | $728,129 | 42.1% | −71.4% | 63.1% |
+| same, lot = equity/3 | $732,659 | 42.3% | −83.8% | 92.0% |
+| same, lot = all cash | $294,905 | 16.2% | −89.5% | 96.1% |
+| Full 6-yr history (2020-07 → 2026-07), equity/4 | **$2,804,650** | **63.0%** | −84.1% | 85.2% |
+
+Grid-wide: **4-day stall wins at every target** (round 2's 3-vs-5 finding
+bracketed the true optimum); target 2% remains the sweet spot (4% ties but
+with fewer, lumpier wins); sizing has an interior optimum at ~equity/4 —
+going all-in destroys the strategy because a stall leaves nothing to
+redeploy, the exact failure the reserve exists to prevent.
+
+**The price of max return: a −82% equity drawdown.** $150K touched ~$28K
+during 2022 before compounding back. This is unlevered-margin-free but
+psychologically equivalent to holding a 3x ETF through a crash.
+
+### SOXS instead of an option hedge
+
+On a stall, buy a dollar-matched slug of SOXS (-3x) at the close as a
+temporary brake. Exit rules tested: fixed 5d, fixed 10d, first SOXL
+recovery close, and hold-until-lot-exit.
+
+| config | final equity | CAGR | max DD | SOXS P&L |
+|---|---:|---:|---:|---:|
+| 1%/**7d** stall, SOXS 5d, half-cash | $492,642 | 30.3% | **−59.4%** | −$71.7k |
+| 2%/**4d** stall, SOXS 5d, eq/4 | $250,343 | 12.1% | −79.7% | −$105.9k |
+| 2%/4d, SOXS 10d, eq/4 | $310,682 | 17.6% | −67.0% | −$183.4k |
+| 2%/4d, SOXS until-recovery, eq/4 | $218,194 | 8.7% | −82.9% | −$102.1k |
+
+Verdict: **SOXS is always a net cost, but it's the cheapest drawdown brake
+found so far — and only if the stall trigger is slow.** At a 7-day stall,
+stalls are rare (76 in 4.5y) and mostly real downtrends, so the 5-day SOXS
+slug pays off enough to cut max DD from −76% to −59% while keeping a 30%
+CAGR. At a 4-day stall, stalls fire ~130 times, most are chop, and holding
+SOXL + SOXS simultaneously bleeds double 3x-decay: SOXS P&L −$106k to
+−$183k, CAGR crushed. Never pair the fast stall with the SOXS hedge.
+
+### Round-3 recommendations
+
+- **Pure max return, $150K:** 2% target, 4-day stall, no hedge, lot =
+  equity/4, reinvest everything → 46% CAGR backtested, accept −80% DD.
+- **If the 2022-style drawdown is unacceptable:** 1% target, 7-day stall,
+  5-day SOXS slug on stalls → ~30% CAGR, −59% DD. (The round-2 covered-call
+  configs remain the smoothest overall but cap the compounding.)
+
 ## Caveats
 
 - No commissions/slippage: 1,460 stock round trips ≈ $3k at $2/round-trip,
