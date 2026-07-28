@@ -106,7 +106,10 @@ class OptBook:
     def chain(self, day, right="PUT"):
         return self.by_day.get((day, right))
 
-    def _pick(self, day, spot, right, dte_target, otm_pct):
+    def _pick(self, day, spot, right, dte_target, otm_pct, nearest=False):
+        """otm_pct < 0 selects in-the-money strikes (e.g. a call struck below
+        spot). nearest=True picks the strike closest to spot*(1+otm_pct)
+        instead of the first strike beyond it."""
         g = self.chain(day, right)
         if g is None:
             return None
@@ -116,17 +119,24 @@ class OptBook:
             return None
         dte = (g["expiration"] - day).dt.days
         g = g.assign(dte=dte)
-        g = g[(g["dte"] >= 14) & (g["dte"] <= 60)]
+        g = g[(g["dte"] >= 5) & (g["dte"] <= 60)]
         if g.empty:
             return None
         best_exp = g.loc[(g["dte"] - dte_target).abs().idxmin(), "expiration"]
-        if right == "PUT":   # first strike below spot*(1-otm_pct)
-            gg = g[(g["expiration"] == best_exp) & (g["strike"] < spot * (1 - otm_pct))]
+        ref = spot * (1 + otm_pct) if right == "CALL" else spot * (1 - otm_pct)
+        ge = g[g["expiration"] == best_exp]
+        if nearest:
+            gg = ge
+            if gg.empty:
+                return None
+            row = gg.loc[(gg["strike"] - ref).abs().idxmin()]
+        elif right == "PUT":   # first strike below ref
+            gg = ge[ge["strike"] < ref]
             if gg.empty:
                 return None
             row = gg.loc[gg["strike"].idxmax()]
-        else:                # first strike above spot*(1+otm_pct)
-            gg = g[(g["expiration"] == best_exp) & (g["strike"] > spot * (1 + otm_pct))]
+        else:                  # first strike above ref
+            gg = ge[ge["strike"] > ref]
             if gg.empty:
                 return None
             row = gg.loc[gg["strike"].idxmin()]
@@ -137,8 +147,8 @@ class OptBook:
     def pick_hedge(self, day, spot, dte_target=30, otm_pct=0.0):
         return self._pick(day, spot, "PUT", dte_target, otm_pct)
 
-    def pick_call(self, day, spot, dte_target=30, otm_pct=0.0):
-        return self._pick(day, spot, "CALL", dte_target, otm_pct)
+    def pick_call(self, day, spot, dte_target=30, otm_pct=0.0, nearest=False):
+        return self._pick(day, spot, "CALL", dte_target, otm_pct, nearest)
 
     def quote(self, day, expiration, strike, right="PUT"):
         g = self.chain(day, right)
@@ -154,7 +164,7 @@ class OptBook:
 def run_strategy(bars, daily, putbook, start, end,
                  target=0.01, stall_days=5, mode="put",
                  otm_pct=0.0, dte_target=30, early_unwind=False,
-                 shares=100):
+                 strike_ref="spot", shares=100):
     """mode: 'put'  = user spec (hedge stalled lot with a put)
              'none' = same timeline, no put bought (control)
              'stop' = sell the stalled lot at the stall close (hard reset)
@@ -271,7 +281,12 @@ def run_strategy(bars, daily, putbook, start, end,
                 if mode == "put":
                     hedge = putbook.pick_hedge(d, spot, dte_target, otm_pct)
                 elif mode == "cc":
-                    hedge = putbook.pick_call(d, spot, dte_target, otm_pct)
+                    if strike_ref == "entry":   # repair: strike nearest entry
+                        rel = active["entry"] / spot - 1
+                        hedge = putbook.pick_call(d, spot, dte_target, rel,
+                                                  nearest=True)
+                    else:
+                        hedge = putbook.pick_call(d, spot, dte_target, otm_pct)
                 else:
                     hedge = None
                 if mode in ("put", "cc") and hedge is None:
