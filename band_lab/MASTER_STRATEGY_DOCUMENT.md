@@ -21,9 +21,10 @@ with every one of its 12 rule parameters individually audited through
 prespecified test programs, walk-forward validation, and mechanism
 requirements. A conservative live expectation, after an out-of-sample
 haircut and IBKR Pro Fixed costs, is **~49 bp per traded day** — at
-$150,000 flat sizing roughly **+$1,900/week on average, with a heavily
-skewed distribution** (median week ≈ +$200, 5th-percentile week ≈
-−$9,000, ~1 week in 4 has no trading at all).
+$150,000 and full size that is **+$1,853/week on average but a median
+week of $0**, a 5th-percentile week of −$11,515, and ~1 week in 4 with
+no trading at all. The mean is carried entirely by high-volatility
+bursts; see §6.8 for the full table across sizing settings.
 
 The single most important research finding (Section 3): the strategy's
 edge is NOT "dip buying" per se. Removing only the instant-re-entry
@@ -326,6 +327,47 @@ confirm. Reference points under conservative assumptions: **f=1.0** →
 risk and a −12.9% median drawdown. Given the un-modelled fill risk
 (§7 item 1), starting at **f ≤ 0.5 and raising it only after live
 results confirm the backtest** is the defensible path.
+
+### 6.8 Final summary table (all revisions applied)
+
+Realized-path results, corrected engine, current locked rules, full
+sample 2020-07 → 2026-07 (787 ON days = 52% of sessions). "Conservative"
+= the §6.2 chain: 0.17 × mean edge decay + 5 bp costs = **16.2 bp/day
+drag applied to the mean, volatility unchanged**. $ columns are weekly
+at $150,000. Source: `out/final_summary_table.csv`.
+
+| basis | setting | bp/ON-day | bp/calendar-day | worst day | max DD | CAGR | wk mean | wk median | wk 5th-pct |
+|---|---|---:|---:|---:|---:|---:|---:|---:|---:|
+| **Gross** | f=1.00 (no dial) | 65.6 | 34.2 | −8.0% | −36.5% | 118.5% | $2,458 | $440 | −$10,643 |
+| Gross | f=0.67 | 43.9 | 22.9 | −5.4% | −25.8% | 71.7% | $1,647 | $295 | −$7,131 |
+| Gross | f=0.50 | 32.8 | 17.1 | −4.0% | −19.8% | 50.7% | $1,229 | $220 | −$5,321 |
+| Gross | f=0.25 | 16.4 | 8.5 | −2.0% | −10.3% | 23.3% | $615 | $110 | −$2,661 |
+| **Conservative** | **f=1.00 (no dial)** | **49.4** | 25.8 | **−8.2%** | **−41.5%** | **77.0%** | $1,853 | **$0** | −$11,515 |
+| Conservative | f=0.67 | 33.1 | 17.3 | −5.5% | −29.7% | 49.1% | $1,241 | $0 | −$7,715 |
+| **Conservative** | **f=0.50** | **24.7** | 12.9 | **−4.1%** | **−22.9%** | **35.6%** | $926 | $0 | −$5,757 |
+| Conservative | f=0.25 | 12.4 | 6.4 | −2.0% | −12.1% | 17.0% | $463 | $0 | −$2,879 |
+
+Three things this table makes explicit that earlier drafts obscured:
+
+1. **Conservative drawdowns are DEEPER than gross at every setting**
+   (−41.5% vs −36.5% at full size). Less edge against unchanged
+   volatility digs deeper holes — the realized path confirms the
+   bootstrap in §6.7. Any document quoting a conservative return
+   alongside a *gross* drawdown is understating risk.
+2. **The median week is zero under conservative assumptions.** The
+   strategy's entire expectation lives in the upper tail of weeks; a
+   flat month is normal, not a malfunction. Operators must be able to
+   sit through that without intervening.
+3. **The dial is close to linear in return and drawdown** (halving f
+   roughly halves both), because Sharpe is invariant in f — which is
+   precisely why no clever structure (pyramid, puts, streak rules)
+   beat simply choosing a smaller f.
+
+For flat (non-compounding) $150K sizing, annual P&L ran $60K–$171K
+(conservative) / $75K–$216K (gross) across 2021–2026, with 2020
+contributing zero (the filter needs ~6 months of threshold history).
+The CAGR column compounds fully and should be read with the §6.4
+warning: it is arithmetic, not a forecast.
 
 ## 7. Double-check: verified, unverified, and items for third-party review
 
