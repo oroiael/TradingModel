@@ -201,7 +201,12 @@ of ~6 bp/day (gross exposure 1.25). Verdict: an optional smoothing dial,
 NOT adopted into the core — the same drawdown relief is available cheaper
 by trading f<1 (V11 T1 showed Sharpe is flat in f).
 
-**T4 — pyramiding: adopted as the risk-budgeted variant, not the core.**
+**T4 — pyramiding: ADOPTED HERE, BUT WITHDRAWN 2026-07-28.** (See
+`sizing_verification.py` / MASTER §6.7: this adoption used the pre-bugfix
+engine and compared the pyramid to flat f=0.5 despite the pyramid's
+average exposure being 0.483 rather than 0.362. At matched exposure flat
+f=0.67 earns 43.7 bp vs the pyramid's 37.6 for the same −25% drawdown, so
+the pyramid is dominated. Original text preserved below.)
 At equal max capital (f/2 per unit), per-unit pyramid earns 35.5 bp/day,
 Sharpe **2.60**, worst day −6.0%, maxDD −21.6% (shared-exit variant is
 worse — 22.8 bp, Sharpe 1.45 — the doubled position dying at unit-1's

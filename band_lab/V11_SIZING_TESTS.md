@@ -206,6 +206,11 @@ whole R grid. Tighter stops die to normal churn; risk-normalization adds
 nothing the fraction dial doesn't.
 
 **T5 — leverage is NOT affordable; half-size is the formal answer.**
+(Bootstrap figures in this section are SUPERSEDED 2026-07-28: they were
+computed on the pre-refinement P&L series. Current numbers —
+`sizing_verification.py`, MASTER §6.7 — gross f=1.0 P(−30% DD/ON-yr)
+14.5%, conservative f=1.0 26.7%, f=0.5 0.5%. The qualitative conclusion
+"do not use leverage" is unchanged and strengthened.)
 10,000 block-bootstrap years: at f=1.0 the probability of a −30% max
 drawdown within a year is **45.8%** (empirical pool) / 69.0% (stressed
 pool: 2022×1.5 + one −20% halt day). The largest f meeting

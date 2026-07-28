@@ -93,9 +93,9 @@ the audit found. The final mechanism picture, each element measured:
 > sell limit 1.01×E, sell stop 0.96×E. After any exit, re-arm.
 > **Counters:** stop for the day after 5 entries or 2 stop-outs,
 > whichever first. **15:55–16:00: flatten, no exceptions.**
-> **Sizing:** flat fraction f of sleeve equity per trade. f=1.0 =
-> growth setting; half-capital accounts should use the per-unit pyramid
-> variant instead of flat f=0.5 (V11/V8). Never above f=1.0.
+> **Sizing:** flat fraction f of sleeve equity per trade — flat sizing
+> only. f=1.0 growth; f=0.5 risk-budget; any intermediate f permitted.
+> Never above f=1.0. No pyramiding (withdrawn — §6.7).
 
 Recorded alternatives (tested, documented, not default): gate at 5.5%
 (better calendar compounding, −0.24 Sharpe), SOXX-derived gate (validated
@@ -121,10 +121,10 @@ they fix, or they are treated as curve-fit and rejected.
 | V5 | start time | 11:00 | swept 09:35–13:00 on corrected engine; plateau 10:30–11:30; 09:35 spike exposed the engine bug and was rejected by plateau rule |
 | V6 | EOD exit | flat at close | overnight holds win +17–26 bp/day and were REJECTED on role (gap tail −20%+); premium priced |
 | V7 | trade cap | 5 | swept 1–10; Sharpe peaks at 5 |
-| V8 | direction | long only | mirror short −17.7 bp under honest fills; SSR binds 16.6% of gated days; pyramid variant adopted for half-capital |
+| V8 | direction | long only | mirror short −17.7 bp under honest fills; SSR binds 16.6% of gated days; excursion momentum rejected; the pyramid variant adopted here was later WITHDRAWN (§6.7) |
 | V9 | day filter | direction-aware OR30 | boundary plateau-confirmed; direction split (+89 up / −66 down) found the true mechanism; adopted, WF 5/5 |
 | V10 | vol gate | ATR5 ≥ 6, 5d, cliff | every knob confirmed; U-shape anomaly closed as era-noise; ATR10 "win" exposed as matched-rate artifact |
-| V11 | sizing | flat f + 2-stop breaker | six-test program; breaker adopted (better return AND tail); leverage rejected (bootstrap P(−30% DD/yr)=46% at f=1) |
+| V11 | sizing | flat f + 2-stop breaker | six-test program; breaker adopted (better return AND tail); leverage rejected; pyramid variant later WITHDRAWN and bootstrap re-run on the current series (§6.7) |
 | V12 | role | intraday core, cycle satellite | walk-forward: core retains ~83% of edge OOS; satellite failed OOS (3.3% CAGR) until SMA100 kill-switch (27% OOS CAGR) |
 
 Errors found and fixed along the way (disclosed deliberately): a
@@ -212,7 +212,11 @@ These are distinct metrics — do not conflate them:
 | worst 10 consecutive ON-days | −29.3% | capped days CHAIN — a drawdown is a sequence, not one day |
 | max drawdown, compounded equity (f=1.0) | **−36.5%** | peak 2025-11-12 → trough 2026-03-26 (92 sessions), recovered 2026-05-06 |
 | same episode at FLAT $150K sizing | −$63.9K (−42.6% of start) | flat sizing looks worse in % of starting capital because positions don't shrink during the streak |
-| bootstrap P(−30% DD per 252-ON-day year) at f=1.0 | 15% (refreshed) | ~2 calendar years per ON-day year; over the sample's ~3 ON-day years, P(seeing one −30% DD) ≈ 40% — consistent with the realized −36.5%. (An earlier 46% figure was computed on the weaker pre-refinement P&L series and is superseded.) |
+| bootstrap P(−30% DD per 252-ON-day year), gross, f=1.0 | 14.5% | one ON-day year ≈ 2 calendar years; across the sample's ~3.1 ON-day years P(seeing one −30% DD) ≈ 38% — consistent with the realized −36.5%. |
+| same, **conservative assumptions**, f=1.0 | **26.7%** | the honest planning number (§6.7) — less edge at unchanged volatility means DEEPER drawdowns, not shallower |
+
+(An earlier 46% figure appears in `V11_SIZING_TESTS.md`; it was computed
+on the weaker pre-refinement P&L series and is superseded by §6.7.)
 
 (Historical note for readers of earlier round documents: a −22.9% max-DD
 figure appears in the round-3 combined-backtest table — that was the
@@ -221,8 +225,8 @@ breaker, pre-bug-fix engine, 2022-start window) and is superseded; the
 current locked core's number is the −36.5% above.)
 
 Anyone uncomfortable with a −36.5% realized / −30%-per-year-near-coin-flip
-profile must run the half-capital per-unit pyramid variant (V11/V8) or
-the 25% SOXS overlay dial — not full size.
+profile must reduce f (§6.7) or use the 25% SOXS overlay dial — not
+run full size.
 
 ### 6.6 Documented negatives: drawdown defenses tested and rejected
 
@@ -259,30 +263,69 @@ should treat any proposed drawdown "fix" that de-risks after losses or
 buys optionality as pre-refuted by these two results unless it brings
 genuinely new evidence.
 
-### 6.7 The sizing dial — re-verified on the corrected engine (final)
+### 6.7 The sizing dial — verified, and two of my own errors corrected
 
-The two flagged gaps (pyramid validated only on the pre-fix engine; the
-bootstrap run on the pre-refinement series) were closed 2026-07-28.
-All numbers below: corrected engine, current locked config, full sample.
+The spec's engine-correction header left two sizing items open: the
+per-unit pyramid had only ever been validated on the pre-bugfix engine
+and the old configuration, and the V11 bootstrap ran on the
+pre-refinement P&L series. Both were closed 2026-07-28
+(`sizing_verification.py` → `out/sizing_verification.csv`,
+`out/sizing_bootstrap.csv`). Closing them exposed two errors in my own
+earlier analysis, both of which had flattered the results:
 
-| setting | bp/ON-day | Sharpe | worst day | cal CAGR | maxDD | P(−30% DD / ON-yr) |
-|---|---:|---:|---:|---:|---:|---:|
-| flat f=1.0 (growth) | 65.6 | 3.09 | −8.0% | 118.5% | −36.5% | 15% |
-| **flat f=0.5 (risk budget)** | 32.8 | 3.09 | −4.0% | 50.7% | **−19.8%** | **~0.1%** |
-| pyramid (2 units × f/2) | 37.6 | 2.65 | −6.0% | 58.0% | −25.4% | 4.1% |
+**Error 1 — the pyramid was never a "half-capital" variant.** Measured
+average exposure is **0.483** of equity, versus 0.362 for flat f=0.5 and
+0.724 for flat f=1.0; it reaches **full 1.0 exposure on 81% of ON days**.
+Comparing it to flat f=0.5 (as V8 did) compared a bigger position to a
+smaller one and called the difference alpha. The correct benchmark is
+flat sizing at the same average exposure, f = 0.667:
 
-**Revision of the earlier V8/V11 recommendation:** on the pre-fix
-engine the pyramid appeared to dominate flat f=0.5 (+58% more return at
-similar risk). On the corrected engine it does NOT: it earns ~15% more
-than flat-0.5 but with lower Sharpe (2.65 vs 3.09), a worse worst-day
-(−6% vs −4%), and a deeper maxDD (−25.4% vs −19.8%). The pyramid is a
-legitimate *midpoint on the dial*, not a superior half-capital
-implementation. **Final guidance: choose a point on the f dial —
-f=1.0 growth, f=0.5 risk-budget (maxDD ≈ −20%, −30% years essentially
-eliminated) — with the pyramid as an optional intermediate.** Sharpe is
-invariant in f (exact linearity), so this choice trades return against
-drawdown at a fixed quality of returns; it is a risk-preference
-decision, not a research question, and it is now closed.
+| setting | bp/ON-day | Sharpe | worst day | cal CAGR | maxDD | avg expo | **bp per unit exposure** |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| flat f=0.50 | 32.8 | 3.09 | −4.0% | 50.7% | −19.8% | 0.362 | **90.6** |
+| flat f=0.67 (exposure-matched) | 43.7 | 3.09 | −5.3% | 71.3% | −25.7% | 0.483 | **90.6** |
+| pyramid (2 × f/2) | 37.6 | 2.65 | −6.0% | 58.0% | −25.4% | 0.483 | **77.9** |
+| flat f=1.00 | 65.6 | 3.09 | −8.0% | 118.5% | −36.5% | 0.724 | **90.6** |
+
+At matched exposure flat sizing earns **43.7 bp against the pyramid's
+37.6 bp for the same −25% drawdown** — 16% more return for the same
+risk. Flat sizing returns 90.6 bp per unit of average exposure at every
+f (exact linearity); the pyramid returns 77.9, because its two units
+stop out together in the same adverse move, correlating losses that
+sequential flat bets keep independent. **The pyramid is dominated, not a
+midpoint: it is withdrawn entirely.** The V8 claim that it "dominates
+flat half-size by +58%" was an artifact of the pre-bugfix engine
+compounded by the exposure mismatch.
+
+**Error 2 — my conservative bootstrap understated drawdown risk.**
+Modelling the conservative case by multiplying returns by 0.83 shrinks
+volatility along with edge, which is wrong: edge decay and costs reduce
+the *mean* while volatility is unchanged. Rebuilt correctly
+(`conservative = ON-day series − 16.2 bp constant drag`):
+
+| scenario | P(DD<−30%) | P(DD<−20%) | median DD | median yr | 5th-pct yr |
+|---|---:|---:|---:|---:|---:|
+| gross f=1.00 | 14.5% | 61.5% | −21.7% | +355% | +114% |
+| **conservative f=1.00** | **26.7%** | **74.5%** | −24.9% | +201% | +39% |
+| conservative f=0.67 | 3.4% | 33.0% | −16.9% | +117% | +31% |
+| conservative f=0.50 | 0.5% | 9.1% | −12.9% | +80% | +23% |
+
+The corrected conservative figure is *worse* than the gross one —
+27% chance of a −30% drawdown per ON-day year at full size, roughly
+one such year every two calendar years. My earlier "7.6%" was an
+artifact of the flawed rescaling and should be disregarded.
+
+**Final guidance (this is now a closed risk-preference choice, not a
+research question):** use flat sizing and pick a point on the f dial.
+Sharpe is invariant in f, so the dial trades return against drawdown at
+constant return quality — there is no clever structure that beats it, as
+the pyramid, put-overlay, and streak-rule results all independently
+confirm. Reference points under conservative assumptions: **f=1.0** →
+~+200% median ON-year, but a 27% chance of a −30% drawdown; **f=0.67**
+→ ~+117% median, 3% chance; **f=0.5** → ~+80% median, negligible −30%
+risk and a −12.9% median drawdown. Given the un-modelled fill risk
+(§7 item 1), starting at **f ≤ 0.5 and raising it only after live
+results confirm the backtest** is the defensible path.
 
 ## 7. Double-check: verified, unverified, and items for third-party review
 
@@ -433,8 +476,8 @@ everything, done for the day. No discretion.
 **After any exit:** recompute session high, re-place entry limit,
 re-arm.
 **15:55:** replace bracket with market/MOC sell. Flat by 16:00 always.
-**Sizing:** f=1.0 growth; half-capital → per-unit pyramid (2 units f/2,
-second unit 1% deeper, own brackets); never above f=1.0.
+**Sizing:** flat f only — f=1.0 growth, f=0.5 risk-budget, any
+intermediate f permitted; never above f=1.0; no pyramiding (withdrawn).
 **Costs (verified vs IBKR schedule):** $0.005/sh, $1 min/order, ~0.35 bp
 regulatory on sells ⇒ ≈0.9 bp/round trip at $150K; expected all-in drag
 4–7 bp/ON-day.
@@ -472,6 +515,11 @@ conservative, flagged in STRATEGY_SPEC header):**
   conservative under the optimistic engine).
 - `band_lab/v5_start_time_tests.py` — V5 first pass (superseded by
   v5_corrected_rerun; retained as the bug-discovery record).
+
+**Sizing verification (§6.7):**
+- `band_lab/sizing_verification.py` — exposure profile, exposure-matched
+  sizing table, and gross/conservative bootstraps. Supersedes the V11-T5
+  bootstrap and the V8-T4 pyramid recommendation.
 
 **Drawdown-defense negatives (documented rejections, §6.6):**
 - `band_lab/put_overlay_test.py` — LEAP protective-put overlay (real

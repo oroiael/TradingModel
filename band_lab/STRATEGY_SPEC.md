@@ -36,16 +36,18 @@ Status: **core strategy** as of 2026-07-28. Multi-day cycle strategy
 > on the corrected engine: 53.8 vs 45.3 bp/day at 10:30, worst day −8.0%
 > vs −15.2%); no last-entry cutoff (tested, costs money); force-flat at
 > the close. Long only, one position at a time, no overnight exposure.
-> Sizing: flat fraction f of the sleeve per trade — f=1.0 growth-seeking,
-> **f=0.5 risk-budget** (maxDD ≈ −20%, −30% ON-years ≈ eliminated;
-> re-verified bootstrap 2026-07-28). The per-unit pyramid is an optional
-> midpoint (37.6 bp, Sharpe 2.65, maxDD −25.4%) — its earlier
-> "dominates flat-0.5" claim did NOT survive corrected-engine
-> re-verification (MASTER doc §6.7).
+> Sizing: **flat fraction f of the sleeve per trade — nothing else.**
+> f=1.0 growth (maxDD −36.5%); f=0.5 risk-budget (maxDD −19.8%). Sharpe
+> is invariant in f. The per-unit pyramid is WITHDRAWN: at matched
+> average exposure flat sizing earns 43.7 bp vs its 37.6 for the same
+> drawdown (MASTER doc §6.7).
 
-Backtest references (corrected engine): **59.6 bp/traded-day, Sharpe 2.87,
-worst day −8.0%, maxDD −32.1%** on gated days 2020-07 → 2026-07;
-walk-forward-supported (start-time OOS 60.6 bp / Sharpe 2.76; original
+Backtest references (corrected engine, current locked config INCLUDING
+the V9 direction-aware filter): **65.6 bp/traded-day, Sharpe 3.09, worst
+day −8.0%, maxDD −36.5%** on gated days 2020-07 → 2026-07. (The 59.6 bp
+/ Sharpe 2.87 / −32.1% figures quoted in the V5 section below predate
+the V9 adoption and are correct only for that comparison.)
+Walk-forward-supported (start-time OOS 60.6 bp / Sharpe 2.76; original
 config-selection OOS retained ~83% of in-sample edge). Code:
 `churn_harvest.py`, `regime_gate.py`, `walk_forward_and_combo.py`,
 `v5_corrected_rerun.py` (reference engine), `v11_`/`v8_`/`v5_`/`v6_*.py`.
@@ -64,7 +66,7 @@ config-selection OOS retained ~83% of in-sample edge). Code:
 | V8 | direction | long only | full program; short −17.7 bp honest fills; SSR 16.6% | **tested & closed** |
 | V9 | day filter | skip OR30 > trailing 80th pct **unless 10:00 in top ⅓ of OR** | full program; boundary plateau-confirmed; direction rule +4.6 bp WF 5/5 | **tested & refined** |
 | V10 | vol gate | ATR5 ≥ 6% (5d, cliff, SOXL input) | full program: cutoff/lookback/form/input/hysteresis all confirmed; U-shape closed as era-noise | **tested & confirmed** |
-| V11 | sizing | flat f; **2-stop breaker**; f=0.5 risk-budget | six-test program + refreshed bootstrap; pyramid demoted to optional midpoint after corrected-engine re-verify | **tested & adopted (revised)** |
+| V11 | sizing | **flat f only** + 2-stop breaker | six-test program; pyramid WITHDRAWN (dominated at matched exposure) and bootstrap re-run on current series — `sizing_verification.py` | **tested & adopted (revised)** |
 | V12 | sleeve role | day sleeve = core | four splits; WF (core robust, satellite fragile) | **tested** |
 | — | engine | prior-bar trigger, next-bar target | lookahead bug found & fixed in V5 | **corrected** |
 
@@ -146,7 +148,7 @@ config-selection OOS retained ~83% of in-sample edge). Code:
   −11.4% → −17% at cap 8. **Cap 5 confirmed as the risk-adjusted optimum**;
   6 is equivalent; 8+ is a small return add paid for in tail risk.
 
-### V8. Direction & concurrency — **long only; pyramid variant for half-capital**
+### V8. Direction & concurrency — **long only** (pyramid since withdrawn)
 - Tested: full six-test program (`V8_DIRECTION_TESTS.md`,
   `v8_direction_tests.py`). Short side CLOSED: mirror-short edge is
   +7.6 bp only under invalid touch fills, −17.7 bp with honest fills
@@ -154,10 +156,13 @@ config-selection OOS retained ~83% of in-sample edge). Code:
   shorting on 16.6% of gated days. Long/short correlation −0.76 makes a
   25% SOXS overlay a legitimate optional smoothing dial (Sharpe 2.37,
   −5 DD pts, costs ~6 bp/day) but not core. Excursion-day momentum
-  rejected (negative 3 of 7 years). **Adopted:** per-unit pyramiding
-  (2 units, f/2 each, second unit 1% deeper, own exits) as the
-  half-capital risk-budget config — 35.5 bp/day, Sharpe 2.60, +58% over
-  flat f=0.5 at the same capital ceiling, positive all 7 years.
+  rejected (negative 3 of 7 years). Per-unit pyramiding was adopted here
+  as the half-capital config (35.5 bp/day, Sharpe 2.60, "+58% over flat
+  f=0.5") — **that adoption was REVERSED on 2026-07-28**: the claim
+  rested on the pre-bugfix engine AND on an exposure mismatch (the
+  pyramid's average exposure is 0.483, not 0.5×flat's 0.362). At matched
+  exposure, flat f=0.67 earns 43.7 bp vs the pyramid's 37.6 for the same
+  drawdown. See `sizing_verification.py` and MASTER §6.7.
 
 ### V9. Day filter — **direction-aware OR30 filter** (adopted 2026-07-28)
 - Rule: skip the day only if OR30 ≥ trailing 80th percentile AND the
@@ -196,8 +201,9 @@ config-selection OOS retained ~83% of in-sample edge). Code:
   (forfeits the +22.8 bp post-first-stop recovery), anti-martingale
   (neutral), vol-targeting (dominated; Sharpe-by-vol is U-shaped),
   soft gate ramp (drag), tighter stops (Sharpe 2.15 > 2.07 > 1.71 for
-  4/2/3%). Leverage: bootstrap says P(−30% DD/yr) = 46% at f=1.0 —
-  f≈0.5 is the largest drawdown-budgeted setting.
+  4/2/3%). Leverage rejected. Bootstrap re-run 2026-07-28 on the current
+  core (the 46% figure below was the pre-refinement series): gross f=1.0
+  P(−30% DD/ON-yr) = 14.5%, conservative f=1.0 = 26.7%, f=0.5 = 0.5%.
 
 ### V12. Sleeve allocation — day sleeve as core
 - Tested: the four splits above; every dollar moved cycle→day raised CAGR
@@ -305,12 +311,14 @@ pre-paid knowingly.
 - **Growth setting: f = 1.0** — each entry uses the full sleeve equity.
   Accept: worst day −8%, maxDD ≈ −32% on active days, and a bootstrap
   P(−30% DD within a year) near a coin flip.
-- **Risk-budget setting: flat f = 0.5** (re-verified 2026-07-28:
-  maxDD −19.8%, Sharpe 3.09, P(−30% DD/ON-yr) ≈ 0.1%). The per-unit
-  pyramid (two units of f/2, second 1% deeper, own brackets, breaker
-  counts unit-stops) is an optional MIDPOINT — 37.6 bp/day, Sharpe 2.65,
-  maxDD −25.4% on the corrected engine; its earlier "dominates
-  flat-0.5" result was a pre-bugfix artifact and is superseded.
+- **Risk-budget setting: flat f = 0.5** (maxDD −19.8%, Sharpe 3.09,
+  conservative P(−30% DD/ON-yr) 0.5%). Intermediate points are simply
+  intermediate f (e.g. f=0.67 → 43.7 bp, maxDD −25.7%).
+- **The per-unit pyramid is WITHDRAWN.** Its average exposure is 0.483
+  (not "half capital"), and at matched exposure flat f=0.67 earns 43.7
+  bp vs the pyramid's 37.6 for the same −25% drawdown. The earlier
+  "+58% over flat half-size" claim was a pre-bugfix engine artifact
+  compounded by an exposure mismatch. See MASTER §6.7.
 - **Never trade above f = 1.0.** Leverage was tested and rejected:
   Sharpe is flat in f, so margin buys tail risk and nothing else.
 
