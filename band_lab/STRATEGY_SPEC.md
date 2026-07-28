@@ -8,8 +8,12 @@ Status: **core strategy** as of 2026-07-28. Multi-day cycle strategy
 > On days when trailing 5-day average range (ATR5) ≥ 6% and the opening
 > 30-min range is not in the top quintile: starting at 10:30, place a limit
 > buy 1% below the intraday rolling high; on fill, exit at +1% (limit) or
-> −4% (stop); repeat up to 5 times; force-flat at the close. Long only, one
-> position at a time, no overnight exposure.
+> −4% (stop); repeat until 5 trades **or 2 stop-outs**, whichever comes
+> first (2-stop circuit breaker adopted from the V11 program: +1.3 bp/day,
+> Sharpe 2.25 vs 2.15, worst day −8.0% vs −11.4%); force-flat at the
+> close. Long only, one position at a time, no overnight exposure.
+> Sizing: flat fraction f of the sleeve per trade — f=1.0 growth-seeking,
+> f=0.5 for a P(−30% DD/yr) ≤ ~5% risk budget (V11_SIZING_TESTS.md T5).
 
 Backtest references: in-sample 43.5 bp/traded-day, Sharpe 2.14 (2020-07 →
 2026-07); walk-forward OOS 36.3 bp/day, Sharpe 1.64 (2022–2026, yearly
@@ -109,11 +113,15 @@ re-selection). Code: `churn_harvest.py`, `regime_gate.py`,
   percentile instead of absolute 6%), alternative vol inputs (overnight
   gap vol, SOX index vol, VIX), gate hysteresis (enter at 6%, exit at 5%).
 
-### V11. Per-trade sizing — **100% of the sleeve's sub-account**
-- Tested: only at the allocation level (cycle/day splits 150/0, 100/50,
-  75/75, 0/150 in `combo_summary.csv`). Within-sleeve sizing never varied.
-- Untested: risk-parity sizing (size ∝ 1/stop distance), vol targeting,
-  fraction-of-Kelly, halving size on gate-marginal days.
+### V11. Per-trade sizing — **flat fraction, 2-stop circuit breaker**
+- Tested: full six-test program (`V11_SIZING_TESTS.md`,
+  `v11_sizing_tests.py`). Adopted: 2-stop/day circuit breaker (better
+  return, Sharpe, and tail simultaneously). Rejected: 1-stop breaker
+  (forfeits the +22.8 bp post-first-stop recovery), anti-martingale
+  (neutral), vol-targeting (dominated; Sharpe-by-vol is U-shaped),
+  soft gate ramp (drag), tighter stops (Sharpe 2.15 > 2.07 > 1.71 for
+  4/2/3%). Leverage: bootstrap says P(−30% DD/yr) = 46% at f=1.0 —
+  f≈0.5 is the largest drawdown-budgeted setting.
 
 ### V12. Sleeve allocation — day sleeve as core
 - Tested: the four splits above; every dollar moved cycle→day raised CAGR

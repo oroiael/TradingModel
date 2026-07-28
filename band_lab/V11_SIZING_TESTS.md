@@ -164,3 +164,62 @@ unchanged DD via modest margin — not both. Aggregate worst case: flat-100%
 is confirmed optimal and the program costs a few days of compute — sizing
 tests multiply an existing P&L series, so they cannot damage the underlying
 edge itself.
+
+---
+
+# RESULTS (run 2026-07-28, `v11_sizing_tests.py` → `out/v11_results.csv`)
+
+Note on CAGR columns: gated days are compounded back-to-back, so CAGR reads
+as "per active year" (the gate is on ~50% of days); use bp/day, Sharpe, and
+the DD/worst-day columns for decisions.
+
+**T4 — ADOPTED: 2-stop circuit breaker.** The conditional stats settled it
+before the rules ran: after 1 stop-out the rest of the day still earns
++22.8 bp (53% positive) — so breaker-after-1 forfeits real recovery and
+loses (36.9 bp vs 43.6 baseline). After 2 stop-outs the rest of the day
+*loses* −20.3 bp (40% positive) — so quitting there is pure gain:
+**44.9 bp/day (vs 43.6), Sharpe 2.25 (vs 2.15), worst day −8.0% (vs
+−11.4%)**, better or equal in 6 of 7 years (2026 the one giveback). Also
+per-trade edge RISES with sequence (#1: 6.8 bp → #3: 20.3 bp → #5: 20.1
+bp) — later dips are deeper dips; de-escalation rules are wrong-way.
+Anti-martingale: neutral (42.1 bp, Sharpe 2.14) — rejected.
+
+**T1 — Sharpe is exactly flat in f (2.15 at every fraction), tails scale
+linearly.** f=1.33 gives 58.1 bp/day with a −15.2% worst day and −44% DD
+on the active-day sequence. Leverage is a pure risk dial here — see T5 for
+whether it's affordable (it isn't).
+
+**T3 — REJECTED (dominated).** The Sharpe-by-vol-bucket curve is
+U-shaped, not monotone (bucket 1: 4.93, buckets 2–3: ~1.1, bucket 4:
+2.52), so inverse-vol sizing down-weights some of the best days;
+vol-targeting k=6 lifts Sharpe to 2.24 but costs 10 bp/day. Breaker2
+achieves the same Sharpe gain at zero return cost. (The just-above-gate
+days ATR 6–6.6 being the highest-Sharpe cohort is a finding worth keeping.)
+
+**T6 — REJECTED.** The 5→7 ramp scores 26.3 bp / Sharpe 1.55 vs the
+cliff's 43.6 / 2.15: partially-admitted ATR 5–6 days are a drag, exactly
+the quartile-1 negative-edge cohort the gate exists to exclude.
+
+**T2 — REJECTED; locked 4% stop confirmed.** At equal risk-normalized
+fractions, stop-4% Sharpe 2.15 > stop-2% 2.07 > stop-3% 1.71 across the
+whole R grid. Tighter stops die to normal churn; risk-normalization adds
+nothing the fraction dial doesn't.
+
+**T5 — leverage is NOT affordable; half-size is the formal answer.**
+10,000 block-bootstrap years: at f=1.0 the probability of a −30% max
+drawdown within a year is **45.8%** (empirical pool) / 69.0% (stressed
+pool: 2022×1.5 + one −20% halt day). The largest f meeting
+P(maxDD<−30%) ≤ 5% is **f≈0.5 empirical and below 0.5 stressed**. Anyone
+running this at full size must accept that a −30% year is closer to a
+coin flip than a tail event; f=0.5 keeps ~68% median active-year return
+with P(−30% DD) ≈ 2–8%.
+
+## Decisions applied to the locked core
+
+1. **Trade cap restated: 5 trades OR 2 stop-outs, whichever comes first**
+   (breaker2 adopted — better on every headline metric, prespecified,
+   robust across years, and it *reduces* trade count so costs only help).
+2. Flat sizing retained; fraction f is the user's risk dial with the T5
+   table as the price list — f=1.0 is growth-seeking, f=0.5 is the
+   drawdown-budgeted setting.
+3. Stop 4%, cliff gate at ATR≥6, and no vol-scaling all confirmed.
