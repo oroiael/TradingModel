@@ -93,13 +93,19 @@ re-selection). Code: `churn_harvest.py`, `regime_gate.py`,
   carry edge). Conditional start rejected (dominated). Finding the V5
   answer also exposed and fixed the same-bar lookahead bug (see header).
 
-### V6. End-of-day flat — **close of last bar, always**
-- Role: removes overnight gap risk entirely (gaps are the main excursion
-  channel). Open positions at the bell exit at the last bar's close.
-- Tested: not varied. Holding winners overnight, exiting at 15:55, or MOC
-  order modeling have not been run. (Note: round-1 cycle results suggest
-  overnight holds add return and add tail risk — that experiment would
-  effectively re-merge the sleeves.)
+### V6. End-of-day flat — **close of last bar, always (retained on role)**
+- Tested: full program (`V6_EOD_EXIT_TESTS.md`, corrected engine).
+  Exit-time sweep: 15:55 ≈ close, earlier costs — incumbent confirmed.
+  Overnight holds WIN on return (hold-to-open +17 bp/day; hold-to-
+  resolution +26 bp/day, Sharpe 3.04, walk-forward-picked 4/5 years) and
+  are REJECTED by the prespecified role bar: worst day −13.6% vs the
+  breaker's −8.0%, sample contains −21.6%/−19.8% overnight gaps, and
+  held positions re-merge the core into the satellite's risk class.
+  **The cost of gap neutrality is now priced: ~17–26 bp/day.**
+  Winners-only holding disproved (adds nothing — the overnight value is
+  all in holding losers, which mean-revert; median truncated position
+  hits its full target within one further session). Possible follow-up
+  under V11 sizing: hold-to-open at reduced size for the loser cohort.
 
 ### V7. Max trades/day — **5**
 - Tested: swept 1–10 (`cap_sweep.py`, `out/cap_sweep.csv`). On gated days

@@ -123,6 +123,69 @@ materially worse AND the role review signed off in the results doc.
 
 **Recommended order: T1 → T2 → T3 → T4 → T5.**
 
+---
+
+# RESULTS (run 2026-07-28, `v6_eod_exit_tests.py` → `out/v6_results.csv`,
+# `out/v6_eod_trades.csv`; corrected engine, start 11:00)
+
+## T1 — the truncation is the worst possible resolution
+
+Forced EOD exits are **18.7% of all trades** (439 of 2,342; they occur on
+59% of traded days) and cost **−82.9 bp** on average at the forced print
+(72% negative). Every held alternative marks better: next open −53.6 bp
+(+29.3 per trade), next-day 11:00 −34.6 bp, worked-to-resolution −38.5 bp
+mean with a **median of +100 bp** — more than half of truncated positions
+hit their full +1% target within a median of ONE further session. The
+overnight mean-reversion on these stalled positions is real.
+
+## T2 — incumbent confirmed
+
+flat 15:55 and last-bar close are statistically identical (58.4/2.88 vs
+58.9/2.84); exiting earlier costs monotonically (15:30 → 51.3 bp). Cell
+closed.
+
+## T3/T5 — overnight holds WIN on return and are REJECTED on role
+
+| variant | bp/day | Sharpe | worst day | worst o/n gap taken |
+|---|---:|---:|---:|---|
+| incumbent flat-at-close | 58.9 | 2.84 | **−8.0%** | none |
+| (a) hold-to-open | 76.1 | 2.79 | −13.6% | −13.6% |
+| (c) winners-only | 58.4 | 2.67 | −10.4% | −11.1% |
+| (b) hold-to-resolution ≤3d | 84.9 | 3.04 | −13.6% | (same channel) |
+
+The walk-forward picks (b) in 4 of 5 years (OOS 77.4 bp, Sharpe 2.89) —
+the return case is genuine. The adoption bar was prespecified as
+"worst-day/DD not materially worse AND role review": **worst day −13.6%
+vs the breaker's guaranteed −8.0% is materially worse**, the sample's
+gap stress shows −21.6% and −19.8% overnight gaps exist (2026-06-23,
+2024-08-05) — a held position through one of those is a double-digit
+single-print loss the intraday breaker can never see coming — and the
+role review fails by construction: holding to resolution makes the core a
+miniature cycle sleeve, stacking overnight risk the satellite already
+owns. **Flat-at-close is retained.**
+
+Two findings worth keeping alongside the rejection:
+1. **The price of gap neutrality is now a number: ~17–26 bp/day** (what
+   (a)/(b) would add). That is the insurance premium the core pays for
+   its −8% worst-day guarantee and its role in the book. It was assumed
+   worth paying; now it is *known* what it costs.
+2. **Winners-only holding is disproved** — (c) adds nothing (58.4 vs
+   58.9). The overnight value is entirely in holding LOSERS (they mean-
+   revert); protecting winners overnight protects nothing. Any future
+   revisit of this question should test *loser*-sizing rules (e.g.,
+   hold-to-open at half position), which would take roughly half the
+   +17 bp for roughly half the −13.6% tail — flagged as a possible
+   follow-up under V11's sizing framework, not adopted here.
+
+## T4 — moot (nothing adopted; the V5 no-cutoff verdict stands).
+
+## Net effect
+
+No change to the locked core — and that IS the result: every load-bearing
+time rule in the sleeve (V5 start, V7 cap, V6 exit) has now been audited;
+two moved (start, engine fix), two held (cap, EOD-flat), and the one
+standing assumption that remained unpriced now has a price tag.
+
 **Aggregate bounds:** best case — a winners-only overnight rule adds
 ~5–10 bp/day with a quantified, bounded gap tail and the role review
 passes because only cushioned positions carry it. Worst case — flat-at-
