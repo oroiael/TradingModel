@@ -1,0 +1,4 @@
+variant,final_trading,cash_swept_total,final_cash_acct,TOTAL_wealth,CAGR_total_%,maxDD_trading_%,maxDD_total_%,winning_weeks_%
+no sweep (reference),10420919,0,0,10420919,114.9,-9.4,-9.4,64.1
+"5% sweep, cash @0%",8079632,542977,542977,8622609,107.7,-9.4,-9.2,64.1
+"5% sweep, cash @4%",8079632,542977,569797,8649429,107.8,-9.4,-9.1,64.1

@@ -162,3 +162,106 @@ walk-forward-validated choice remains w=0.50, which gives CAGR 114.9% at
 4. SOXS's own decay (−100% over the sample) is irrelevant only because
    the strategy is flat every night. Any overnight hold in SOXS would be
    catastrophic; the V6 flat-at-close rule is load-bearing for this sleeve.
+
+---
+
+# V15 — WEEK-BY-WEEK WITH A 5% PROFIT SWEEP (run 2026-07-28)
+
+`v15_weekly_sweep.py` → `out/v15_weekly_sweep.csv` (all 290 weeks),
+`out/v15_sweep_summary.csv`. Structure: the walk-forward-validated pair
+(w=0.50 static), locked rules, net of per-instrument costs, $150,000
+start. Rule: at each **winning** week's end, 5% of that week's profit
+moves to a cash-only account and is never traded again; losing weeks
+sweep nothing; everything else compounds.
+
+**First, a property worth stating plainly:** the sweep does not change
+the strategy at all. Trading a fraction of whatever the account holds
+means percentage returns — and therefore Sharpe and the *percentage*
+drawdown of the trading account — are identical with or without it. The
+sweep is a wealth-allocation decision layered on top, not a trading
+decision. Every risk statistic in V14 stands unchanged.
+
+## Week-by-week results ($150,000 start, 290 weeks, 5.5 years)
+
+| | no sweep | **5% sweep** | 5% sweep, cash @4% |
+|---|---:|---:|---:|
+| final trading account | $10,420,919 | $8,079,632 | $8,079,632 |
+| cash account | — | $542,977 | $569,797 |
+| **total wealth** | **$10,420,919** | **$8,622,609** | $8,649,429 |
+| CAGR (total) | 114.9% | 107.7% | 107.8% |
+| maxDD, total wealth | −9.4% | **−9.2%** | −9.1% |
+| winning weeks | 64% | 64% | 64% |
+
+Weekly texture: 290 weeks, **186 winning (64%)**, 42 with no trading at
+all. Weekly profit mean $29,216, **median $7,148**, best +$818,679,
+worst −$437,387 (dollar figures grow with the compounding account —
+early weeks are hundreds, late weeks hundreds of thousands). Median
+sweep on a winning week: $914.
+
+By year (profit → swept → cash balance): 2021 $75.6K → $6.2K → $6.2K;
+2022 $595K → $33.6K → $39.8K; 2023 $725K → $39.4K → $79.2K; 2024
+$1.23M → $73.3K → $152.5K; 2025 $2.88M → $166.0K → $318.5K; 2026 (30
+weeks) $2.97M → $224.4K → $543.0K.
+
+## The verdict: the 5% sweep is a poor trade on every metric tested
+
+**It costs $1,798,310 — 17.3% of terminal wealth — to protect 6.3%.**
+That ratio holds at every rate tested, because cash compounds at 0–4%
+while the trading account compounds at ~115%:
+
+| sweep rate | terminal total | % of wealth in cash | cost vs no sweep | maxDD total |
+|---:|---:|---:|---:|---:|
+| 5% | $8.62M | 6.3% | −17.3% | −9.2% |
+| 10% | $7.15M | 12.5% | −31.3% | −8.9% |
+| 20% | $4.97M | 24.5% | −52.3% | −8.9% |
+| 33% | $3.16M | 39.3% | −69.6% | −8.9% |
+| 50% | $1.84M | 56.7% | −82.4% | −8.9% |
+
+**The drawdown benefit is essentially nil** — −9.2% versus −9.4%, and
+even a 50% sweep only reaches −8.9%, because the trading account still
+carries the overwhelming majority of wealth and takes the full hit.
+
+**The model-risk defence also fails on test.** The intuitive case for
+sweeping is protection against the edge decaying. Simulating the edge
+*inverting* to −50% of its magnitude from 2025 onward: no-sweep terminal
+$1,680,969 versus 5%-sweep $1,559,440 — **the sweep still loses
+$121,530 (−7.2%)**, because the compounding forgone before the reversal
+exceeds the cash rescued. Under the conservative edge-decay haircut the
+cost falls to 13.1% but still runs ~1.9× the protection. The only
+scenario a sweep genuinely wins is *total* loss of the trading account —
+broker failure or operational catastrophe, not strategy
+underperformance — and the sleeve's design (flat overnight, −8% capped
+worst day, 2-stop breaker) makes that remote.
+
+## The real reason to sweep — and 5% is far too small for it
+
+Every gain here is **short-term** (the strategy is flat every night), so
+it is taxed at ordinary income rates, and a fully-reinvested account
+cannot pay that bill without liquidating anyway:
+
+| year | trading profit | 5% swept | tax @35% | sweep covers |
+|---|---:|---:|---:|---:|
+| 2022 | $595,456 | $33,574 | $208,410 | 16% |
+| 2024 | $1,230,933 | $73,342 | $430,827 | 17% |
+| 2025 | $2,876,659 | $166,020 | $1,006,831 | 16% |
+| **total** | **$8,472,609** | **$542,977** | **$2,965,413** | **18%** |
+
+**A 5% sweep funds 18% of a 35% tax bill.** If the sweep's purpose is a
+tax reserve — which is the one unavoidable reason to move cash out — the
+rate must roughly equal the marginal tax rate (~35–45%), not 5%.
+
+**Recommendation.** Do not sweep for risk management; it buys 0.2
+percentage points of drawdown for 17% of terminal wealth, and the f dial
+and the pair weight are both far more efficient risk instruments. Do
+sweep for **taxes and any actual cash needs**, sized to the real
+liability (~35–45% of profits, or quarterly estimated payments), and
+book that as a cost of doing business rather than a risk control. The
+$150K → $8.6M path above assumes taxes are paid from outside the
+account; at a 35% sweep the terminal total is $2.96M, which is the more
+realistic after-tax picture of the same strategy.
+
+**Caveat:** every figure inherits the V14 caveats — estimated (not
+measured) spreads, 5-minute fill realism, and a compounded path that
+takes no account of capacity limits at eight-figure balances. The
+compounding here is arithmetic, not a forecast; §6.4 of the master
+document applies with full force.
