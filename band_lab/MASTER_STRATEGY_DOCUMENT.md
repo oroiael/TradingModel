@@ -635,6 +635,88 @@ needed; the repository already contains a fetcher pattern
 connection. Once the file exists as `TQQQ_5min_6Years.csv`, the test is
 one command: `python3 band_lab/etf_scaling_test.py TQQQ`.
 
+### 9.5 SOXS — the strongest transfer result, and the drift question settled
+
+`etf_scaling_test.py SOXS` → `out/etf_scaling_SOXS.csv`. SOXS is −3x the
+same semiconductor sector: k = 1.017, so **no rescaling is needed — the
+locked settings apply verbatim**. Churn density is a near-perfect match
+(15.3 ≥1% swings/day vs SOXL's 15.0; identical 5.9 ≥2% swings; zero
+zero-swing days in both).
+
+| | ON days | trades/day | bp/ON-day | Sharpe | win % | worst day | maxDD | yrs + |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|
+| SOXL (locked) | 787 | 3.17 | 65.6 | 3.09 | 63.7 | −8.0% | −36.5% | 6/6 |
+| **SOXS (locked, unchanged)** | 801 | 3.36 | **57.7** | **2.63** | 57.6 | −8.0% | −37.0% | **6/6** |
+
+**88% of SOXL's edge, on an instrument that lost 100% of its value over
+the sample.** Positive in all six years (2021–2026: 44.9, 86.2, 21.1,
+33.1, 102.2, 62.5 bp), including 2023 — a large semiconductor bull year
+in which SOXS decayed relentlessly.
+
+**This settles the drift-versus-reversion question.** Benchmark: buy at
+the 11:00 bar close, hold to the session close, on the same ON days, at
+the strategy's own measured average exposure — a fully implementable
+passive alternative.
+
+| | strategy | passive 11:00→close at same exposure | **residual (timing alpha)** |
+|---|---:|---:|---:|
+| SOXL | +65.6 bp | +26.2 bp | **+39.4 bp** |
+| SOXS | +57.7 bp | **−4.2 bp** | **+61.9 bp** |
+
+On SOXL, 60% of the return is genuine timing alpha and 40% is drift
+capture. On SOXS the passive benchmark *loses* money and the strategy
+still earns +57.7 bp — **the entire return is timing alpha, and the alpha
+is larger than on SOXL.** The edge is mean-reversion harvesting, not a
+disguised long position. The machinery also controls risk: on SOXS the
+strategy's maxDD is −37.0% against the passive benchmark's −66.1%, and
+worst day −8.0% against −14.4%.
+
+**Mechanism — why SOXS complements rather than duplicates.** Of the 165
+days SOXS trades and SOXL does not, **79% are days SOXL's gate was ON but
+the V9 direction filter stood down** — SOXL's violent *down*-mornings are
+SOXS's violent *up*-mornings, which the filter welcomes. The strategy's
+own filter therefore selects direction, and the two sleeves are **−0.70
+correlated** on days both trade. Those SOXL-stand-down days are SOXS's
+best: **+151.7 bp mean, +162.6 bp median** (median above mean — not
+outlier-driven), 69% win rate, top-5 days only 14% of the total, positive
+in all six years.
+
+**Paired portfolio** (capital split, not duplicated):
+
+| w SOXL / w SOXS | bp/calendar-day | Sharpe | maxDD | CAGR |
+|---|---:|---:|---:|---:|
+| 1.00 / 0.00 | 35.7 | 2.26 | −36.5% | 133.4% |
+| 0.75 / 0.25 | 34.7 | 3.36 | −14.5% | 138.7% |
+| **0.50 / 0.50** | 33.8 | **4.28** | **−12.4%** | 136.4% |
+| 0.00 / 1.00 | 31.9 | 1.94 | −37.0% | 110.4% |
+
+A 50/50 pair holds CAGR essentially flat (136.4% vs 133.4%) while cutting
+max drawdown from **−36.5% to −12.4%** and nearly doubling Sharpe to
+**4.28**. Unlike SPXL/FAS — where every dollar moved was value-destroying
+and the f dial dominated — this is real diversification, because the
+negative correlation is structural rather than incidental.
+
+**Reconciliation with V8 (a validator will ask).** V8 concluded "the short
+side is dead," including a SOXS cell. That test is not this test: V8-T2
+generated **SOXL mirror signals** (sell rallies off SOXL's rolling low)
+and routed them through SOXS. Selling a rally at the touch is not a
+resting order, which is precisely why honest fills destroyed it (−17.7
+bp). The present test runs the **native long dip-buy on SOXS's own bars**
+— its own session high, its own opening range, its own gate — preserving
+the resting-buy-limit fill structure the whole edge depends on. V8 killed
+mirror-signal shorting; it never tested this.
+
+**STATUS: NOT ADOPTED — most promising open item in the project.** This
+is a full-sample result. Before any capital moves it needs the same
+protocol every SOXL variable received: yearly walk-forward with the
+weight selected on prior data only, plateau support around 50/50,
+mechanism attribution confirming the down-morning cohort drives it, and a
+cost re-accounting (a paired book roughly doubles trade count, and SOXS
+spreads are wider than SOXL's — the ~0.9 bp/round-trip arithmetic in §2.5
+must be re-derived for SOXS before the Sharpe 4.28 is believed).
+Practical items to verify: SOXS liquidity at intended size, and the
+capital rule on the 464 days both sleeves are ON simultaneously.
+
 **What this does buy the core case:** two independent instruments show a
 positive edge once the constants are scaled to their volatility, with the
 structural worst-day cap holding exactly as designed on both. The SOXL
