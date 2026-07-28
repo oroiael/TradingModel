@@ -211,6 +211,46 @@ SOXL + SOXS simultaneously bleeds double 3x-decay: SOXS P&L −$106k to
   5-day SOXS slug on stalls → ~30% CAGR, −59% DD. (The round-2 covered-call
   configs remain the smoothest overall but cap the compounding.)
 
+## Round 4 — regime kill switch (the satellite's missing defense)
+
+`python3 cycle_lab/kill_switch.py` → `out/kill_switch.csv`,
+`out/kill_switch_wf.csv`. Gates use prior-day closes only (no lookahead);
+"soft" blocks new lots and lets open lots run out; "hard" also sells the
+active lot at the close when the gate turns off.
+
+Fixed config 2%/4d/eq4, 2022-01 → 2026-07, $150K:
+
+| gate | final | CAGR | max DD | 2022 |
+|---|---:|---:|---:|---:|
+| none | $763K | 43.0% | −81.8% | −71.1% |
+| SMA20 | $738K | 42.0% | −68.4% | −58.8% |
+| SMA50 / SMA50-hard | $458K / $508K | 27.9% / 30.8% | −64.2% / −54.3% | −56.5% / −51.9% |
+| **SMA100** | **$1,485K** | **65.6%** | **−49.5%** | −38.9% |
+| SMA200 | $1,384K | 63.1% | −54.8% | −24.5% |
+| ATR5 > 15% block | $664K | 38.7% | −81.0% | −68.7% |
+
+The honest test — the yearly walk-forward (params re-selected from prior
+data only) re-run **with the SMA100 gate**:
+
+| year | picked | OOS return |
+|---|---|---:|
+| 2022 | 2%/2d | −45.3% |
+| 2023 | 2.5%/7d | +36.5% |
+| 2024 | 3%/7d | +36.3% |
+| 2025 | 1.5%/2d | +41.1% |
+| 2026 | 2.5%/5d | +104.7% |
+| **chained** | $150K → **$440K** | **27.0% CAGR** (vs **3.3%** ungated) |
+
+Takeaways: (1) a slow trend filter is the right kill switch — it doesn't
+just cut the loss, it *raises* total return, because the capital not
+incinerated in 2022 compounds later; (2) fast filters (SMA20/50) whipsaw
+away most of the benefit, and the pure vol block does nothing (crashes and
+recoveries are both high-vol); (3) SMA100 vs SMA200 is a coin flip (both
+work; the gate concept is a plateau, not a tuned point — though note the
+100 vs 200 pick itself was made in-sample); (4) even gated, 2022 OOS was
+−45% — the satellite stays the satellite; this does not overturn the
+day-sleeve-as-core decision.
+
 ## Caveats
 
 - No commissions/slippage: 1,460 stock round trips ≈ $3k at $2/round-trip,
