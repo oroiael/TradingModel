@@ -12,9 +12,16 @@ Three jobs:
   B. ARTIFACT Rebuild band_lab/out/v14_*.csv from the clean-room series and
               diff against the committed files.
 
-  C. DELTA    Run the spec-literal engine and attribute the difference from
-              the research engine to each individual interpretation switch,
-              so the reader can see the price of every ambiguity in §2.
+  C. DELTA    Run the spec engine and attribute its difference from the
+              research engine to each individual interpretation switch, so
+              the price of every §2 ambiguity — taken and not taken — stays
+              a number rather than a memory. See PHASE1_PARITY.md §3.
+
+  D. §8 GUARD Re-measure the monitoring baselines published in §8 and fail
+              if the document has drifted from the engine.
+
+Exit code is non-zero if any of the four finds a problem, so this doubles
+as a regression gate.
 
 Outputs: band_lab/phase1/out/
 Usage:   python3 band_lab/phase1/parity.py [--tol 1e-12]
@@ -196,16 +203,29 @@ def diff_tables(built: dict[str, pd.DataFrame]) -> pd.DataFrame:
 
 
 # ================================================================ C. delta
-SWITCHES = [
-    ("S1 thr80 recomputed monthly (§2.1)", dict(thr80_refresh="monthly")),
+# Residual spec-vs-research differences. In each of these the spec is right
+# and the research engine never implemented the rule, so adopting them is
+# the gap the live system starts with. SPEC_LITERAL turns all of them on.
+RESIDUAL = [
     ("S2 half-days OFF (§2.2)", dict(half_day_policy="off")),
     ("S3 flatten at 15:55 (§2.8)", dict(eod_mode="flatten_1555")),
-    ("S4 target live on entry bar (§2.6)", dict(target_on_entry_bar=True)),
-    ("S5 round_to_tick (§2.5/§2.6)", dict(tick_rounding=True)),
     ("S6 clock bar indexing (§2.1)", dict(bar_indexing="clock")),
-    ("S7 whole-share sizing (§2.4)", dict(share_rounding=True)),
     ("S8 refuse incomplete sessions (§4)", dict(require_full_session_open=True)),
 ]
+
+# Readings that were measured and NOT adopted. Kept runnable so the cost of
+# each decision stays a number rather than a memory.
+NOT_ADOPTED = [
+    ("S1 thr80 monthly — rejected 2026-07, §2.1 amended to daily",
+     dict(thr80_refresh="monthly")),
+    ("S4 target live on entry bar — rejected, §2.6 forbids (lookahead)",
+     dict(target_on_entry_bar=True)),
+    ("S5 model the $0.01 tick grid — held as unbanked conservatism",
+     dict(tick_rounding=True)),
+    ("S7 whole-share sizing — live-engine rule only, see §4",
+     dict(share_rounding=True)),
+]
+SWITCHES = RESIDUAL + NOT_ADOPTED
 
 
 def summarise(on: pd.Series, label: str) -> dict:
@@ -221,56 +241,74 @@ def _in_spec_literal(kw: dict) -> bool:
 
 
 def delta_attribution() -> pd.DataFrame:
+    """Each switch flipped one at a time off the research baseline, plus the
+    combined SPEC_LITERAL run — which is what the live system will be, so its
+    delta is measured directly rather than summed from the singles."""
     rows = []
     base = RESEARCH_COMPAT
-    adopted = [s for s, kw in SWITCHES if _in_spec_literal(kw)]
+    adopted = ",".join(s.split()[0] for s, kw in SWITCHES if _in_spec_literal(kw))
     for sym in SLEEVES:
         _, on0, _ = run_sleeve(sym, base)
         r = summarise(on0, "research-compat baseline")
-        r.update(sleeve=sym, in_spec_literal="-", d_bp_vs_baseline=0.0)
+        r.update(sleeve=sym, status="baseline", d_bp_vs_baseline=0.0)
         rows.append(r)
         for label, kw in SWITCHES:
             _, on, _ = run_sleeve(sym, dc.replace(base, **kw))
-            r = summarise(on, f"+ {label}")
+            r = summarise(on, f"  {label}")
             r.update(sleeve=sym,
-                     in_spec_literal="yes" if _in_spec_literal(kw) else "no",
+                     status="ADOPTED" if _in_spec_literal(kw) else "not adopted",
                      d_bp_vs_baseline=round((on.mean() - on0.mean()) * 1e4, 1))
             rows.append(r)
         _, onS, _ = run_sleeve(sym, SPEC_LITERAL)
-        r = summarise(onS, "= SPEC_LITERAL ("
-                           + ",".join(s.split()[0] for s in adopted) + ")")
-        r.update(sleeve=sym, in_spec_literal="-",
+        r = summarise(onS, f"= SPEC_LITERAL, all adopted ({adopted})")
+        r.update(sleeve=sym, status="AS BUILT",
                  d_bp_vs_baseline=round((onS.mean() - on0.mean()) * 1e4, 1))
         rows.append(r)
-    cols = ["sleeve", "variant", "in_spec_literal", "ON_days", "bp_per_ON_day",
+    cols = ["sleeve", "variant", "status", "ON_days", "bp_per_ON_day",
             "d_bp_vs_baseline", "sharpe", "worst_day_%", "total_%"]
     return pd.DataFrame(rows)[cols]
 
 
 # ============================================ §8 live-vs-backtest expectations
-def monitoring_check(series: dict[str, pd.Series]) -> pd.DataFrame:
+# The table published in IMPLEMENTATION_SPEC.md §8, as corrected in 2026-07.
+# monitoring_check re-measures it so the document cannot silently go stale.
+SPEC_8_BASELINES = {
+    "SOXL": {"fills_per_ON_day": 3.17, "ON_day_rate_%": 52.1,
+             "target_%": 71.3, "stop_%": 9.9, "flatten_%": 18.8,
+             "gross_bp_per_ON_day": 65.6, "net_bp_per_ON_day": 61.9,
+             "worst_day_%": -8.00},
+    "SOXS": {"fills_per_ON_day": 3.36, "ON_day_rate_%": 53.1,
+             "target_%": 71.8, "stop_%": 9.3, "flatten_%": 18.9,
+             "gross_bp_per_ON_day": 57.7, "net_bp_per_ON_day": 48.1,
+             "worst_day_%": -8.00},
+}
+
+
+def monitoring_check(series: dict[str, pd.Series] | None = None) -> pd.DataFrame:
     """§8 lists the numbers the live system will be judged against. Measure
-    them on the research engine so a live deviation means something."""
+    them on the research engine and check the published table still matches,
+    so a live deviation means something."""
     rows = []
     for sym in SLEEVES:
         log, on, tr = run_sleeve(sym, RESEARCH_COMPAT)
-        traded = log[log["traded"]]
         mix = tr["outcome"].value_counts(normalize=True) * 100
-        rows.append({
-            "sleeve": sym,
-            "fills_per_ON_day": round(traded["fills"].mean(), 2),
-            "spec_§8_expects": "~3.2",
-            "target_share_of_exits_%": round(mix.get("target", 0.0), 1),
-            "target_share_ex_flatten_%": round(
-                mix.get("target", 0.0) / (mix.get("target", 0.0)
-                                          + mix.get("stop", 0.0)) * 100, 1),
-            "spec_§8_expects_target": "75-80%",
+        cost = cost_bp(CURRENT_PX[sym], TRADES_PER_DAY[sym])[1]
+        measured = {
+            "fills_per_ON_day": round(log.loc[log["traded"], "fills"].mean(), 2),
             "ON_day_rate_%": round(len(on) / len(log) * 100, 1),
-            "spec_§8_expects_ON": "~50%",
+            "target_%": round(mix.get("target", 0.0), 1),
+            "stop_%": round(mix.get("stop", 0.0), 1),
+            "flatten_%": round(mix.get("flatten", 0.0), 1),
             "gross_bp_per_ON_day": round(on.mean() * 1e4, 1),
+            "net_bp_per_ON_day": round(on.mean() * 1e4 - cost, 1),
             "worst_day_%": round(on.min() * 100, 2),
-            "spec_§8_expects_worst": "never below -8%",
-        })
+        }
+        for metric, value in measured.items():
+            published = SPEC_8_BASELINES[sym][metric]
+            rows.append({"sleeve": sym, "metric": metric,
+                         "spec_§8_published": published, "measured": value,
+                         "match": "ok" if abs(value - published) < 0.06
+                                  else "STALE"})
     return pd.DataFrame(rows)
 
 
@@ -328,7 +366,7 @@ def main() -> int:
     if not args.skip_delta:
         print()
         print("=" * 92)
-        print("C. SPEC-LITERAL vs RESEARCH-COMPAT — cost of each ambiguity in §2")
+        print("C. AS-BUILT vs VALIDATED — the residual gap, and the roads not taken")
         print("=" * 92)
         dl = delta_attribution()
         print(dl.to_string(index=False))
@@ -345,8 +383,11 @@ def main() -> int:
     print("=" * 92)
     print("D. §8 LIVE-VS-BACKTEST MONITORING EXPECTATIONS, MEASURED")
     print("=" * 92)
-    mon = monitoring_check(got)
-    print(mon.T.to_string())
+    mon = monitoring_check()
+    print(mon.to_string(index=False))
+    if not (mon["match"] == "ok").all():
+        print("\n  [!] IMPLEMENTATION_SPEC.md §8 is STALE — update it")
+        rc = 1
     mon.to_csv(os.path.join(OUT, "monitoring_expectations.csv"), index=False)
 
     print(f"\nwrote {OUT}")

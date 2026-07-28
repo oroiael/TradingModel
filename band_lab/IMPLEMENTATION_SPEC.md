@@ -6,10 +6,22 @@ parameter below — every one has been individually tested and the evidence
 is in `STRATEGY_SPEC.md` and `MASTER_STRATEGY_DOCUMENT.md`. Changing a
 number invalidates the validation.**
 
-This document is written to be handed directly to an engineer or to
-Claude Opus 5 Max as a complete build prompt. It is self-contained: an
-implementer needs nothing but this file, IBKR credentials, and the
-acceptance tests in §10.
+This document is written to be handed directly to an engineer as a
+complete build prompt. It is self-contained: an implementer needs nothing
+but this file, IBKR credentials, and the acceptance tests in §10.
+
+**Amendment log.** Every parameter in §12 is unchanged since the strategy
+was locked. The changes below are corrections to *descriptions* that did
+not match the engine the numbers came from — found by the Phase 1
+clean-room build (§9), which is what that phase exists to do. Each is
+evidenced in `band_lab/phase1/PHASE1_PARITY.md`.
+
+| date | § | change |
+|---|---|---|
+| 2026-07 | 2.1 | `thr80` recompute cadence: monthly → **daily**, matching the validated engine |
+| 2026-07 | 2.6 | added the **anti-lookahead backtest convention** (no target fill on the entry bar) — previously stated only in `STRATEGY_SPEC.md` |
+| 2026-07 | 8 | monitoring baselines replaced with **measured per-sleeve values**; two were wrong |
+| 2026-07 | 9 | Phase 1 marked complete; the residual as-built vs validated gap recorded |
 
 ---
 
@@ -56,9 +68,25 @@ reads the other's state, prices, or signals.
   If OR_high == OR_low, use 0.5.
 - `thr80(d)` = the 80th percentile of `OR30` over the **prior 504
   sessions** of that symbol, using only sessions strictly before d.
-  Recomputed **monthly** (first session of each calendar month) and held
-  constant within the month. Requires ≥120 prior observations; if fewer,
-  the sleeve does not trade.
+  Recomputed **every session**, pre-open, from the 504 sessions ending at
+  d−1. Requires ≥120 prior observations; if fewer, the sleeve does not
+  trade.
+
+  > **Amended 2026-07 (Phase 1).** This clause previously specified a
+  > monthly recompute held constant within the calendar month. The
+  > research engine that produced every validated number in
+  > `MASTER_STRATEGY_DOCUMENT.md` recomputes the threshold daily, so the
+  > monthly wording described a system that was never measured. The
+  > cadence is amended to daily to match the validated series exactly.
+  >
+  > This is a documentation correction, not a strategy change, and does
+  > not require re-validation: V9 §T5 swept the refresh cadence and found
+  > it immaterial (monthly/quarterly/annual all within 61–65 bp, Sharpe
+  > 3.03–3.21), and the Phase 1 measurement puts daily at 65.6 bp inside
+  > that band. The desk rule recorded in `V9_FILTER_TESTS.md` decision 4
+  > ("monthly, confirmed robust") stands as the historical record of what
+  > was tested; it is superseded here for what is to be *built*. See
+  > `band_lab/phase1/PHASE1_PARITY.md` §3 S1.
 - `session_high(t)` = highest traded price of the sleeve's symbol between
   09:30 and time t on the current day, inclusive of all completed bars
   before t. See §2.5 for the precise update rule.
@@ -120,6 +148,23 @@ The instant an entry fills at price `E`, place a one-cancels-all group:
 
 While a position is open, no entry order rests. One position at a time
 per sleeve.
+
+**Backtest convention (normative for any simulator, added 2026-07).** A
+bar-granularity backtest must **not** book a target fill on the entry bar
+itself. Within a bar the true price path is unknowable, so:
+
+- on the entry bar, only the **stop** may fire (the adverse case);
+- the **target** may fill from the next bar onward;
+- within any bar, the stop is checked **before** the target.
+
+This is not a strategy rule — live, the OCA is genuinely resting from the
+moment of fill and may occasionally do better. It is an anti-lookahead
+rule, and it is load-bearing: violating it is the exact bug documented in
+`v5_corrected_rerun.py`, where a single bar with ≥1% range could set a
+trigger 1% below its own high and instantly "win" off that same high.
+Every validated number in this project post-dates that fix. Any
+re-implementation that omits this paragraph will silently reproduce the
+bug.
 
 ### 2.7 Counters and the circuit breaker
 
@@ -227,7 +272,7 @@ Run per sleeve, independently. All times America/New_York.
 
 | Time | Action |
 |---|---|
-| 06:00 | Pre-open job: refresh daily bars; compute ATR5; on the first session of the month recompute thr80; evaluate the gate; compute `sleeve_capital` from account equity; persist the decision. If gate OFF → sleeve dormant, hard interlock prevents any order today. |
+| 06:00 | Pre-open job: refresh daily bars; compute ATR5; recompute thr80 from the 504 sessions ending yesterday; evaluate the gate; compute `sleeve_capital` from account equity; persist the decision. If gate OFF → sleeve dormant, hard interlock prevents any order today. |
 | 09:30 | If gate ON: begin recording bars. **No orders.** |
 | 10:00 | On close of the 10:00 bar: compute OR30 and pos10; apply the morning filter; persist ON / STAND-DOWN. If stand down → sleeve dormant for the day. |
 | 10:00–11:00 | Observe only. Continue tracking `session_high`. |
@@ -303,13 +348,33 @@ result; and end-of-day P&L.
 
 **Weekly automated comparison against backtest expectations:**
 
-| metric | expected |
-|---|---|
-| fills per ON day | ≈ 3.2 |
-| target-hit share of exits | ≈ 75–80% |
-| ON-day rate | ≈ 50% of sessions |
-| net bp per ON day | ≈ 50 bp (wide variance; a single week proves nothing) |
-| worst day | never below −8% |
+All figures below are **measured** on the research engine over the
+2020-07 → 2026 sample by the Phase 1 harness, not estimated. Regenerate
+with `python3 band_lab/phase1/parity.py` (section D); the raw table is
+`band_lab/phase1/out/monitoring_expectations.csv`.
+
+| metric | SOXL | SOXS |
+|---|---|---|
+| fills per ON day | 3.17 | 3.36 |
+| ON-day rate | 52.1% of sessions | 53.1% |
+| exit mix — target | 71.3% | 71.8% |
+| exit mix — stop | 9.9% | 9.3% |
+| exit mix — 15:55 flatten | 18.8% | 18.9% |
+| gross bp per ON day | 65.6 | 57.7 |
+| net bp per ON day | 61.9 | 48.1 |
+| worst day | −8.00% | −8.00% |
+
+Wide variance applies to every bp figure; a single week proves nothing.
+
+> **Corrected 2026-07 (Phase 1).** This table previously read "target-hit
+> share of exits ≈ 75–80%" and "net bp per ON day ≈ 50". Neither matched
+> the engine it was meant to describe: the target share is ≈71% (≈88% if
+> the 15:55 flatten is excluded, which the old wording did not say), and
+> net bp differs enough between the sleeves that a single blended figure
+> is not usable as a monitoring baseline. Since this section is what a
+> live system gets judged against, and the rule below is to investigate
+> deviations >20%, the wrong baselines would have made a correctly
+> functioning system look like a 5% miss on day one.
 
 Investigate **structural** breaks, not noise: a month where fill counts
 or ON-rates deviate >20% from expectation means the market or the
@@ -320,13 +385,46 @@ execution has changed, not luck. A single bad week is expected — see
 
 ## 9. Build phases and deliverables
 
-**Phase 1 — Backtest parity harness (build this first).**
+**Phase 1 — Backtest parity harness. ✅ COMPLETE (2026-07).**
 Re-implement the rules of §2 from this document alone, run them over the
 historical 5-minute CSVs in the repository, and reproduce
 `band_lab/out/v14_*.csv`. **Acceptance: daily P&L series matches the
-research engine to within floating-point tolerance.** This is a
-clean-room check that the spec is complete and correctly understood. Do
-not proceed until it passes.
+research engine to within floating-point tolerance.**
+
+Delivered in `band_lab/phase1/`; findings in `PHASE1_PARITY.md`. Parity
+holds exactly — 787 SOXL and 801 SOXS ON-days, no day-set difference,
+worst daily divergence 4.2e-16 — and all four `v14_*.csv` rebuild
+identically from the clean-room series. Re-run with
+`python3 band_lab/phase1/parity.py` (exit 0 == parity holds); it doubles
+as a regression gate. Acceptance tests §10.1–8, 10.13 and 10.14 live in
+`band_lab/phase1/test_spec_engine.py`.
+
+The clean-room check did its job: it found eight clauses of §2 that an
+implementer cannot resolve from this document's words. Six were
+corrected in place (§2.1 cadence, §2.6 backtest convention, §8
+baselines). Three known, deliberate differences remain between the
+as-specified system and the engine that produced the validated numbers —
+in each case the spec is right and the research engine simply never
+implemented the rule:
+
+| | rule | research engine | cost of adopting the spec |
+|---|---|---|---|
+| §2.2 | scheduled half-days OFF | trades them | −8 ON-days/sleeve; +0.4 bp SOXL, +1.2 bp SOXS |
+| §2.8 | flatten at 15:55 | holds to the 16:00 close | 0 ON-days; −0.1 bp SOXL, +2.3 bp SOXS |
+| §2.1 | bars addressed by clock time | addressed by file position | 0.0 bp both sleeves |
+
+Adopting all three is worth **+0.3 bp/ON-day on SOXL and +3.5 on SOXS**
+against the validated series. That is the gap the live system starts
+with, and it is the number to carry into the Phase 3 comparison — not
+zero.
+
+One modelling decision was taken and should not be re-opened without
+evidence: **the backtest does not model the $0.01 tick grid**, though the
+live engine necessarily rounds to it (§2.5, §2.6). Modelling it is worth
++4.3 bp/ON-day on SOXL — 6.6% of the sleeve's edge, robust to rounding
+direction and not a split-adjustment artifact. It is held as **unbanked
+conservatism**: assume it is not there, and let Phase 2's real fills
+settle it.
 
 **Phase 2 — Paper trading.** Full engine against IBKR paper account, ≥4
 weeks. Log every fill. Compare realised fills against what the backtest

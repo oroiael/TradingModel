@@ -173,7 +173,7 @@ never reference each other.
 > where ATR5 = 5-session trailing mean of (High−Low)/Open. Skip
 > scheduled half-days.
 > **Filter (10:00):** compute OR30 = (09:30–10:00 High−Low)/Open. If
-> OR30 ≥ its trailing-2yr 80th percentile (recomputed monthly) AND the
+> OR30 ≥ its trailing-2yr 80th percentile (recomputed each session) AND the
 > 10:00 print sits below the top third of that opening range → stand
 > down for the day.
 > **Trading window:** 11:00 → close. Maintain a resting buy limit at
@@ -894,8 +894,8 @@ The system design in outline:
 ### 8.2 Daily state machine
 
 1. **06:00 ET — pre-open job:** pull last 5 completed daily bars,
-   compute ATR5, write gate decision. Recompute the monthly OR30
-   threshold on the first session of each month. If gate OFF → the
+   compute ATR5, write gate decision. Recompute the OR30 threshold
+   from the 504 sessions ending yesterday. If gate OFF → the
    engine stays dormant; nothing can place an order (hard interlock).
 2. **09:30–10:00 — observe:** build OR30 from live bars.
 3. **10:00 — filter decision:** OR30 vs threshold + top-third direction
@@ -962,7 +962,7 @@ permissions required. Nothing held overnight.
 **Pre-open:** ATR5 = 5-day mean of (H−L)/O. ≥6.0% → ON, else OFF.
 Half-days OFF.
 **10:00:** OR30 = (H−L)/O of 09:30–10:00. If OR30 ≥ trailing 80th
-percentile (≈5.4%, recompute monthly): stand down UNLESS the 10:00 print
+percentile (≈5.4%, recompute each session): stand down UNLESS the 10:00 print
 is in the top third of the opening range. No trading before 11:00 ever.
 **11:00:** resting BUY LIMIT at 0.99 × session high, floor(f×equity/px)
 shares; raise the limit on every new session high (never lower).

@@ -13,8 +13,8 @@ open decisions are in **[PHASE1_PARITY.md](PHASE1_PARITY.md)**.
 |---|---|
 | `spec_constants.py` | §12 constants verbatim + the §6.8 startup config validator |
 | `spec_engine.py` | the clean-room engine (§2 only — imports nothing from the research lab) |
-| `parity.py` | parity vs the research engine, `v14_*.csv` rebuild, ambiguity attribution, §8 baselines |
-| `test_spec_engine.py` | 47 acceptance tests for §10 items 1–8, 13, 14 |
+| `parity.py` | parity vs the research engine, `v14_*.csv` rebuild, as-built gap attribution, §8 baseline guard |
+| `test_spec_engine.py` | 48 acceptance tests for §10 items 1–8, 13, 14 |
 | `out/` | generated artifacts — summary tables are committed, the per-day/per-trade logs are gitignored and regenerable |
 
 ## Setup
@@ -30,14 +30,16 @@ pip install pandas numpy pytest
 ## Run
 
 ```bash
-python3 band_lab/phase1/parity.py        # full report; exit code 0 == parity holds
-python3 -m pytest band_lab/phase1 -v     # 47 tests, ~7s
-python3 -m pytest band_lab/phase1 -m "not slow"   # skip the two real-data parity tests
+python3 band_lab/phase1/parity.py        # full report; exit code 0 == all green
+python3 -m pytest band_lab/phase1 -v     # 48 tests, ~7s
+python3 -m pytest band_lab/phase1 -m "not slow"   # skip the real-data parity tests
 ```
 
 `parity.py` returns non-zero if the daily P&L series diverges from the
-research engine or if any `band_lab/out/v14_*.csv` stops rebuilding
-identically, so it can be used directly as a regression gate.
+research engine, if any `band_lab/out/v14_*.csv` stops rebuilding
+identically, or if the monitoring baselines published in
+`IMPLEMENTATION_SPEC.md` §8 drift out of step with the engine — so it can be
+used directly as a regression gate.
 
 ## The two engine profiles
 
@@ -46,12 +48,18 @@ implementer cannot resolve from §2's words as a named switch:
 
 - **`RESEARCH_COMPAT`** — the reading the research engine implements. This is
   what parity is measured under, and it reproduces the daily series to 4e-16.
-- **`SPEC_LITERAL`** — the reading closest to the words of §2. Worth
-  +5.8 bp/ON-day on SOXL and +3.5 on SOXS, but it is *not* the system that
-  was walk-forward validated.
+- **`SPEC_LITERAL`** — the specification as it now stands, after the Phase 1
+  amendments.
 
-The gap between the two, switch by switch, is the real output of Phase 1.
-See PHASE1_PARITY.md §3.
+They differ only where the spec is right and the research engine never
+implemented the rule: half-days OFF (§2.2), the 15:55 flatten (§2.8), clock
+bar addressing (§2.1) and the incomplete-session refusal (§4). Together
+those are worth **+0.3 bp/ON-day on SOXL and +3.5 on SOXS** against the
+validated series — the gap the live system starts with, and the number to
+carry into the Phase 3 comparison.
+
+The switches that were measured and *not* adopted stay runnable, so the cost
+of each decision remains a number. See PHASE1_PARITY.md §3 and §5.
 
 ## Not covered here
 

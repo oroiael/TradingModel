@@ -79,17 +79,23 @@ class EngineConfig:
     allow_overnight: bool = False
 
     # --- interpretation switches (PHASE1_PARITY.md §3) ---
-    # S1  §2.1 "Recomputed monthly ... and held constant within the month"
-    thr80_refresh: str = "monthly"          # "monthly" | "daily"
+    # S1  §2.1 recomputes thr80 every session. RESOLVED 2026-07: the spec
+    #     previously said "monthly"; it was amended to match the cadence the
+    #     validated series was actually produced with. "monthly" is retained
+    #     only so the alternative remains measurable.
+    thr80_refresh: str = "daily"            # "daily" | "monthly"
     # S2  §2.2 "do not trade if ... the session is a scheduled half-day"
     half_day_policy: str = "off"            # "off" | "trade"
     # S3  §2.8 "At 15:55 ... close it"  vs. holding to the session close
     eod_mode: str = "flatten_1555"          # "flatten_1555" | "session_close"
     # S4  §2.6 OCA is live from the fill, so the target *could* fill on the
-    #     entry bar; the research engine forbids it as an anti-lookahead rule.
+    #     entry bar; §2.6 now states the anti-lookahead rule explicitly.
     target_on_entry_bar: bool = False
-    # S5  §2.5/§2.6 "round_to_tick"
-    tick_rounding: bool = True
+    # S5  the LIVE engine always rounds to the tick grid (§2.5/§2.6) — it has
+    #     no choice. The BACKTEST does not model it. RESOLVED 2026-07: the
+    #     grid is worth +4.3 bp/ON-day on SOXL and is held as unbanked
+    #     conservatism, to be settled against real fills in Phase 2.
+    tick_rounding: bool = False
     tick_size: float = TICK_SIZE
     # S6  §2.1 bars are addressed by clock time, not by position in the file
     bar_indexing: str = "clock"             # "clock" | "positional"
@@ -115,6 +121,13 @@ RESEARCH_COMPAT = EngineConfig(
     share_rounding=False,
     require_full_session_open=False,
 )
+
+# After the S1/S5 resolutions the two profiles differ only in S2 (half-days),
+# S3 (the 15:55 flatten), S6 (clock bar addressing) and S8 (the incomplete-
+# session refusal) — all four of which are cases where the spec is right and
+# the research engine simply never implemented the rule. See PHASE1_PARITY.md.
+RESIDUAL_SWITCHES = ("half_day_policy", "eod_mode", "bar_indexing",
+                     "require_full_session_open")
 
 
 # ----------------------------------------------------------------- data

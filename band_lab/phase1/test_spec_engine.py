@@ -80,7 +80,8 @@ def bars_to_frame(sessions: list[list[tuple]], dates: list[pd.Timestamp]
     return pd.DataFrame(rows)
 
 
-CFG = dc.replace(SPEC_LITERAL, tick_rounding=False)   # exact arithmetic in tests
+CFG = SPEC_LITERAL                       # the spec as amended 2026-07
+MONTHLY = dc.replace(CFG, thr80_refresh="monthly")   # the rejected S1 reading
 
 
 # ================================================== §10.13 config validation
@@ -218,24 +219,29 @@ def test_thr80_requires_120_observations_and_uses_only_prior_sessions():
         o = 100.0
         sessions.append([(o, o * (1 + r / 200), o * (1 - r / 200), o)]
                         + flat_day(o, FULL_DAY_BARS - 1))
-    # Under the daily-refresh reading the threshold appears the moment the
-    # 120th prior observation exists.
-    daily = daily_features(build_sessions(bars_to_frame(sessions, dates),
-                                          RESEARCH_COMPAT), RESEARCH_COMPAT)
+    # §2.1 (as amended): the threshold appears the moment the 120th prior
+    # observation exists, and is refreshed every session thereafter.
+    daily = daily_features(build_sessions(bars_to_frame(sessions, dates), CFG), CFG)
     assert daily["thr80"].iloc[:120].isna().all()
     assert daily["thr80"].iloc[120:].notna().all()
-    # Under §2.1's monthly refresh it appears at the FIRST SESSION OF THE MONTH
-    # on or after that point, and the sleeve does not trade in between.
-    monthly = daily_features(build_sessions(bars_to_frame(sessions, dates), CFG), CFG)
+    # The rejected monthly reading instead waits for the FIRST SESSION OF THE
+    # MONTH on or after that point, leaving the sleeve dark in between.
+    monthly = daily_features(build_sessions(bars_to_frame(sessions, dates),
+                                            MONTHLY), MONTHLY)
     assert monthly["thr80"].iloc[:120].isna().all()
     first_valid = monthly["thr80"].notna().idxmax()
     assert first_valid > monthly.index[120]
-    assert first_valid.day <= 7 and first_valid == monthly.index[
+    assert first_valid == monthly.index[
         monthly.index.to_period("M") == first_valid.to_period("M")][0]
     assert monthly["thr80"].loc[first_valid:].notna().all()
 
 
-def test_thr80_is_held_constant_within_a_calendar_month():
+def test_thr80_refreshes_every_session():
+    """§2.1 as amended 2026-07 — daily, not held constant within the month.
+
+    This is the cadence the validated series was produced with; see
+    PHASE1_PARITY.md §3 S1.
+    """
     n = 400
     dates = pd.bdate_range("2022-01-03", periods=n)
     rng = np.random.default_rng(1)
@@ -245,14 +251,32 @@ def test_thr80_is_held_constant_within_a_calendar_month():
         sessions.append([(o, o * (1 + r / 200), o * (1 - r / 200), o)]
                         + flat_day(o, FULL_DAY_BARS - 1))
     frame = bars_to_frame(sessions, dates)
-    monthly = daily_features(build_sessions(frame, CFG), CFG)["thr80"].dropna()
-    daily = daily_features(build_sessions(frame, RESEARCH_COMPAT),
-                           RESEARCH_COMPAT)["thr80"].dropna()
-    # §2.1 monthly hold: exactly one distinct value per calendar month
-    per_month = monthly.groupby(monthly.index.to_period("M")).nunique()
-    assert (per_month == 1).all()
-    # ...and the research engine's daily refresh is genuinely different
+    daily = daily_features(build_sessions(frame, CFG), CFG)["thr80"].dropna()
+    monthly = daily_features(build_sessions(frame, MONTHLY),
+                             MONTHLY)["thr80"].dropna()
+    # the spec cadence moves within a month...
     assert daily.groupby(daily.index.to_period("M")).nunique().max() > 1
+    # ...and the rejected reading holds exactly one value per calendar month
+    assert (monthly.groupby(monthly.index.to_period("M")).nunique() == 1).all()
+    # the engine default is the spec cadence, not the rejected one
+    assert SPEC_LITERAL.thr80_refresh == "daily"
+    assert RESEARCH_COMPAT.thr80_refresh == "daily"
+
+
+def test_backtest_does_not_model_the_tick_grid_by_default():
+    """RESOLVED 2026-07: the live engine rounds to the cent grid (§2.5/§2.6);
+    the backtest does not, and the difference is held as unbanked
+    conservatism rather than booked as edge. See PHASE1_PARITY.md §3 S5."""
+    assert SPEC_LITERAL.tick_rounding is False
+    assert RESEARCH_COMPAT.tick_rounding is False
+    bars = flat_day(100.0, START_I) + [(100.0, 100.0, 98.0, 99.0)]
+    bars += flat_day(99.0, FULL_DAY_BARS - len(bars))
+    # 99.0 is already on the grid; use an anchor that is not
+    bars = [(100.004, 100.004, 100.004, 100.004)] * START_I + bars[START_I:]
+    plain = simulate_session(make_session(bars), CFG)
+    rounded = simulate_session(make_session(bars), dc.replace(CFG, tick_rounding=True))
+    assert plain.anchor_updates[0][2] == pytest.approx(100.004 * 0.99)
+    assert rounded.anchor_updates[0][2] == pytest.approx(99.00)
 
 
 # =========================================================== §2.1 OR / pos10

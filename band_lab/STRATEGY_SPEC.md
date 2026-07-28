@@ -253,8 +253,10 @@ Compute **ATR5** = average over the last 5 completed sessions of
 
 ### Step 2 — 10:00 checkpoint: opening-range filter (direction-aware)
 Compute **OR30** = (High − Low of 09:30–10:00) / 09:30 Open × 100.
-Compare to the **trailing 80th percentile** of OR30 (recompute monthly
-from the last 2 years; currently ≈ **5.4%**).
+Compare to the **trailing 80th percentile** of OR30 (recompute every
+session pre-open from the last 2 years / 504 sessions; currently ≈
+**5.4%**). Amended 2026-07 from "monthly" to match the validated engine —
+see `IMPLEMENTATION_SPEC.md` §2.1.
 - OR30 below the threshold → proceed (normal day).
 - OR30 at/above the threshold → check WHERE the 10:00 print sits inside
   the 09:30–10:00 range: **top third → proceed** (violent up-mornings
