@@ -393,9 +393,10 @@ warning: it is arithmetic, not a forecast.
    clean test is forward: paper trading against the backtest's daily
    expectations.
 3. **Single instrument, single regime history**: 6 years, one ETF, a
-   sample whose last 18 months were extraordinarily volatile. FAS/SPXL/
-   TQQQ 5-min files exist in the repo for a transfer test that was NOT
-   run (recommended to the validator).
+   sample whose last 18 months were extraordinarily volatile. A first
+   transfer test (SPXL, locked settings) was run 2026-07-28 — see §9;
+   it was INCONCLUSIVE by construction (the absolute gate admits only 63
+   SPXL days). FAS/TQQQ remain unrun.
 4. **Costs are estimated, not simulated**: the 4–7 bp/day drag is
    arithmetic, not a fill-by-fill cost model.
 5. **The V9 direction refinement and V5 start move were adopted from
@@ -413,6 +414,56 @@ transfer test on TQQQ/FAS/SPXL; (e) audit the no-lookahead claims in
 `v2_anchor_tests.py` (the canonical current-core implementation);
 (f) 3–6 months of paper trading with fills logged against the §6.3
 distribution before capital.
+
+## 9. Transfer test: SPXL with settings untouched (2026-07-28)
+
+`transfer_test.py` → `out/transfer_test.csv`. Locked rules applied
+verbatim; nothing re-tuned; the OR30 filter self-calibrates (trailing
+percentile of the instrument's own history) but the **ATR5 ≥ 6.0% gate
+is absolute and was deliberately not rescaled**.
+
+| | median day range | ON days | ON rate | bp/ON-day | Sharpe | ON win rate | worst day | maxDD | CAGR | wk mean $150K |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|
+| SOXL (reference) | 6.67% | 787 | 52.1% | 65.6 | 3.09 | 63.7% | −8.0% | −36.5% | 118.5% | $2,458 |
+| **SPXL (locked settings)** | 2.92% | **63** | **4.2%** | 30.5 | 1.34 | 66.7% | −8.0% | −17.0% | **2.5%** | $92 |
+
+**Verdict: not a valid test of transferability — the gate refuses to
+trade SPXL, which is the gate working as designed.** SPXL's median daily
+range (2.92%) is under half SOXL's (6.67%), so an absolute 6% ATR5
+threshold admits only 4.2% of days, and **46 of the 63 admitted days
+fall in 2022** (2023: 4 days, 2024: 3, 2025: 6, 2026: 0). Per-year
+figures on 3–6 observations are noise. The 2.5% CAGR is not a
+performance statement; it is the arithmetic of a strategy that sat in
+cash 96% of the time.
+
+**Mechanism — why the gate is right to refuse:** the strategy harvests
+completed ≥1% swings, and SPXL simply does not produce them at SOXL's
+density.
+
+| | ≥1% swings/day (mean / median) | ≥2% swings/day | days with zero 1% swings |
+|---|---:|---:|---:|
+| SOXL | 15.0 / 14 | 5.9 | 0% |
+| SPXL | **5.3 / 4** | 1.7 | 2% |
+
+With ~4 qualifying swings a day against a 5-entry cap, SPXL cannot
+support the trade cadence the edge depends on. This is the "fails safe
+to cash" property (§8.3) demonstrated on live data rather than asserted.
+
+**Encouraging but not evidence:** on the 63 days it did trade, the
+strategy was *positive* — 30.5 bp/ON-day at a 66.7% win rate (a higher
+win rate than SOXL's 63.7%), with the −8.0% structural worst-day cap
+holding exactly as designed on a different instrument. That is
+consistent with the mechanism generalising, but n=63 concentrated in one
+bear market proves nothing on its own.
+
+**The obvious next test (deferred by instruction, sized here):** a
+percentile-matched gate. SOXL's 6% threshold admits 52% of its days; the
+SPXL ATR5 threshold that admits the same 52% is **2.94%**, which would
+yield **782 ON days** — a proper sample. That single change converts
+this from an untestable transfer into a real one. Whether the edge
+survives at SPXL's lower swing density is the open question, and it
+should be answered with the full protocol (walk-forward, plateau,
+mechanism) rather than by a single threshold swap.
 
 ## 8. Automation architecture (IBKR) — attended and unattended
 
@@ -557,6 +608,10 @@ conservative, flagged in STRATEGY_SPEC header):**
   conservative under the optimistic engine).
 - `band_lab/v5_start_time_tests.py` — V5 first pass (superseded by
   v5_corrected_rerun; retained as the bug-discovery record).
+
+**Transfer test (§9):**
+- `band_lab/transfer_test.py` — runs the locked rules verbatim on any
+  `<SYM>_5min_6Years.csv` (SPXL run; FAS/TQQQ ready).
 
 **Sizing verification (§6.7):**
 - `band_lab/sizing_verification.py` — exposure profile, exposure-matched
