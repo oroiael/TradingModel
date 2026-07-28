@@ -212,7 +212,7 @@ These are distinct metrics — do not conflate them:
 | worst 10 consecutive ON-days | −29.3% | capped days CHAIN — a drawdown is a sequence, not one day |
 | max drawdown, compounded equity (f=1.0) | **−36.5%** | peak 2025-11-12 → trough 2026-03-26 (92 sessions), recovered 2026-05-06 |
 | same episode at FLAT $150K sizing | −$63.9K (−42.6% of start) | flat sizing looks worse in % of starting capital because positions don't shrink during the streak |
-| bootstrap P(−30% DD within a year) at f=1.0 | 46% | the realized −36.5% is expected texture, not an outlier |
+| bootstrap P(−30% DD per 252-ON-day year) at f=1.0 | 15% (refreshed) | ~2 calendar years per ON-day year; over the sample's ~3 ON-day years, P(seeing one −30% DD) ≈ 40% — consistent with the realized −36.5%. (An earlier 46% figure was computed on the weaker pre-refinement P&L series and is superseded.) |
 
 (Historical note for readers of earlier round documents: a −22.9% max-DD
 figure appears in the round-3 combined-backtest table — that was the
@@ -253,11 +253,36 @@ trailing-DD-trigger: strictly worse). None met the adoption bar.
 **Consequence — the completed risk story:** the worst day is capped by
 the breaker (−8%); losing streaks are neither predictable nor pruneable
 (their aftermath is the best edge in the book); therefore **the only
-legitimate drawdown controls are overall size (f, or the half-capital
-pyramid) and the 25% SOXS spot dial.** There is no clever overlay left
-untested; a validator should treat any proposed drawdown "fix" that
-de-risks after losses or buys optionality as pre-refuted by these two
-results unless it brings genuinely new evidence.
+legitimate drawdown controls are overall size (the f dial) and the 25%
+SOXS spot dial.** There is no clever overlay left untested; a validator
+should treat any proposed drawdown "fix" that de-risks after losses or
+buys optionality as pre-refuted by these two results unless it brings
+genuinely new evidence.
+
+### 6.7 The sizing dial — re-verified on the corrected engine (final)
+
+The two flagged gaps (pyramid validated only on the pre-fix engine; the
+bootstrap run on the pre-refinement series) were closed 2026-07-28.
+All numbers below: corrected engine, current locked config, full sample.
+
+| setting | bp/ON-day | Sharpe | worst day | cal CAGR | maxDD | P(−30% DD / ON-yr) |
+|---|---:|---:|---:|---:|---:|---:|
+| flat f=1.0 (growth) | 65.6 | 3.09 | −8.0% | 118.5% | −36.5% | 15% |
+| **flat f=0.5 (risk budget)** | 32.8 | 3.09 | −4.0% | 50.7% | **−19.8%** | **~0.1%** |
+| pyramid (2 units × f/2) | 37.6 | 2.65 | −6.0% | 58.0% | −25.4% | 4.1% |
+
+**Revision of the earlier V8/V11 recommendation:** on the pre-fix
+engine the pyramid appeared to dominate flat f=0.5 (+58% more return at
+similar risk). On the corrected engine it does NOT: it earns ~15% more
+than flat-0.5 but with lower Sharpe (2.65 vs 3.09), a worse worst-day
+(−6% vs −4%), and a deeper maxDD (−25.4% vs −19.8%). The pyramid is a
+legitimate *midpoint on the dial*, not a superior half-capital
+implementation. **Final guidance: choose a point on the f dial —
+f=1.0 growth, f=0.5 risk-budget (maxDD ≈ −20%, −30% years essentially
+eliminated) — with the pyramid as an optional intermediate.** Sharpe is
+invariant in f (exact linearity), so this choice trades return against
+drawdown at a fixed quality of returns; it is a risk-preference
+decision, not a research question, and it is now closed.
 
 ## 7. Double-check: verified, unverified, and items for third-party review
 

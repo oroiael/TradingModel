@@ -16,9 +16,10 @@ Status: **core strategy** as of 2026-07-28. Multi-day cycle strategy
 > Re-verified on the corrected engine: 2-stop breaker (bigger win now:
 > 53.8 vs 45.3 bp at 10:30), start-time verdicts, cutoff verdict.
 > Direction-only conclusions (short-side rejection) were made under the
-> *optimistic* engine and are conservative. Flagged for re-verification
-> on the corrected engine: pyramid-vs-flat comparison (relative, both
-> arms shared the bug), cap sweep exact values, cost estimates.
+> *optimistic* engine and are conservative. Re-verified 2026-07-28 on
+> the corrected engine: pyramid-vs-flat (verdict REVISED — see V11 and
+> MASTER doc §6.7) and the sizing bootstrap. Still open: cap sweep exact
+> values (direction confirmed), cost estimates (pending cost module).
 
 ## 0. Locked definition
 
@@ -36,7 +37,11 @@ Status: **core strategy** as of 2026-07-28. Multi-day cycle strategy
 > vs −15.2%); no last-entry cutoff (tested, costs money); force-flat at
 > the close. Long only, one position at a time, no overnight exposure.
 > Sizing: flat fraction f of the sleeve per trade — f=1.0 growth-seeking,
-> f=0.5 for a P(−30% DD/yr) ≤ ~5% risk budget (V11_SIZING_TESTS.md T5).
+> **f=0.5 risk-budget** (maxDD ≈ −20%, −30% ON-years ≈ eliminated;
+> re-verified bootstrap 2026-07-28). The per-unit pyramid is an optional
+> midpoint (37.6 bp, Sharpe 2.65, maxDD −25.4%) — its earlier
+> "dominates flat-0.5" claim did NOT survive corrected-engine
+> re-verification (MASTER doc §6.7).
 
 Backtest references (corrected engine): **59.6 bp/traded-day, Sharpe 2.87,
 worst day −8.0%, maxDD −32.1%** on gated days 2020-07 → 2026-07;
@@ -59,7 +64,7 @@ config-selection OOS retained ~83% of in-sample edge). Code:
 | V8 | direction | long only | full program; short −17.7 bp honest fills; SSR 16.6% | **tested & closed** |
 | V9 | day filter | skip OR30 > trailing 80th pct **unless 10:00 in top ⅓ of OR** | full program; boundary plateau-confirmed; direction rule +4.6 bp WF 5/5 | **tested & refined** |
 | V10 | vol gate | ATR5 ≥ 6% (5d, cliff, SOXL input) | full program: cutoff/lookback/form/input/hysteresis all confirmed; U-shape closed as era-noise | **tested & confirmed** |
-| V11 | sizing | flat f; **2-stop breaker**; pyramid for half-capital | six-test program + bootstrap | **tested & adopted** |
+| V11 | sizing | flat f; **2-stop breaker**; f=0.5 risk-budget | six-test program + refreshed bootstrap; pyramid demoted to optional midpoint after corrected-engine re-verify | **tested & adopted (revised)** |
 | V12 | sleeve role | day sleeve = core | four splits; WF (core robust, satellite fragile) | **tested** |
 | — | engine | prior-bar trigger, next-bar target | lookahead bug found & fixed in V5 | **corrected** |
 
@@ -300,11 +305,12 @@ pre-paid knowingly.
 - **Growth setting: f = 1.0** — each entry uses the full sleeve equity.
   Accept: worst day −8%, maxDD ≈ −32% on active days, and a bootstrap
   P(−30% DD within a year) near a coin flip.
-- **Risk-budget setting: per-unit pyramid at half capital** — two units
-  of f = 0.5: first unit at the normal trigger, second only if price
-  falls another 1% below the first entry; each unit carries its own
-  +1%/−4% bracket; the breaker counts unit-stops. (35.5 bp/day at
-  Sharpe 2.60 — dominates flat half-size.)
+- **Risk-budget setting: flat f = 0.5** (re-verified 2026-07-28:
+  maxDD −19.8%, Sharpe 3.09, P(−30% DD/ON-yr) ≈ 0.1%). The per-unit
+  pyramid (two units of f/2, second 1% deeper, own brackets, breaker
+  counts unit-stops) is an optional MIDPOINT — 37.6 bp/day, Sharpe 2.65,
+  maxDD −25.4% on the corrected engine; its earlier "dominates
+  flat-0.5" result was a pre-bugfix artifact and is superseded.
 - **Never trade above f = 1.0.** Leverage was tested and rejected:
   Sharpe is flat in f, so margin buys tail risk and nothing else.
 
