@@ -125,6 +125,47 @@ target = 20% of (1.9 × OR30), floored at 0.75%, capped at 3%."
 
 **Recommended order: T1 → (stop if flat) → T2 → T3 → T4 → T5.**
 
+---
+
+# RESULTS (run 2026-07-28, `v1v3_adaptive_tests.py` → `out/v1v3_results.csv`)
+
+**Verdict: NO migration — fixed 1%/1% confirmed. V1 and V3 close.**
+
+**T1 — the go/no-go came back flat.** Across E[range] terciles the best
+fixed pair is {1%, 1%} in narrow, mid, AND wide; across ATR5 terciles
+it is {1,1} in two of three (the mid tercile's marginal 1.5/1 preference,
+22.6 vs 18.9 bp, is a lone low-signal cell). The dip-buy's optimal
+levels do not breathe with the band: SOXL's intraday reversion appears
+to operate at a ~1% grain regardless of how wide the day is — consistent
+with the original churn stat (≥1% swings are 2.5× more numerous than ≥2%
+swings on ALL day types).
+
+**T2/T3/T4 — everything the grids offered fails the rules.** All
+adaptive dips underperform (best 63.2 vs 65.6 bp). One adaptive target
+cell (0.15×OR: 70.1 bp, Sharpe 3.08) beats the baseline in-sample, but
+it fails BOTH prespecified bars: the mechanism requirement (T1 said the
+target optimum does not migrate, and the cell's win concentrates in the
+wide tercile where T1's grid explicitly preferred t=1%) and the
+walk-forward (never picked; picks alternated fixed / dip-0.15×OR; ALL
+OOS 66.6 bp, Sharpe 3.06 ≈ baseline). Recorded as the textbook example
+of the in-sample cell the protocol exists to reject.
+
+**T4's bonus finding upgrades V4.** Scaling the stop with the target
+(4×tgt) destroyed the worst-day guarantee (−14.1% to −20.0% vs −8.0%)
+without a Sharpe payoff. **It is the absolute −4% stop that matters, not
+the 4:1 ratio** — the breaker's −8% day guarantee is arithmetic on the
+absolute stop (2 × −4%), and any future levels experiment must hold the
+absolute stop fixed.
+
+## Decisions
+1. V1 dip = 1% fixed: **confirmed** (adaptive rejected).
+2. V3 target = 1% fixed: **confirmed** (adaptive rejected on mechanism
+   + OOS).
+3. V4 annotation strengthened: the stop is an absolute-risk rule, not a
+   geometry rule; never scale it.
+4. The variable register is now fully audited except V2 (entry-anchor
+   family).
+
 **Aggregate bounds:** best case — levels that breathe with the band add
 ~3–8 bp/day concentrated exactly where T1 predicts, with the fixed rule
 nested as the quiet-day special case and the 4:1 geometry re-validated

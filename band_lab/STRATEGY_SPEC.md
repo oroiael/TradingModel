@@ -49,10 +49,10 @@ config-selection OOS retained ~83% of in-sample edge). Code:
 
 | var | parameter | final value | program / evidence | status |
 |---|---|---|---|---|
-| V1 | dip depth | 1% (fixed) | swept 1–3% (grid + WF re-picks) | **tested** — adaptive depth still open |
+| V1 | dip depth | 1% (fixed) | swept 1–3%; adaptive rejected (V1/V3 program: no migration) | **tested & confirmed** |
 | V2 | entry anchor | session rolling high (prior bars) | vs failed band-edge fade; corrected engine | **tested** — VWAP/windowed anchors open |
-| V3 | profit target | +1% (next-bar fills) | swept 1–2% (grid + WF) | **tested** — adaptive target open |
-| V4 | stop | −4% | swept 2/3/4% twice (grid; V11-T2 risk-normalized) | **tested & confirmed** |
+| V3 | profit target | +1% (next-bar fills) | swept 1–2%; adaptive rejected on mechanism + OOS | **tested & confirmed** |
+| V4 | stop | −4% **absolute** | swept 2/3/4% twice; scaled-stop test broke worst-day (−20%) — it's the absolute, not the ratio | **tested & confirmed** |
 | V5 | start time | **11:00** | full program; plateau 10:30–11:30; WF OOS 60.6 bp | **tested & moved** (was 10:30) |
 | V6 | EOD exit | flat at close | full program; overnight +17–26 bp REJECTED on role | **tested & held** — gap premium priced |
 | V7 | trade cap | 5/day | swept 1–10; Sharpe peak at 5 | **tested & confirmed** |
