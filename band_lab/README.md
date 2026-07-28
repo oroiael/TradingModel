@@ -93,6 +93,68 @@ lots, and carries zero overnight exposure. Running both = long the breakout
 (cycle lots) + paid for the churn (day sleeve), with the ATR5 ≥ 6% gate
 turning the day sleeve on precisely when the cycle sleeve is stalling.
 
+## 5. Walk-forward validation + combined $150K backtest
+
+`walk_forward_and_combo.py` → `out/wf_day_sleeve.csv`, `out/wf_cycle_sleeve.csv`,
+`out/combo_equity.csv`, `out/combo_summary.csv`. Configs are re-selected each
+January using ONLY prior data (including the OR30 filter threshold), then
+traded out-of-sample for that year.
+
+### Day sleeve: survives
+
+| test year | picked config | OOS bp/day | OOS Sharpe |
+|---|---|---:|---:|
+| 2022 | dip1/t1/s4, no filter, ATR≥6 | +31.7 | 1.23 |
+| 2023 | dip1/t1/s4, orq5, ATR≥6 | +59.7 | 3.31 |
+| 2024 | dip1/t1/s4, orq5, ATR≥6 | +28.4 | 1.45 |
+| 2025 | dip2/t1/s4, gap2, ATR≥6 | −3.0 | −0.14 |
+| 2026 | dip1/t1.5/s4, gap2, ATR≥8 | +120.3 | 5.94 |
+| **all OOS** | | **+36.3** | **1.64** |
+
+Out-of-sample keeps ~83% of the in-sample edge (36.3 vs 43.5 bp/day) with 4
+of 5 years positive and the loser flat. The picked config is also stable
+(dip 1%/tgt 1%/stop 4%/ATR≥6 nearly every year) — this is a real,
+parameter-insensitive effect, not a tuned artifact.
+
+### Cycle sleeve: mostly does NOT survive
+
+| test year | picked | OOS return |
+|---|---|---:|
+| 2022 | 3%/3d (trained on the 2020–21 bull) | **−80.3%** |
+| 2023 | 2.5%/5d | +108.8% |
+| 2024 | 1.5%/5d | +0.6% |
+| 2025 | 2.5%/5d | +11.1% |
+| 2026 | 2%/4d | +151.7% |
+| **chained** | $150K → **$173.8K** | **3.3% CAGR** (vs 46.1% full-sample tuned) |
+
+The round-3 46% CAGR was substantially hindsight: parameters tuned on a
+sample that contains 2022 avoid 2022's damage, but parameters chosen from
+pre-2022 data walked straight into it and lost 80%. The cycle sleeve's
+returns are real in vol-rich recoveries (2023, 2026) but the strategy has
+no defense when the regime flips — treat the full-sample number as an
+upper bound, not an expectation.
+
+### Combined $150K (fixed configs, 2022-01-03 → 2026-07-21)
+
+Sleeve daily-return correlation: **0.28**. Independent sub-accounts, no
+cross-funding, day sleeve deploys its full sub-account per trade:
+
+| split (cycle/day) | final | CAGR | max DD |
+|---|---:|---:|---:|
+| $150K / $0 | $763K | 43.0% | −81.8% |
+| $100K / $50K | $862K | 46.9% | −50.1% |
+| $75K / $75K | $911K | 48.7% | −38.6% |
+| $0 / $150K | $1,059K | 53.7% | −22.9% |
+
+Every dollar moved from the cycle sleeve to the day sleeve historically
+*raised* return and *cut* drawdown. Combined with the walk-forward evidence
+(day sleeve OOS-robust, cycle sleeve OOS-fragile), the data's message is
+clear: **the day sleeve should be the core; the cycle sleeve is the
+optional satellite**, sized only to what you're willing to lose 80% of in
+a regime flip. Note the day-sleeve-only row still assumes the full-sample
+config; the OOS-realistic expectation is ~80% of that curve (~36 vs 43.5
+bp/day), and its worst single day is −11.4% of the sub-account.
+
 ## Caveats
 
 - No commissions/slippage; dip entries assume a resting limit at the
