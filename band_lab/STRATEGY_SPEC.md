@@ -84,12 +84,18 @@ re-selection). Code: `churn_harvest.py`, `regime_gate.py`,
   −11.4% → −17% at cap 8. **Cap 5 confirmed as the risk-adjusted optimum**;
   6 is equivalent; 8+ is a small return add paid for in tail risk.
 
-### V8. Direction & concurrency — **long only, one position at a time**
-- Tested: shorts never tested in the harvester. (Context: SOXL's 6-year
-  drift is up; the failed OR-low fade was also long-only, so "short the
-  band top" is genuinely unexplored, not rejected.)
-- Untested: short side of the band, two-sided market-making variant,
-  pyramiding on deeper dips.
+### V8. Direction & concurrency — **long only; pyramid variant for half-capital**
+- Tested: full six-test program (`V8_DIRECTION_TESTS.md`,
+  `v8_direction_tests.py`). Short side CLOSED: mirror-short edge is
+  +7.6 bp only under invalid touch fills, −17.7 bp with honest fills
+  (fill-style drag −25.4 bp), −23.1 bp via SOXS; SSR restricts real
+  shorting on 16.6% of gated days. Long/short correlation −0.76 makes a
+  25% SOXS overlay a legitimate optional smoothing dial (Sharpe 2.37,
+  −5 DD pts, costs ~6 bp/day) but not core. Excursion-day momentum
+  rejected (negative 3 of 7 years). **Adopted:** per-unit pyramiding
+  (2 units, f/2 each, second unit 1% deeper, own exits) as the
+  half-capital risk-budget config — 35.5 bp/day, Sharpe 2.60, +58% over
+  flat f=0.5 at the same capital ceiling, positive all 7 years.
 
 ### V9. Day filter — **skip OR30 top-quintile days** (threshold = trailing
 80th percentile, known by 10:00)

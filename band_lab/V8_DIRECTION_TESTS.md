@@ -172,3 +172,59 @@ momentum come back marginal, and the program's value is four clean
 negative verdicts that permanently close the V8 question for the cost of
 ~two days of work. Like V11, nothing here can damage the existing core —
 every test is additive-or-reject.
+
+---
+
+# RESULTS (run 2026-07-28, `v8_direction_tests.py` → `out/v8_results.csv`)
+
+**T1 — standalone short side: DEAD.** Mirror short earns +7.6 bp/day
+(Sharpe 0.37) *with touch fills* — and the touch-fill assumption is
+invalid for shorts: a long dip-buy is a resting limit order that
+genuinely fills at the touch, but a short "sell the rally at the touch"
+claims the spike top. Re-run with signal-bar-close fills: **−17.7 bp/day**
+(fill-style drag −25.4 bp — the single number that kills the short side).
+Via SOXS (T2): −23.1 bp/day, isolating vehicle drag at a modest −5.4 bp.
+The short side fails on drift + fills, not on the inverse-ETF vehicle.
+
+**T6 — audit confirms the route ranking.** SSR (uptick rule) is active on
+**16.6% of gated days** — real SOXL shorting is restricted exactly when
+the strategy trades. Borrow drag is trivial (0.1–1.2 bp/traded-day at
+1–10%/yr for ~2h holds). SOXS-long is the only clean short expression;
+it just doesn't have an edge to express.
+
+**T3 — a real hedge, not an alpha.** Long/short daily correlation is
+**−0.76 to −0.80** — the diagnostic 50/50 book printed Sharpe 4.05 with a
+−7% max DD, but that used the invalid touch fills. Priced with the
+tradable T2 short: 50/50 Sharpe collapses to 1.56. A **25% short overlay**
+is the honest version: Sharpe 2.25 → 2.37, maxDD −34% → −29%, at a cost
+of ~6 bp/day (gross exposure 1.25). Verdict: an optional smoothing dial,
+NOT adopted into the core — the same drawdown relief is available cheaper
+by trading f<1 (V11 T1 showed Sharpe is flat in f).
+
+**T4 — pyramiding: adopted as the risk-budgeted variant, not the core.**
+At equal max capital (f/2 per unit), per-unit pyramid earns 35.5 bp/day,
+Sharpe **2.60**, worst day −6.0%, maxDD −21.6% (shared-exit variant is
+worse — 22.8 bp, Sharpe 1.45 — the doubled position dying at unit-1's
+stop is exactly the bad structure). It trails the core's 44.8 bp on
+return because it averages ~half deployment — but compare it to its true
+peer, **flat f=0.5** (22.4 bp, Sharpe 2.25, worst −5.7%): the pyramid
+earns **+58% more** at the same capital ceiling and similar tails.
+Decision: the V11 "f=0.5 drawdown-budget" setting is REPLACED by
+per-unit pyramiding as the recommended half-capital implementation.
+Positive all 7 years.
+
+**T5 — excursion momentum: rejected.** +13 bp/day mean on the skipped
+cohort but negative in 3 of 7 years (2020 −46, 2021 −77, 2024 −22 vs
+2025 +96) on ~120 triggered days — regime lottery, not a stream. The
+orq5-skipped days stay untraded.
+
+## Decisions
+
+1. **Long-only confirmed** for the core — the short side is closed with
+   evidence (drift + fill reality, not vehicle choice).
+2. **Growth config unchanged**: locked core at f=1.0.
+3. **Risk-budget config upgraded**: per-unit pyramid (2 units, f/2 each,
+   own targets/stops, breaker counts unit-stops) replaces flat f=0.5 —
+   +58% more return at the same capital ceiling, Sharpe 2.60.
+4. Optional 25% SOXS-short overlay documented as a smoothing dial for
+   accounts that prefer paying ~6 bp/day for −5 DD points; not default.
