@@ -200,10 +200,29 @@ strategy off — correct behavior, zero return), or the residual
 optimism in any strategy validated on the data that shaped it. The
 defensible planning claim is the per-ON-day range (≈50–65 bp gross-to-
 net) and the weekly distribution above — compounding is then a choice,
-not a promise. Max drawdown expectation at f=1.0: **−30 to −40% of the
-sleeve**, with a bootstrap estimate of 46% probability of a −30%
-drawdown in any given year. Anyone uncomfortable with that must run the
-half-capital pyramid variant (V11/V8), not full size.
+not a promise.
+
+### 6.5 Drawdown: the three numbers and how they relate
+
+These are distinct metrics — do not conflate them:
+
+| metric | value | definition |
+|---|---:|---|
+| worst single day | **−8.0%** | structural cap: 2 stop-outs × −4%, breaker halts the day |
+| worst 10 consecutive ON-days | −29.3% | capped days CHAIN — a drawdown is a sequence, not one day |
+| max drawdown, compounded equity (f=1.0) | **−36.5%** | peak 2025-11-12 → trough 2026-03-26 (92 sessions), recovered 2026-05-06 |
+| same episode at FLAT $150K sizing | −$63.9K (−42.6% of start) | flat sizing looks worse in % of starting capital because positions don't shrink during the streak |
+| bootstrap P(−30% DD within a year) at f=1.0 | 46% | the realized −36.5% is expected texture, not an outlier |
+
+(Historical note for readers of earlier round documents: a −22.9% max-DD
+figure appears in the round-3 combined-backtest table — that was the
+ORIGINAL day-sleeve configuration (10:30 start, plain filter, no
+breaker, pre-bug-fix engine, 2022-start window) and is superseded; the
+current locked core's number is the −36.5% above.)
+
+Anyone uncomfortable with a −36.5% realized / −30%-per-year-near-coin-flip
+profile must run the half-capital per-unit pyramid variant (V11/V8) or
+the 25% SOXS overlay dial — not full size.
 
 ## 7. Double-check: verified, unverified, and items for third-party review
 
