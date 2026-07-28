@@ -120,3 +120,67 @@ evidence, which after the cap sweep's outcome (assumption confirmed at
 the optimum by luck) would be the second time a derived guess survived
 its audit. Total program cost: well under a day. Nothing here can damage
 the locked core — every test is additive-or-reject against the incumbent.
+
+---
+
+# RESULTS (run 2026-07-28; `v5_start_time_tests.py`, then
+# `v5_corrected_rerun.py` after the bug discovery)
+
+## The program's biggest product: a lookahead bug, caught by its own smell
+
+The first sweep printed start-09:35 at 127 bp/day, Sharpe 5.73, walk-
+forward-stable — numbers too good to be true, and they weren't. Diagnosis:
+the sim updated the rolling high with the CURRENT bar before the entry
+check, so one bar with ≥1% range could set the trigger 1% below its own
+high and then "fill" the +1% target with that very high — an unknowable
+intrabar sequence booked as certain profit. The effect scales with bar
+range: rampant 09:30–10:00, mild at midday. **Every band_lab number
+before the corrected engine carried some of this.** Corrected rules:
+trigger from prior bars only (a true resting limit), target fills from
+the next bar onward, same-bar stop still allowed (conservative).
+
+Corrected load-bearing numbers (all at the locked config, gated days):
+- core 10:30 + breaker2: **53.8 bp/day, Sharpe 2.46, worst −8.0%**
+  (the old engine UNDERSTATED the 10:30 core: 44.9/2.25 — the bug cut
+  both ways at midday);
+- breaker re-verified and now bigger: 53.8 vs 45.3 bp without it
+  (worst day −8.0% vs −15.2%);
+- 09:35 start collapses 127 → 67.9 bp (Sharpe 5.73 → 2.74).
+
+## T1/T5 verdict on the corrected engine: start = 11:00
+
+| start | bp/day | Sharpe | maxDD |
+|---|---:|---:|---:|
+| 09:35 | 67.9 | 2.74 | −46.0% |
+| 10:00 | 40.4 | 1.68 | −53.7% |
+| 10:30 (old) | 53.8 | 2.46 | −34.7% |
+| **11:00** | **59.6** | **2.87** | **−32.1%** |
+| 11:30 | 56.4 | 2.85 | −27.9% |
+| 13:00 | 47.3 | 2.72 | −24.2% |
+
+**Adopted: 11:00.** It beats the incumbent on return, Sharpe, and DD
+simultaneously, sits on a genuine plateau (11:30 within noise, 10:30
+adjacent), and the corrected walk-forward picks only from that plateau
+(10:30/10:30/11:00/11:30/11:00 across the years; OOS 60.6 bp, Sharpe
+2.76). **09:35 rejected** despite its raw numbers: it is a lone spike
+whose immediate neighbor (10:00) is the sweep's worst cell — exactly the
+curve-fit signature the prespecified plateau rule exists to catch — and
+its trades live in the bars where touch-fill assumptions are least
+believable (revisit only if 1-min data + cost model ever land).
+
+## T4: no last-entry cutoff — rejected cleanly
+
+At start 11:00 on the corrected engine, cutoffs cost money monotonically
+(14:00 → 48.9 bp; none → 59.6 bp). Late entries carry real edge; the
+worst-day is identical either way. The T2 map's late-day EOD-exit rates
+looked scary but the breaker already absorbs the risk.
+
+## T3: conditional start — rejected (dominated by fixed 11:00).
+
+## Net effect of the V5 program
+
+Start 10:30 → 11:00, +5.8 bp/day, Sharpe 2.46 → 2.87, maxDD −34.7% →
+−32.1%, and an engine that no longer manufactures profit out of wide
+bars. Flagged for re-verification on the corrected engine (relative
+verdicts whose both arms shared the bug): pyramid-vs-flat, exact cap
+values, cost estimates.

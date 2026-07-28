@@ -3,15 +3,35 @@
 Status: **core strategy** as of 2026-07-28. Multi-day cycle strategy
 (cycle_lab) demoted to optional satellite pending a regime kill-switch.
 
+> **ENGINE CORRECTION (2026-07-28, found during the V5 program).** All
+> results produced before `v5_corrected_rerun.py` used a simulator with a
+> same-bar lookahead: the entry trigger could be set by the current bar's
+> own high and the target filled by that same high. The corrected engine
+> (trigger from prior bars only = a genuine resting limit; target fills
+> from the next bar onward; same-bar stop still allowed) is now the
+> reference. Net effect at the locked config: the core is *stronger* than
+> previously reported (53.8→59.6 bp/day at the adopted start, Sharpe up),
+> while early-morning starts were massively inflated (09:35 fell from a
+> fictional 127 bp/Sharpe 5.7 to 68 bp/2.74 and fails the plateau rule).
+> Re-verified on the corrected engine: 2-stop breaker (bigger win now:
+> 53.8 vs 45.3 bp at 10:30), start-time verdicts, cutoff verdict.
+> Direction-only conclusions (short-side rejection) were made under the
+> *optimistic* engine and are conservative. Flagged for re-verification
+> on the corrected engine: pyramid-vs-flat comparison (relative, both
+> arms shared the bug), cap sweep exact values, cost estimates.
+
 ## 0. Locked definition
 
 > On days when trailing 5-day average range (ATR5) ≥ 6% and the opening
-> 30-min range is not in the top quintile: starting at 10:30, place a limit
-> buy 1% below the intraday rolling high; on fill, exit at +1% (limit) or
-> −4% (stop); repeat until 5 trades **or 2 stop-outs**, whichever comes
-> first (2-stop circuit breaker adopted from the V11 program: +1.3 bp/day,
-> Sharpe 2.25 vs 2.15, worst day −8.0% vs −11.4%); force-flat at the
-> close. Long only, one position at a time, no overnight exposure.
+> 30-min range is not in the top quintile: starting at **11:00** (V5
+> program, corrected engine — plateau 10:30–11:30, 11:00 best: 59.6
+> bp/day, Sharpe 2.87, walk-forward-supported), place a limit buy 1%
+> below the intraday rolling high (prior bars only); on fill, exit at
+> +1% (limit, fills from the next bar) or −4% (stop); repeat until 5
+> trades **or 2 stop-outs**, whichever comes first (breaker re-verified
+> on the corrected engine: 53.8 vs 45.3 bp/day at 10:30, worst day −8.0%
+> vs −15.2%); no last-entry cutoff (tested, costs money); force-flat at
+> the close. Long only, one position at a time, no overnight exposure.
 > Sizing: flat fraction f of the sleeve per trade — f=1.0 growth-seeking,
 > f=0.5 for a P(−30% DD/yr) ≤ ~5% risk budget (V11_SIZING_TESTS.md T5).
 
@@ -61,12 +81,17 @@ re-selection). Code: `churn_harvest.py`, `regime_gate.py`,
 - Untested: band-referenced stops (below day low, below OR low), time
   stops, vol-scaled stops.
 
-### V5. Start time — **10:30** (bar 12)
-- Role: waits until the band is ~68% built and the excursion window (58%
-  of steep moves fire 09:30–10:30) has passed.
-- Tested: derived from the range-completion curve
-  (`range_completion_by_time.csv`), NOT swept as a parameter. 10:00 /
-  11:00 / 13:00 variants have never been run.
+### V5. Start time — **11:00** (bar 18; plateau 10:30–11:30)
+- Tested: full program (`V5_START_TIME_TESTS.md`, corrected engine).
+  Sweep 09:35–13:00: 11:00 best (59.6 bp/day, Sharpe 2.87, maxDD −32.1%)
+  on a genuine plateau with 11:30 (2.85) and 10:30 (2.46); walk-forward
+  start selection stays inside that plateau every year (OOS 60.6 bp,
+  Sharpe 2.76). 09:35 rejected by the plateau rule — its lone-spike
+  Sharpe sits next to the sweep's WORST cell (10:00, 1.68) and the
+  morning open is where fill assumptions are least trustworthy.
+  Last-entry cutoff rejected (monotonically costs money — late entries
+  carry edge). Conditional start rejected (dominated). Finding the V5
+  answer also exposed and fixed the same-bar lookahead bug (see header).
 
 ### V6. End-of-day flat — **close of last bar, always**
 - Role: removes overnight gap risk entirely (gaps are the main excursion
