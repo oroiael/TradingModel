@@ -528,15 +528,84 @@ good days and a negative-edge cohort on the independent ones.
 drawdown (Sharpe 1.04). Positive expectancy, but a poor risk-reward for
 fresh capital, and not comparable to raising f on the proven sleeve.
 
-**Conclusion:** SPXL is not adopted, in any allocation. The mechanism
-partially transfers — which is genuine evidence that the SOXL edge is a
-volatility-churn phenomenon rather than a single-instrument artifact — but
-it does not transfer *strongly enough* to fund, and its independent days are
-negative. If additional capital ever needs deploying, the dial on the proven
-sleeve is the better instrument. Retesting SPXL with the full protocol
-(walk-forward, plateau, mechanism attribution) is only worth doing if the
-above conclusions are to be formally challenged; on these numbers it would
-be confirming a sleeve that is dominated before it starts.
+### 9.3 FAS — and the replicated finding across instruments
+
+`etf_scaling_test.py` (generalized harness) → `out/etf_scaling_FAS.csv`,
+`out/etf_churn_density.csv`, `out/etf_overlap_*.csv`. FAS scale factor
+k = 3.69/6.67 = 0.554, matched gate 3.74%, scaled dip 0.55%. (This run
+re-derives SPXL's dip from k as 0.44% rather than the rounded 0.5% used
+in §9.1 — 16.5 vs 14.1 bp; immaterial to the verdict.)
+
+| instrument / cell | ON days | trades/day | bp/ON-day | Sharpe | maxDD | yrs + |
+|---|---:|---:|---:|---:|---:|---:|
+| **SOXL locked (reference)** | 787 | 3.17 | **65.6** | **3.09** | −36.5% | **6/6** |
+| FAS A locked | 111 | 2.52 | **−2.8** | −0.14 | −27.4% | 4/6 |
+| FAS B gate-scaled, dip 1% | 580 | 1.89 | **−8.9** | −0.61 | −55.6% | 1/6 |
+| FAS C gate+dip scaled (0.55%) | 580 | 3.06 | **+7.1** | 0.49 | −40.0% | 4/6 |
+| FAS D fully scaled | 580 | 3.32 | +2.4 | 0.18 | −45.8% | 4/6 |
+| SPXL C (for comparison) | 551 | 3.31 | +16.5 | 1.21 | −25.5% | 4/6 |
+
+**FAS is worse than SPXL and negative under locked settings.** Its best
+cell earns 7.1 bp at Sharpe 0.49 — 11% of SOXL's edge at a sixth of the
+risk-adjusted quality — and 2026 is negative (−19.8 bp). Once again the
+dip rescaling was essential and directionally confirmed your call: cell B
+(gate rescaled, dip left at 1%) is **−8.9 bp with 1/6 years positive**;
+halving the dip to 0.55% restored cadence 1.89 → 3.06 trades/day and
+flipped the sign to +7.1 bp.
+
+**The independence result replicated.** This is the important part —
+what looked like an SPXL quirk is now a pattern across two instruments:
+
+| | edge when SOXL is ON | edge when SOXL is IDLE | corr on both-ON days |
+|---|---:|---:|---:|
+| SPXL | +25.9 bp (n=445) | **−23.3 bp** (n=106, −24.7% cumulative) | 0.75 |
+| FAS | +14.9 bp (n=405) | **−10.9 bp** (n=175, −19.1% cumulative) | 0.58 |
+
+Both sister instruments earn only when SOXL's regime is *also* hot, and
+both **lose** on precisely the days that would provide independent
+diversification. Two independent replications make this a property of the
+strategy family rather than a coincidence: the edge is not "3x ETF churn"
+generically — it requires the specific volatility regime that SOXL
+signals, and days when other sectors are volatile *without* semis are
+systematically the wrong kind of volatility.
+
+**Churn density — SOXL is genuinely unusual:**
+
+| | median day range | ≥1% swings/day (mean / median) | ≥2% swings/day | zero-swing days |
+|---|---:|---:|---:|---:|
+| **SOXL** | **6.67%** | **15.0 / 14** | **5.9** | **0.0%** |
+| FAS | 3.69% | 6.4 / 5 | 2.2 | 0.1% |
+| SPXL | 2.92% | 5.3 / 4 | 1.7 | 1.7% |
+
+SOXL delivers 2.3–2.8× the ≥1% swing density of either sibling. But note
+the relationship is **not** cleanly monotonic — FAS has *more* swings than
+SPXL (6.4 vs 5.3) yet a *weaker* edge (7.1 vs 16.5 bp) — so swing density
+is necessary but not sufficient; the character of the churn (choppy
+mean-reversion vs news-driven trending) differs by sector in a way this
+study does not isolate. That is an honest open question, not a settled one.
+
+*Methodological caveat:* the matched gates were set to admit SOXL's 52%
+ON-rate **by gate alone**; after the V9 filter the comparison instruments
+trade ~37% of days versus SOXL's 52%. A fully matched design would admit
+somewhat more days. This does not change the direction of any finding.
+
+**Conclusion:** neither SPXL nor FAS is adopted, in any allocation. The
+mechanism partially transfers to both — genuine evidence that the SOXL edge
+is a volatility-churn phenomenon rather than a single-instrument artifact —
+but neither transfers *strongly enough* to fund (16.5 and 7.1 bp/day at
+Sharpe 1.21 and 0.49, against 65.6 at 3.09), and in both cases the
+independent days are negative. If additional capital ever needs deploying,
+the f dial on the proven sleeve is the better instrument. Running these
+sleeves through the full protocol (walk-forward, plateau, mechanism
+attribution) is only worth doing to formally challenge the above; on these
+numbers it would be confirming sleeves that are dominated before they start.
+
+**What this does buy the core case:** two independent instruments show a
+positive edge once the constants are scaled to their volatility, with the
+structural worst-day cap holding exactly as designed on both. The SOXL
+result is therefore unlikely to be a data-mining artifact of one price
+series — it is the same mechanism operating where the churn is dense enough
+to pay for it. SOXL appears to be the only one of the three where it is.
 
 ## 8. Automation architecture (IBKR) — attended and unattended
 
@@ -687,6 +756,8 @@ conservative, flagged in STRATEGY_SPEC header):**
   `<SYM>_5min_6Years.csv` (SPXL run; FAS/TQQQ ready).
 - `band_lab/spxl_scaling_test.py` — vol-scaled SPXL cells, resolution
   diagnostic, and the SOXL/SPXL overlap + portfolio analysis (§9.1–9.2).
+- `band_lab/etf_scaling_test.py` — generalized harness for any 3x ETF
+  (FAS/SPXL run; TQQQ ready) + churn-density comparison (§9.3).
 
 **Sizing verification (§6.7):**
 - `band_lab/sizing_verification.py` — exposure profile, exposure-matched
