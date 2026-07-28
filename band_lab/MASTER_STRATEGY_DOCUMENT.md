@@ -600,6 +600,41 @@ sleeves through the full protocol (walk-forward, plateau, mechanism
 attribution) is only worth doing to formally challenge the above; on these
 numbers it would be confirming sleeves that are dominated before they start.
 
+### 9.4 TQQQ — NOT RUN (no intraday data in the repository)
+
+Requested 2026-07-28; **cannot be simulated with available data.** The
+repository holds TQQQ only as `TQQQ_IBKR_3YR_EOD.csv` (daily bars,
+2023-07-05 → 2026-07-02) and options chains (`raw_data/TQQQ_*`). The
+strategy is intraday by construction — it needs 5-minute bars for the
+opening-range filter, the session-high anchor, the dip trigger and the
+intraday exits. Daily bars cannot produce any of the reported metrics.
+
+What the daily data DOES establish (all four instruments measured over
+TQQQ's shorter 2023-07 → 2026-07 window for fairness):
+
+| instrument | median daily range | vs SOXL (k) |
+|---|---:|---:|
+| SOXL | 6.24% | 1.000 |
+| **TQQQ** | **3.56%** | **0.570** |
+| FAS | 3.25% | 0.521 |
+| SPXL | 2.57% | 0.412 |
+
+Under the locked gate (ATR5 ≥ 6%) TQQQ would trade on only **9.4%** of
+days; its matched gate would be ~3.65% and its scaled dip ~0.57%.
+
+**Prior, not result:** TQQQ sits in the same volatility class as FAS
+(k = 0.57 vs 0.55) — and FAS was the weakest transfer tested (+7.1
+bp/day, Sharpe 0.49, negative under locked settings). The reasonable
+expectation is therefore a similarly weak transfer, with the same
+independence problem. **That is an extrapolation from a volatility
+profile, not a measurement, and must not be quoted as a TQQQ result.**
+
+To close it properly, 5-minute TQQQ bars for 2020-07 → 2026-07 are
+needed; the repository already contains a fetcher pattern
+(`ibkr_intraday_fetcher.py`) that pulls exactly this from a live IBKR
+connection. Once the file exists as `TQQQ_5min_6Years.csv`, the test is
+one command: `python3 band_lab/etf_scaling_test.py TQQQ`.
+
 **What this does buy the core case:** two independent instruments show a
 positive edge once the constants are scaled to their volatility, with the
 structural worst-day cap holding exactly as designed on both. The SOXL
