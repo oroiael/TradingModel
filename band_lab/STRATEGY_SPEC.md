@@ -73,8 +73,12 @@ re-selection). Code: `churn_harvest.py`, `regime_gate.py`,
   effectively re-merge the sleeves.)
 
 ### V7. Max trades/day — **5**
-- Tested: never swept. Rarely binds (mean 1.4 trades/day); at dip=1% the
-  cap was hit on <2% of days. Low priority.
+- Tested: swept 1–10 (`cap_sweep.py`, `out/cap_sweep.csv`). On gated days
+  the cap binds far more than first claimed (36% of days at cap 5).
+  bp/day rises 6.8 → 43.5 from cap 1→5, then flattens (~47 at 8–10);
+  Sharpe peaks at cap 5 (2.14) and decays above; worst day deteriorates
+  −11.4% → −17% at cap 8. **Cap 5 confirmed as the risk-adjusted optimum**;
+  6 is equivalent; 8+ is a small return add paid for in tail risk.
 
 ### V8. Direction & concurrency — **long only, one position at a time**
 - Tested: shorts never tested in the harvester. (Context: SOXL's 6-year

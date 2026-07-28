@@ -43,7 +43,12 @@ def load_soxs_daily():
 def run_compound(bars, daily, soxs, start, end,
                  target=0.015, stall_days=3, mode="none",
                  soxs_exit="recover", soxs_fixed_n=5,
-                 hold_tdays=21, sizing="half_cash"):
+                 hold_tdays=21, sizing="half_cash",
+                 gate=None, gate_liquidate=False):
+    """gate: optional bool Series indexed by date (use shifted values so
+    there is no lookahead). When False, no NEW lots are opened; with
+    gate_liquidate=True the active (non-parked) lot is also sold at that
+    day's close. Parked lots always run their normal course."""
     days = [d for d in daily.index if start <= d <= end]
     pos = {d: i for i, d in enumerate(days)}
     bars_w = bars[(bars["date"] >= start) & (bars["date"] <= end)]
@@ -74,8 +79,17 @@ def run_compound(bars, daily, soxs, start, end,
         n = int(sizing[2:])          # eq3, eq4, eq6, ...
         return min(cash, equity(spot, sx) / n)
 
+    def gate_ok(d):
+        if gate is None:
+            return True
+        v = gate.get(d, False)
+        return bool(v) and not pd.isna(v)
+
     def open_lot(price, i, sx):
         nonlocal cash, active
+        if not gate_ok(days[i]):
+            active = None
+            return
         sh = math.floor(budget(price, sx) / price)
         if sh >= 1:
             cash -= sh * price
@@ -143,6 +157,10 @@ def run_compound(bars, daily, soxs, start, end,
                 parked.append(p)
                 active = None
                 open_lot(spot, i, sx)
+
+        if gate_liquidate and active is not None and not gate_ok(d):
+            cash += active["shares"] * spot
+            active = None
 
         eq_curve.append({"date": d, "equity": equity(spot, sx),
                          "deployed": 1 - cash / max(equity(spot, sx), 1)})
