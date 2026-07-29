@@ -22,6 +22,7 @@ evidenced in `band_lab/phase1/PHASE1_PARITY.md`.
 | 2026-07 | 2.6 | added the **anti-lookahead backtest convention** (no target fill on the entry bar) — previously stated only in `STRATEGY_SPEC.md` |
 | 2026-07 | 8 | monitoring baselines replaced with **measured per-sleeve values**; two were wrong |
 | 2026-07 | 9 | Phase 1 marked complete; the residual as-built vs validated gap recorded |
+| 2026-07 | 9 | Phase 3's cost criterion corrected to be **account-size aware** — the $1.00 order minimum makes reduced-size running structurally dearer |
 
 ---
 
@@ -432,8 +433,27 @@ assumed — this is the largest untested assumption in the entire project
 and paper trading is the first real evidence about it.
 
 **Phase 3 — Live at reduced size.** 10–20% of intended capital, 4–8
-weeks. Verify commissions and slippage against the modelled 3.7 bp/day
-(SOXL) and 9.6 bp/day (SOXS).
+weeks. Verify commissions and slippage against the modelled cost **for
+the account size actually being run** — see
+`band_lab/phase1/out/cost_by_account_size.csv`.
+
+> **Corrected 2026-07.** This previously read "verify against the
+> modelled 3.7 bp/day (SOXL) and 9.6 bp/day (SOXS)". Those are $150K
+> figures, and IBKR's $1.00 per-order minimum binds well above Phase 3
+> sizing: at 15% of a $150K sleeve, SOXL costs **4.0 bp/ON-day, not
+> 3.2** — 25% higher purely from the order minimum, and 7.5 bp at $10K.
+> Judging a reduced-size run against the full-size number would fail a
+> system that is working correctly. SOXS is largely immune; a cheaper
+> instrument buys enough shares that the minimum rarely binds.
+
+Cost expectations at full size, per ON day: **SOXL 3.2 bp, SOXS 8.5 bp**
+(per-trade model), or **3.7 / 9.6 bp** under the more conservative flat
+model carried through the research. The gap between them is a slippage
+buffer of roughly 0.9c (SOXL) / 0.6c (SOXS) on the stop and flatten legs.
+Phase 2 should log the quoted spread at every order event — it is the one
+cost input that no further analysis can supply, and the only one with
+real leverage (SOXS moves 7.3 bp across plausible spread assumptions;
+SOXL moves 2.3). See `band_lab/phase1/COST_MODEL.md`.
 
 **Phase 4 — Scale.** Only if live bp/ON-day sits within the conservative
 band from §6.2 of the master document. Any structural shortfall means

@@ -262,7 +262,37 @@ assumption that could move the number the other way, hard, is untested — see
 
 ---
 
-## 6. What Phase 1 does *not* cover
+## 6. Costs
+
+Reviewed separately in **[COST_MODEL.md](COST_MODEL.md)**; `cost_model.py`
+regenerates it. Summary:
+
+- The incumbent flat charge (SOXL 3.7 bp, SOXS 9.6 bp per ON day) is **not
+  wrong — it is conservative by 0.5 / 1.1 bp**, and the conservatism sits in
+  its spread term rather than being named as slippage. Its `cross_frac=0.30`
+  guess is confirmed almost exactly: 28.7% / 28.2% of exits actually cross.
+- Per-trade costing off the Phase 1 trade logs replaces the flat charge.
+  Real per-day cost spans 1.2 → 4.9 bp (SOXL) and 3.2 → 12.2 bp (SOXS)
+  against a flat 3.7 / 9.6, because fill counts are bimodal and correlate
+  +0.44 with the day's P&L.
+- **w = 0.50 is the Sharpe argmax under every cost scenario tested**,
+  including one that strips 7.3 bp off SOXS. The pair decision is not
+  cost-model-dependent.
+- All remaining cost uncertainty lives in **SOXS**, and it is a price-level
+  effect: 7.3 bp of range across plausible spread assumptions, versus 2.3 bp
+  for SOXL.
+- **§9's Phase 3 cost criterion was wrong and is corrected.** It compared a
+  10–20%-of-capital run against $150K cost figures; IBKR's $1.00 order
+  minimum makes SOXL cost 4.0 bp/ON-day at $22.5K and 7.5 bp at $10K, versus
+  3.2 bp at full size.
+
+The spread itself **cannot be measured from this repository** — the data is
+5-minute OHLCV with no quotes. Phase 2 should log the quoted spread at every
+order event.
+
+---
+
+## 7. What Phase 1 does *not* cover
 
 §10 items **9–12** (flatten verification, crash/restart reconciliation, API
 disconnect, watchdog) and **15–16** (session replay, weekly report) exercise
