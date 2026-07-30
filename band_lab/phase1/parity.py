@@ -47,6 +47,7 @@ for p in (HERE, BAND_LAB, os.path.join(ROOT, "cycle_lab")):
 from spec_engine import RESEARCH_COMPAT, SPEC_LITERAL, EngineConfig, run_sleeve
 
 OUT = os.path.join(HERE, "out")
+os.makedirs(OUT, exist_ok=True)   # helpers write here even when main() is not run
 REF_OUT = os.path.join(BAND_LAB, "out")
 SLEEVES = ["SOXL", "SOXS"]
 

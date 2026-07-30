@@ -53,6 +53,7 @@ for p in (HERE, BAND_LAB, os.path.join(ROOT, "cycle_lab")):
 from spec_engine import RESEARCH_COMPAT, load_bars, run_sleeve
 
 OUT = os.path.join(HERE, "out")
+os.makedirs(OUT, exist_ok=True)
 SLEEVES = ["SOXL", "SOXS"]
 SLEEVE_CAPITAL = 150_000.0
 

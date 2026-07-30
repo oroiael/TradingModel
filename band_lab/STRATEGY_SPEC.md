@@ -330,14 +330,29 @@ Fixed = $0.005/share, **$1.00 min per order, max 1% of trade value**
 (SEC + FINRA TAF, sells only) passed through — ~0.35 bp. At the
 reference sleeve ($150K, ~950 shares at $158): ≈ $4.75/side commission
 + ≈ $4.30 SEC/TAF on the sell ⇒ **≈ $14 ≈ 0.9 bp per round trip**. With
-~3.1 fills/day that is ~3 bp/day of commission against a 59.6 bp/day
-gross edge (~5%). Spread cost: entries and targets are resting limits
-(earn or neutral); stops and EOD flattens cross the spread (~0.6
-bp/side at a 1¢ spread). Realistic all-in drag ≈ 4–7 bp/day ⇒ **expected
-net ≈ 52–56 bp per traded day**. Cost scales DOWN with account size
-(the $1 minimums stop binding); below ~$20K/trade the minimums start to
-bite — this sleeve should not run under ~$25K for cost as well as PDT
-reasons. Aside: at this sleeve's ~125K shares/month, IBKR Pro **Tiered**
+3.17 fills/ON-day that is ≈ 2.9 bp/day of commission and regulatory fees
+against a 65.6 bp/ON-day gross edge (~4%). Spread cost: entries and
+targets are resting limits (never cross); stops and EOD flattens do —
+28.7% of exits, measured. **All-in drag ≈ 3.2 bp/ON-day (per-trade model)
+or 3.7 bp under the more conservative flat model ⇒ expected net ≈ 62 bp
+per ON day.** For SOXS the same arithmetic gives 8.5 / 9.6 bp and net
+≈ 48–49 bp: IBKR charges per share, so the cheaper instrument costs ~2.5×
+more in bp. Full derivation and sensitivities:
+`band_lab/phase1/COST_MODEL.md`.
+
+Cost scales DOWN with account size until the $1.00 order minimum stops
+binding, which for SOXL is at **200 shares ≈ $31,700 of sleeve capital**.
+Below that, cost per bp rises sharply — 4.0 bp/ON-day at $22.5K and
+7.5 bp at $10K, against 3.2 bp at full size. This sleeve should not run
+under ~$32K for cost reasons (and not under $25K for PDT reasons), and
+**§9 Phase 3's reduced-size run must be judged against its own row of
+`band_lab/phase1/out/cost_by_account_size.csv`, not the full-size
+figure.**
+
+*(Corrected 2026-07: the paragraph previously quoted the pre-V9 gross
+edge of 59.6 bp, concluded "net ≈ 52–56 bp", and said the minimums bite
+"below ~$20K/trade". The binding point is ~$31.7K, and the doc's own
+headline gross edge is 65.6 bp.)* Aside: at this sleeve's ~125K shares/month, IBKR Pro **Tiered**
 ($0.0035/share bracket) with maker rebates on the resting entry/target
 limits could shave the commission line further — an optional account
 optimization, not a requirement; all published numbers assume Fixed.
@@ -353,12 +368,21 @@ optimization, not a requirement; all published numbers assume Fixed.
 6. No leverage (V11-T5).
 
 ### Monitoring (live vs. backtest)
-Log every fill. Weekly, compare: fills/day (expect ≈ 3–3.5 on ON days),
-target-hit share (expect ≈ 75–80%), net bp/traded-day (expect ≈ 50s
-with wide variance — single weeks prove nothing). Investigate structural
-breaks, not noise: a month of fill counts far off the expectation means
-the market or the execution, not luck, has changed. Re-run the
-walk-forward yearly with the new data before re-committing capital.
+Log every fill. Weekly, compare against the **measured** baselines in
+`IMPLEMENTATION_SPEC.md` §8 — fills/ON-day 3.17 (SOXL) / 3.36 (SOXS),
+exit mix target ≈71% / stop ≈10% / 15:55 flatten ≈19%, net bp/ON-day 61.9
+(SOXL) / 48.1 (SOXS), worst day −8.0% — all with wide variance; single
+weeks prove nothing. Investigate structural breaks, not noise: a month of
+fill counts far off the expectation means the market or the execution,
+not luck, has changed. Re-run the walk-forward yearly with the new data
+before re-committing capital.
+
+*(Corrected 2026-07: this previously said "target-hit share ≈ 75–80%,
+net bp/traded-day ≈ 50s". Phase 1 measured 71.3% / 71.8% target share —
+the old figure matched neither the raw share nor the share excluding EOD
+flattens (87.8%) — and the two sleeves' net bp differ too much for one
+blended figure. `band_lab/phase1/parity.py` now re-measures every
+published baseline and fails if it drifts.)*
 
 ## 3. Should we build a big combinatorial search engine?
 

@@ -10,9 +10,18 @@ Per §9, this is the gate on starting Phase 2. It is passed.
 
 Reaching parity required choosing a reading for **eight** clauses of §2
 that a clean-room implementer cannot resolve from §2's words. All eight are
-now resolved. Four produced corrections to the specification documents;
-four are recorded as deliberate, measured decisions. §3 has each one with
-its cost; §4 states what the live system inherits.
+now resolved:
+
+- **two produced amendments to §2** — the `thr80` cadence (S1) and the
+  missing anti-lookahead rule (S4) — alongside corrections to §8's
+  monitoring baselines and §9's Phase 3 cost criterion;
+- **two were resolved as deliberate decisions** with the text unchanged —
+  the tick grid (S5) and whole-share sizing (S7);
+- **four are residual differences** the live system inherits (S2, S3, S6,
+  S8).
+
+§3 has each one with its cost; §4 states what the live system inherits;
+§5 is the decisions log.
 
 ---
 
@@ -23,7 +32,9 @@ its cost; §4 states what the live system inherits.
 | `spec_constants.py` | §12 constants, transcribed verbatim, plus the §6.8 config validator |
 | `spec_engine.py` | the clean-room engine — §2 rules only, no import from the research lab |
 | `parity.py` | A parity, B artifact rebuild, C as-built gap attribution, D §8 baseline guard |
-| `test_spec_engine.py` | 48 acceptance tests covering §10 items 1–8, 13, 14 |
+| `test_spec_engine.py` | acceptance tests covering §10 items 1–8, 13, 14 |
+| `test_published_numbers.py` | guards every figure quoted in the spec documents |
+| `cost_model.py` | per-trade cost model ([COST_MODEL.md](COST_MODEL.md)) |
 | `out/` | generated series, decision logs, trade logs, comparison tables |
 
 `spec_engine.py` imports nothing from `transfer_test`, `spxl_scaling_test`,
@@ -37,7 +48,7 @@ git lfs pull --include="SOXL_5min_6Years.csv,SOXS_5min_6Years.csv"
 pip install pandas numpy pytest
 
 python3 band_lab/phase1/parity.py          # full report, exit 0 == all green
-python3 -m pytest band_lab/phase1 -v       # 48 acceptance tests, ~7s
+python3 -m pytest band_lab/phase1 -v       # 59 tests, ~9s
 python3 -m pytest band_lab/phase1 -m "not slow"   # unit tests only
 ```
 
@@ -148,7 +159,7 @@ re-measures every published number and **fails if the document drifts**.
 
 - The **live** engine has no choice: §2.5/§2.6 say `round_to_tick` and the
   exchange enforces it. The **backtest** does not model it.
-- **Cost of modelling it:** SOXL **+4.3 bp** (6.6% of the sleeve's edge),
+- **Cost of modelling it:** SOXL **+4.3 bp** (~6.5% of the sleeve's edge),
   SOXS +0.5 bp.
 
 Checked three ways before deciding, because +4.3 bp is not a rounding

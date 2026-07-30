@@ -975,17 +975,25 @@ re-arm.
 **15:55:** replace bracket with market/MOC sell. Flat by 16:00 always.
 **Sizing:** flat f only — f=1.0 growth, f=0.5 risk-budget, any
 intermediate f permitted; never above f=1.0; no pyramiding (withdrawn).
-**Costs (verified vs IBKR schedule):** $0.005/sh, $1 min/order, ~0.35 bp
-regulatory on sells ⇒ ≈0.9 bp/round trip at $150K; expected all-in drag
-4–7 bp/ON-day.
+**Costs (verified vs IBKR schedule; re-derived per-trade in Phase 1):**
+$0.005/sh, $1 min/order, ~0.3 bp regulatory on sells ⇒ 0.92 bp/round trip
+at $150K (SOXL) and 2.25 bp (SOXS). All-in drag **3.2 bp/ON-day SOXL,
+8.5 bp SOXS** (per-trade model), or 3.7 / 9.6 bp under the flat model
+carried through the research. The $1 order minimum binds below ~$31.7K of
+SOXL sleeve capital and makes reduced-size running dearer — see
+`band_lab/phase1/COST_MODEL.md`.
 **Prohibitions (each closed by a test):** no pre-11:00 entries; no
 trading on stand-down or gate-off days; no shorts (incl. SOXS); no
 overnight positions; no third stop; no "one more trade"; no leverage;
 never scale the stop.
-**Monitoring:** log every fill; weekly compare fills/day (≈3–3.5),
-target-hit share (≈75–80%), net bp/ON-day (≈50s, wide variance).
+**Monitoring:** log every fill; weekly compare against the measured
+baselines in `IMPLEMENTATION_SPEC.md` §8 — fills/ON-day 3.17 (SOXL) /
+3.36 (SOXS), exit mix target ≈71% / stop ≈10% / 15:55 flatten ≈19%, net
+bp/ON-day 61.9 / 48.1, worst day −8.0%; wide variance throughout.
 Structural breaks (counts off >20% for a month) → halt and investigate.
 Yearly: re-run the walk-forward with new data before re-committing.
+*(Corrected 2026-07: previously "target-hit share ≈75–80%, net bp/ON-day
+≈50s"; Phase 1 measured 71.3% / 71.8% and per-sleeve net.)*
 
 ## Appendix B — Final scripts (in the repository)
 

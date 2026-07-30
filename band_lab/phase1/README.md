@@ -15,7 +15,8 @@ open decisions are in **[PHASE1_PARITY.md](PHASE1_PARITY.md)**.
 | `spec_engine.py` | the clean-room engine (§2 only — imports nothing from the research lab) |
 | `parity.py` | parity vs the research engine, `v14_*.csv` rebuild, as-built gap attribution, §8 baseline guard |
 | `cost_model.py` | per-trade cost model — reviews and replaces the flat v14 charge ([COST_MODEL.md](COST_MODEL.md)) |
-| `test_spec_engine.py` | 48 acceptance tests for §10 items 1–8, 13, 14 |
+| `test_spec_engine.py` | acceptance tests for §10 items 1–8, 13, 14 |
+| `test_published_numbers.py` | re-checks every figure quoted in the spec documents against the engine |
 | `out/` | generated artifacts — summary tables are committed, the per-day/per-trade logs are gitignored and regenerable |
 
 ## Setup
@@ -32,7 +33,7 @@ pip install pandas numpy pytest
 
 ```bash
 python3 band_lab/phase1/parity.py        # full report; exit code 0 == all green
-python3 -m pytest band_lab/phase1 -v     # 48 tests, ~7s
+python3 -m pytest band_lab/phase1 -v     # 59 tests, ~9s
 python3 -m pytest band_lab/phase1 -m "not slow"   # skip the real-data parity tests
 ```
 
