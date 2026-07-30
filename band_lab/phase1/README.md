@@ -33,6 +33,8 @@ pip install pandas numpy pytest
 
 ```bash
 python3 band_lab/phase1/parity.py        # full report; exit code 0 == all green
+python3 band_lab/phase1/cost_model.py    # cost tables (both are needed to
+                                         # regenerate everything in out/)
 python3 -m pytest band_lab/phase1 -v     # 59 tests, ~9s
 python3 -m pytest band_lab/phase1 -m "not slow"   # skip the real-data parity tests
 ```

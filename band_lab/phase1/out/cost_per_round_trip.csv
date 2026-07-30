@@ -1,0 +1,7 @@
+sleeve,price,shares,exit,share_of_exits_%,crosses,commission_bp,regulatory_bp,execution_bp,total_bp
+SOXL,158.41,946,target,71.3,no,0.63,0.29,0.0,0.92
+SOXL,158.41,946,stop,9.9,yes,0.63,0.29,0.32,1.24
+SOXL,158.41,946,flatten,18.8,yes,0.63,0.29,0.32,1.24
+SOXS,51.61,2906,target,71.8,no,1.94,0.31,0.0,2.25
+SOXS,51.61,2906,stop,9.3,yes,1.94,0.31,0.97,3.22
+SOXS,51.61,2906,flatten,18.9,yes,1.94,0.31,0.97,3.22
