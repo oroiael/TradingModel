@@ -6,10 +6,23 @@ parameter below — every one has been individually tested and the evidence
 is in `STRATEGY_SPEC.md` and `MASTER_STRATEGY_DOCUMENT.md`. Changing a
 number invalidates the validation.**
 
-This document is written to be handed directly to an engineer or to
-Claude Opus 5 Max as a complete build prompt. It is self-contained: an
-implementer needs nothing but this file, IBKR credentials, and the
-acceptance tests in §10.
+This document is written to be handed directly to an engineer as a
+complete build prompt. It is self-contained: an implementer needs nothing
+but this file, IBKR credentials, and the acceptance tests in §10.
+
+**Amendment log.** Every parameter in §12 is unchanged since the strategy
+was locked. The changes below are corrections to *descriptions* that did
+not match the engine the numbers came from — found by the Phase 1
+clean-room build (§9), which is what that phase exists to do. Each is
+evidenced in `band_lab/phase1/PHASE1_PARITY.md`.
+
+| date | § | change |
+|---|---|---|
+| 2026-07 | 2.1 | `thr80` recompute cadence: monthly → **daily**, matching the validated engine |
+| 2026-07 | 2.6 | added the **anti-lookahead backtest convention** (no target fill on the entry bar) — previously stated only in `STRATEGY_SPEC.md` |
+| 2026-07 | 8 | monitoring baselines replaced with **measured per-sleeve values**; two were wrong |
+| 2026-07 | 9 | Phase 1 marked complete; the residual as-built vs validated gap recorded |
+| 2026-07 | 9 | Phase 3's cost criterion corrected to be **account-size aware** — the $1.00 order minimum makes reduced-size running structurally dearer |
 
 ---
 
@@ -52,13 +65,32 @@ reads the other's state, prices, or signals.
   before d**. Uses no data from day d.
 - `OR30(d)` = (High − Low of 09:30–10:00 on day d) / Open(09:30) × 100.
 - `OR_high`, `OR_low` = high and low of the 09:30–10:00 window.
-- `pos10(d)` = (close of the 10:00 bar − OR_low) / (OR_high − OR_low).
-  If OR_high == OR_low, use 0.5.
+- `pos10(d)` = (`close10` − OR_low) / (OR_high − OR_low), where `close10`
+  is the close of **bar 5** — the bar labelled 09:55, which closes *at*
+  10:00 and is the last bar of the opening-range window. It is **not**
+  bar 6 (the bar labelled 10:00, which closes at 10:05): the filter is
+  evaluated at 10:00, not at 10:05. If OR_high == OR_low, use 0.5.
 - `thr80(d)` = the 80th percentile of `OR30` over the **prior 504
   sessions** of that symbol, using only sessions strictly before d.
-  Recomputed **monthly** (first session of each calendar month) and held
-  constant within the month. Requires ≥120 prior observations; if fewer,
-  the sleeve does not trade.
+  Recomputed **every session**, pre-open, from the 504 sessions ending at
+  d−1. Requires ≥120 prior observations; if fewer, the sleeve does not
+  trade.
+
+  > **Amended 2026-07 (Phase 1).** This clause previously specified a
+  > monthly recompute held constant within the calendar month. The
+  > research engine that produced every validated number in
+  > `MASTER_STRATEGY_DOCUMENT.md` recomputes the threshold daily, so the
+  > monthly wording described a system that was never measured. The
+  > cadence is amended to daily to match the validated series exactly.
+  >
+  > This is a documentation correction, not a strategy change, and does
+  > not require re-validation: V9 §T5 swept the refresh cadence and found
+  > it immaterial (monthly/quarterly/annual all within 61–65 bp, Sharpe
+  > 3.03–3.21), and the Phase 1 measurement puts daily at 65.6 bp inside
+  > that band. The desk rule recorded in `V9_FILTER_TESTS.md` decision 4
+  > ("monthly, confirmed robust") stands as the historical record of what
+  > was tested; it is superseded here for what is to be *built*. See
+  > `band_lab/phase1/PHASE1_PARITY.md` §3 S1.
 - `session_high(t)` = highest traded price of the sleeve's symbol between
   09:30 and time t on the current day, inclusive of all completed bars
   before t. See §2.5 for the precise update rule.
@@ -111,6 +143,11 @@ There is no native IBKR order type for this — it is application logic.
 Do **not** use IBKR's trailing-buy order, which trails the *low* and is a
 different trade.
 
+`round_to_tick` is $0.01 for both sleeves and binds on the **live** engine
+only. A backtest should price at the unrounded level: modelling the cent
+grid is worth +4.3 bp/ON-day on SOXL, and that is deliberately held as
+unbanked conservatism rather than booked as edge (§9 Phase 1).
+
 ### 2.6 Exit — OCA bracket, placed immediately on fill
 
 The instant an entry fills at price `E`, place a one-cancels-all group:
@@ -120,6 +157,23 @@ The instant an entry fills at price `E`, place a one-cancels-all group:
 
 While a position is open, no entry order rests. One position at a time
 per sleeve.
+
+**Backtest convention (normative for any simulator, added 2026-07).** A
+bar-granularity backtest must **not** book a target fill on the entry bar
+itself. Within a bar the true price path is unknowable, so:
+
+- on the entry bar, only the **stop** may fire (the adverse case);
+- the **target** may fill from the next bar onward;
+- within any bar, the stop is checked **before** the target.
+
+This is not a strategy rule — live, the OCA is genuinely resting from the
+moment of fill and may occasionally do better. It is an anti-lookahead
+rule, and it is load-bearing: violating it is the exact bug documented in
+`v5_corrected_rerun.py`, where a single bar with ≥1% range could set a
+trigger 1% below its own high and instantly "win" off that same high.
+Every validated number in this project post-dates that fix. Any
+re-implementation that omits this paragraph will silently reproduce the
+bug.
 
 ### 2.7 Counters and the circuit breaker
 
@@ -215,9 +269,19 @@ Note on adjusted history: SOXL and SOXS have both had splits. When
 computing ATR5 and OR30 percentiles from historical data, use IBKR's
 adjusted series consistently. Percentage-based measures are
 split-invariant; **absolute price levels from history must never be used
-for sizing or order pricing** — always use live prices. (A prior analysis
-error came from exactly this: back-adjusted SOXS history implies prices
-of ~$51,000, which are not tradeable.)
+for sizing or order pricing** — always use live prices.
+
+The hazard is larger than it looks. SOXS's back-adjusted series runs from
+**$1,118,404 per share** at the start of the sample to **$51.61** at the
+end (peak $1,171,205; mean over traded days ≈ $52,000 — the figure behind
+the analysis error recorded in `V14_PAIR_PROTOCOL.md` §T1). Phase 1
+confirmed the consequence empirically: apply §2.4's
+`floor(f × sleeve_capital / limit_price)` to that series at a $150K
+sleeve and **248 of 1,508 sessions size to zero shares**, silently
+deleting a sixth of the sample. Percentage returns are the only
+historical quantity that means anything here; a backtest must therefore
+size in fractions of capital and leave whole-share rounding to the live
+engine. See `band_lab/phase1/PHASE1_PARITY.md` §3.2 S7.
 
 ---
 
@@ -227,9 +291,9 @@ Run per sleeve, independently. All times America/New_York.
 
 | Time | Action |
 |---|---|
-| 06:00 | Pre-open job: refresh daily bars; compute ATR5; on the first session of the month recompute thr80; evaluate the gate; compute `sleeve_capital` from account equity; persist the decision. If gate OFF → sleeve dormant, hard interlock prevents any order today. |
+| 06:00 | Pre-open job: refresh daily bars; compute ATR5; recompute thr80 from the 504 sessions ending yesterday; evaluate the gate; compute `sleeve_capital` from account equity; persist the decision. If gate OFF → sleeve dormant, hard interlock prevents any order today. |
 | 09:30 | If gate ON: begin recording bars. **No orders.** |
-| 10:00 | On close of the 10:00 bar: compute OR30 and pos10; apply the morning filter; persist ON / STAND-DOWN. If stand down → sleeve dormant for the day. |
+| 10:00 | On the close of bar 5 (the 09:55 bar, which closes at 10:00): compute OR30 and pos10; apply the morning filter; persist ON / STAND-DOWN. If stand down → sleeve dormant for the day. |
 | 10:00–11:00 | Observe only. Continue tracking `session_high`. |
 | 11:00 | Activate: compute anchor from completed bars, place the resting buy limit. |
 | 11:00–15:55 | On each bar close: update anchor and ratchet the limit up if needed. On fill: place the OCA bracket, increment `fills`. On exit: increment `stop_outs` if stopped, re-arm if counters permit, else cancel and go dormant. |
@@ -303,13 +367,33 @@ result; and end-of-day P&L.
 
 **Weekly automated comparison against backtest expectations:**
 
-| metric | expected |
-|---|---|
-| fills per ON day | ≈ 3.2 |
-| target-hit share of exits | ≈ 75–80% |
-| ON-day rate | ≈ 50% of sessions |
-| net bp per ON day | ≈ 50 bp (wide variance; a single week proves nothing) |
-| worst day | never below −8% |
+All figures below are **measured** on the research engine over the
+2020-07 → 2026 sample by the Phase 1 harness, not estimated. Regenerate
+with `python3 band_lab/phase1/parity.py` (section D); the raw table is
+`band_lab/phase1/out/monitoring_expectations.csv`.
+
+| metric | SOXL | SOXS |
+|---|---|---|
+| fills per ON day | 3.17 | 3.36 |
+| ON-day rate | 52.1% of sessions | 53.1% |
+| exit mix — target | 71.3% | 71.8% |
+| exit mix — stop | 9.9% | 9.3% |
+| exit mix — 15:55 flatten | 18.8% | 18.9% |
+| gross bp per ON day | 65.6 | 57.7 |
+| net bp per ON day | 61.9 | 48.1 |
+| worst day | −8.00% | −8.00% |
+
+Wide variance applies to every bp figure; a single week proves nothing.
+
+> **Corrected 2026-07 (Phase 1).** This table previously read "target-hit
+> share of exits ≈ 75–80%" and "net bp per ON day ≈ 50". Neither matched
+> the engine it was meant to describe: the target share is ≈71% (≈88% if
+> the 15:55 flatten is excluded, which the old wording did not say), and
+> net bp differs enough between the sleeves that a single blended figure
+> is not usable as a monitoring baseline. Since this section is what a
+> live system gets judged against, and the rule below is to investigate
+> deviations >20%, the wrong baselines would have made a correctly
+> functioning system look like a 5% miss on day one.
 
 Investigate **structural** breaks, not noise: a month where fill counts
 or ON-rates deviate >20% from expectation means the market or the
@@ -320,13 +404,58 @@ execution has changed, not luck. A single bad week is expected — see
 
 ## 9. Build phases and deliverables
 
-**Phase 1 — Backtest parity harness (build this first).**
+**Phase 1 — Backtest parity harness. ✅ COMPLETE (2026-07).**
 Re-implement the rules of §2 from this document alone, run them over the
 historical 5-minute CSVs in the repository, and reproduce
 `band_lab/out/v14_*.csv`. **Acceptance: daily P&L series matches the
-research engine to within floating-point tolerance.** This is a
-clean-room check that the spec is complete and correctly understood. Do
-not proceed until it passes.
+research engine to within floating-point tolerance.**
+
+Delivered in `band_lab/phase1/`; findings in `PHASE1_PARITY.md`. Parity
+holds exactly — 787 SOXL and 801 SOXS ON-days, no day-set difference,
+worst daily divergence 4.2e-16 — and all four `v14_*.csv` rebuild
+identically from the clean-room series. Re-run with
+`python3 band_lab/phase1/parity.py` (exit 0 == parity holds); it doubles
+as a regression gate. Acceptance tests §10.1–8, 10.13 and 10.14 live in
+`band_lab/phase1/test_spec_engine.py`; every concrete figure quoted in
+these documents is re-checked against the engine by
+`band_lab/phase1/test_published_numbers.py`, so the specs cannot drift
+out of step with the code without a test going red.
+
+The clean-room check did its job: it found **eight** clauses of §2 that an
+implementer cannot resolve from this document's words alone.
+
+**Two produced corrections to this document** — §2.1's recompute cadence
+and §2.6's missing anti-lookahead rule — plus a third to §8's monitoring
+baselines and a fourth to §9's Phase 3 cost criterion (all four are in the
+amendment log at the top).
+
+**Two were resolved as decisions, leaving the text unchanged:** the
+backtest does not model the tick grid (§2.5/§2.6), and whole-share sizing
+stays a live-engine rule (§2.4, §4).
+
+**Four are residual differences** between the as-specified system and the
+engine that produced the validated numbers. In each the spec is right and
+the research engine simply never implemented the rule:
+
+| | rule | research engine | cost of adopting the spec |
+|---|---|---|---|
+| §2.2 | scheduled half-days OFF | trades them | −8 ON-days/sleeve; +0.4 bp SOXL, +1.2 bp SOXS |
+| §2.8 | flatten at 15:55 | holds to the 16:00 close | 0 ON-days; −0.1 bp SOXL, +2.3 bp SOXS |
+| §2.1 | bars addressed by clock time | addressed by file position | 0.0 bp both sleeves |
+| §4 | refuse a session with incomplete data | trades one 09:45-open session as if normal | 0.0 bp both sleeves |
+
+Adopting all four is worth **+0.3 bp/ON-day on SOXL and +3.5 on SOXS**
+against the validated series — measured as one combined run, not summed
+from the singles. That is the gap the live system starts with, and it is
+the number to carry into the Phase 3 comparison — not zero.
+
+One modelling decision was taken and should not be re-opened without
+evidence: **the backtest does not model the $0.01 tick grid**, though the
+live engine necessarily rounds to it (§2.5, §2.6). Modelling it is worth
++4.3 bp/ON-day on SOXL — ~6.5% of the sleeve's edge, robust to rounding
+direction and not a split-adjustment artifact. It is held as **unbanked
+conservatism**: assume it is not there, and let Phase 2's real fills
+settle it.
 
 **Phase 2 — Paper trading.** Full engine against IBKR paper account, ≥4
 weeks. Log every fill. Compare realised fills against what the backtest
@@ -334,8 +463,27 @@ assumed — this is the largest untested assumption in the entire project
 and paper trading is the first real evidence about it.
 
 **Phase 3 — Live at reduced size.** 10–20% of intended capital, 4–8
-weeks. Verify commissions and slippage against the modelled 3.7 bp/day
-(SOXL) and 9.6 bp/day (SOXS).
+weeks. Verify commissions and slippage against the modelled cost **for
+the account size actually being run** — see
+`band_lab/phase1/out/cost_by_account_size.csv`.
+
+> **Corrected 2026-07.** This previously read "verify against the
+> modelled 3.7 bp/day (SOXL) and 9.6 bp/day (SOXS)". Those are $150K
+> figures, and IBKR's $1.00 per-order minimum binds well above Phase 3
+> sizing: at 15% of a $150K sleeve, SOXL costs **4.0 bp/ON-day, not
+> 3.2** — 25% higher purely from the order minimum, and 7.5 bp at $10K.
+> Judging a reduced-size run against the full-size number would fail a
+> system that is working correctly. SOXS is largely immune; a cheaper
+> instrument buys enough shares that the minimum rarely binds.
+
+Cost expectations at full size, per ON day: **SOXL 3.2 bp, SOXS 8.5 bp**
+(per-trade model), or **3.7 / 9.6 bp** under the more conservative flat
+model carried through the research. The gap between them is a slippage
+buffer of roughly 0.9c (SOXL) / 0.6c (SOXS) on the stop and flatten legs.
+Phase 2 should log the quoted spread at every order event — it is the one
+cost input that no further analysis can supply, and the only one with
+real leverage (SOXS moves 7.3 bp across plausible spread assumptions;
+SOXL moves 2.3). See `band_lab/phase1/COST_MODEL.md`.
 
 **Phase 4 — Scale.** Only if live bp/ON-day sits within the conservative
 band from §6.2 of the master document. Any structural shortfall means
@@ -345,36 +493,45 @@ back to research, not "give it more time."
 
 ## 10. Acceptance tests
 
-The system is not done until all pass.
+The system is not done until all pass. Items 1–8, 13 and 14 are testable
+against a bar-replay harness and **pass today** in
+`band_lab/phase1/` (59 tests, `python3 -m pytest band_lab/phase1`). Items 9–12, 15 and 16 exercise the
+live IBKR engine and its persistence layer; they are **not** simulable in
+a backtest and are deliberately unstubbed until Phase 2.
 
 **Correctness**
-1. Clean-room parity with the research engine (Phase 1 above).
-2. Gate arithmetic: given a fixture of 5 daily bars, ATR5 matches by hand.
-3. Filter arithmetic: fixtures for OR30 above/below threshold × pos10
+1. ✅ Clean-room parity with the research engine (Phase 1 above).
+2. ✅ Gate arithmetic: given a fixture of 5 daily bars, ATR5 matches by hand.
+3. ✅ Filter arithmetic: fixtures for OR30 above/below threshold × pos10
    above/below 2/3 — all four combinations produce the documented decision.
-4. Anchor never decreases within a session, across a synthetic bar
+4. ✅ Anchor never decreases within a session, across a synthetic bar
    sequence with a rising-then-falling high.
-5. No order is ever created with timestamp < 11:00.
-6. Bracket is placed within one event loop of the entry fill.
+5. ✅ No order is ever created with timestamp < 11:00.
+6. ✅ Bracket is placed within one event loop of the entry fill. (In the
+   harness: the protective stop can fire on the entry bar itself.)
 
 **Risk**
-7. After the 2nd stop-out, no further entry order is placed that session.
-8. After the 5th fill, no further entry order is placed that session.
-9. At 15:55 with an open position, the position is closed and all orders
-   cancelled; assert flat before 16:00.
-10. Simulated engine crash at each of: pre-open, 10:05, mid-position,
+7. ✅ After the 2nd stop-out, no further entry order is placed that session.
+8. ✅ After the 5th fill, no further entry order is placed that session.
+9. ⬜ At 15:55 with an open position, the position is closed and all orders
+   cancelled; assert flat before 16:00. *(Phase 2 — the harness verifies
+   the P&L consequence, not the live order path.)*
+10. ⬜ Simulated engine crash at each of: pre-open, 10:05, mid-position,
     15:54 — on restart the system reconciles with IBKR and reaches a
-    correct state, and never opens a duplicate position.
-11. Simulated API disconnect while in a position → flatten path executes.
-12. Watchdog kills a hung engine and flattens independently.
-13. Config with `f = 1.5` is rejected at startup.
-14. A day where the gate is OFF produces zero orders under all conditions.
+    correct state, and never opens a duplicate position. *(Phase 2)*
+11. ⬜ Simulated API disconnect while in a position → flatten path executes.
+    *(Phase 2)*
+12. ⬜ Watchdog kills a hung engine and flattens independently. *(Phase 2)*
+13. ✅ Config with `f = 1.5` is rejected at startup.
+14. ✅ A day where the gate is OFF produces zero orders under all conditions.
 
 **Operational**
-15. Full session replay from recorded market data produces a complete,
-    auditable decision log.
-16. Weekly report generates and matches hand-computed values on a
-    fixture week.
+15. ⬜ Full session replay from recorded market data produces a complete,
+    auditable decision log. *(Phase 2. The Phase 1 harness emits the
+    equivalent for historical replay —
+    `band_lab/phase1/out/decision_log_<SYMBOL>.csv`.)*
+16. ⬜ Weekly report generates and matches hand-computed values on a
+    fixture week. *(Phase 2. The baselines it must reproduce are §8.)*
 
 ---
 
@@ -428,3 +585,10 @@ TIMEZONE       = "America/New_York"
 Any deviation from these values is a strategy change, not a
 configuration change, and requires re-validation through the protocol
 described in `MASTER_STRATEGY_DOCUMENT.md` §5.
+
+This block is transcribed verbatim in `band_lab/phase1/spec_constants.py`,
+whose `validate_config` refuses at startup any `f > 1.00`, any `w` outside
+[0.375, 0.75], any gate/filter/level parameter differing from the above,
+and any attempt to enable shorting or overnight holding — §6.8 in
+executable form. `band_lab/phase1/test_spec_engine.py` asserts each
+rejection.

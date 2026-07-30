@@ -1,0 +1,17 @@
+sleeve,metric,spec_§8_published,measured,match
+SOXL,fills_per_ON_day,3.17,3.17,ok
+SOXL,ON_day_rate_%,52.1,52.1,ok
+SOXL,target_%,71.3,71.3,ok
+SOXL,stop_%,9.9,9.9,ok
+SOXL,flatten_%,18.8,18.8,ok
+SOXL,gross_bp_per_ON_day,65.6,65.6,ok
+SOXL,net_bp_per_ON_day,61.9,61.9,ok
+SOXL,worst_day_%,-8.0,-8.0,ok
+SOXS,fills_per_ON_day,3.36,3.36,ok
+SOXS,ON_day_rate_%,53.1,53.1,ok
+SOXS,target_%,71.8,71.8,ok
+SOXS,stop_%,9.3,9.3,ok
+SOXS,flatten_%,18.9,18.9,ok
+SOXS,gross_bp_per_ON_day,57.7,57.7,ok
+SOXS,net_bp_per_ON_day,48.1,48.1,ok
+SOXS,worst_day_%,-8.0,-8.0,ok

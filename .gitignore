@@ -3,3 +3,9 @@ __pycache__/
 
 drift_lab/out/*.parquet
 env/
+
+# band_lab/phase1: bulky regenerable logs (summary tables ARE committed)
+band_lab/phase1/out/decision_log_*.csv
+band_lab/phase1/out/trade_log_*.csv
+band_lab/phase1/out/parity_daily_*.csv
+band_lab/phase1/out/spec_literal_*.csv

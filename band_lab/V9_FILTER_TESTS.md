@@ -177,7 +177,13 @@ the next annual walk-forward review, not into the spec.
 3. **Direction-aware refinement adopted**: at 10:00, if OR30 ≥ threshold
    but price sits in the top third of the opening range, trade the day
    normally. +4.6 bp/day at equal tails.
-4. Recompute cadence monthly: confirmed robust.
+4. Recompute cadence monthly: confirmed robust. *(Record retained as
+   tested. Superseded for what is built: Phase 1 found the engine behind
+   every number in this document recomputes the threshold daily, not
+   monthly, so `IMPLEMENTATION_SPEC.md` §2.1 was amended to daily in
+   2026-07. Consistent with the finding above — daily measures 65.6 bp,
+   inside the 61–65 bp / Sharpe 3.03–3.21 band this test reported across
+   cadences.)*
 
 **Aggregate bounds:** best case — a re-tuned, possibly ATR-relative,
 possibly direction-aware filter re-admits 50–150 tradable days and adds

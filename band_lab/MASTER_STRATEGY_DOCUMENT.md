@@ -173,7 +173,7 @@ never reference each other.
 > where ATR5 = 5-session trailing mean of (High−Low)/Open. Skip
 > scheduled half-days.
 > **Filter (10:00):** compute OR30 = (09:30–10:00 High−Low)/Open. If
-> OR30 ≥ its trailing-2yr 80th percentile (recomputed monthly) AND the
+> OR30 ≥ its trailing-2yr 80th percentile (recomputed each session) AND the
 > 10:00 print sits below the top third of that opening range → stand
 > down for the day.
 > **Trading window:** 11:00 → close. Maintain a resting buy limit at
@@ -894,8 +894,8 @@ The system design in outline:
 ### 8.2 Daily state machine
 
 1. **06:00 ET — pre-open job:** pull last 5 completed daily bars,
-   compute ATR5, write gate decision. Recompute the monthly OR30
-   threshold on the first session of each month. If gate OFF → the
+   compute ATR5, write gate decision. Recompute the OR30 threshold
+   from the 504 sessions ending yesterday. If gate OFF → the
    engine stays dormant; nothing can place an order (hard interlock).
 2. **09:30–10:00 — observe:** build OR30 from live bars.
 3. **10:00 — filter decision:** OR30 vs threshold + top-third direction
@@ -962,7 +962,7 @@ permissions required. Nothing held overnight.
 **Pre-open:** ATR5 = 5-day mean of (H−L)/O. ≥6.0% → ON, else OFF.
 Half-days OFF.
 **10:00:** OR30 = (H−L)/O of 09:30–10:00. If OR30 ≥ trailing 80th
-percentile (≈5.4%, recompute monthly): stand down UNLESS the 10:00 print
+percentile (≈5.4%, recompute each session): stand down UNLESS the 10:00 print
 is in the top third of the opening range. No trading before 11:00 ever.
 **11:00:** resting BUY LIMIT at 0.99 × session high, floor(f×equity/px)
 shares; raise the limit on every new session high (never lower).
@@ -975,17 +975,25 @@ re-arm.
 **15:55:** replace bracket with market/MOC sell. Flat by 16:00 always.
 **Sizing:** flat f only — f=1.0 growth, f=0.5 risk-budget, any
 intermediate f permitted; never above f=1.0; no pyramiding (withdrawn).
-**Costs (verified vs IBKR schedule):** $0.005/sh, $1 min/order, ~0.35 bp
-regulatory on sells ⇒ ≈0.9 bp/round trip at $150K; expected all-in drag
-4–7 bp/ON-day.
+**Costs (verified vs IBKR schedule; re-derived per-trade in Phase 1):**
+$0.005/sh, $1 min/order, ~0.3 bp regulatory on sells ⇒ 0.92 bp/round trip
+at $150K (SOXL) and 2.25 bp (SOXS). All-in drag **3.2 bp/ON-day SOXL,
+8.5 bp SOXS** (per-trade model), or 3.7 / 9.6 bp under the flat model
+carried through the research. The $1 order minimum binds below ~$31.7K of
+SOXL sleeve capital and makes reduced-size running dearer — see
+`band_lab/phase1/COST_MODEL.md`.
 **Prohibitions (each closed by a test):** no pre-11:00 entries; no
 trading on stand-down or gate-off days; no shorts (incl. SOXS); no
 overnight positions; no third stop; no "one more trade"; no leverage;
 never scale the stop.
-**Monitoring:** log every fill; weekly compare fills/day (≈3–3.5),
-target-hit share (≈75–80%), net bp/ON-day (≈50s, wide variance).
+**Monitoring:** log every fill; weekly compare against the measured
+baselines in `IMPLEMENTATION_SPEC.md` §8 — fills/ON-day 3.17 (SOXL) /
+3.36 (SOXS), exit mix target ≈71% / stop ≈10% / 15:55 flatten ≈19%, net
+bp/ON-day 61.9 / 48.1, worst day −8.0%; wide variance throughout.
 Structural breaks (counts off >20% for a month) → halt and investigate.
 Yearly: re-run the walk-forward with new data before re-committing.
+*(Corrected 2026-07: previously "target-hit share ≈75–80%, net bp/ON-day
+≈50s"; Phase 1 measured 71.3% / 71.8% and per-sleeve net.)*
 
 ## Appendix B — Final scripts (in the repository)
 

@@ -1,0 +1,5 @@
+cost scenario,SOXL_net_bp,SOXS_net_bp,argmax_w,sharpe_at_argmax,sharpe_at_w=0.5
+v14 flat (incumbent),61.9,48.1,0.5,3.83,3.83
+"per-trade, 1c spread",62.4,49.2,0.5,3.9,3.9
+"per-trade, 2c + 1c slip",61.5,46.5,0.5,3.76,3.76
+"per-trade, SOXS stressed 5c + 2c slip",60.1,41.9,0.5,3.54,3.54
