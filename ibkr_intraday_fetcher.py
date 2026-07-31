@@ -53,7 +53,7 @@ def run_loop():
 
 # --- Configuration ---
 TWS_PORT = 7497  # Change to 7497 if using a Paper Trading account
-SYMBOL = "SOXS"
+SYMBOL = "VXX"
 YEARS_TO_FETCH = 6
 # ---------------------
 
