@@ -54,12 +54,44 @@ TARGET_DELAY = (
 
 
 # --------------------------------------------------------------------- data
+def needs_split_adjustment(df: pd.DataFrame, symbol: str) -> bool:
+    """Is this 1-minute file quoted on the raw (pre-split) price grid?
+
+    `fetch_1min.py` assumes IBKR returns unadjusted bars, exactly like the
+    repository's 5-minute CSVs, and leaves the split to read time. That is an
+    assumption about the vendor, not a property of the file — a source that
+    delivers an already-adjusted series would be divided by 15 a second time
+    and silently misprice every pre-split session by 15x. Since the study only
+    needs `Date,Open,High,Low,Close,Volume` from *any* vendor
+    (PHASE2_PARITY.md), the convention has to be detected rather than assumed.
+
+    The test is the ratio of the median pre-split close to the median
+    post-split close. On the raw grid SOXL trades near $700 before 2021-03-02
+    and near $40 after; already-adjusted, both sides sit in the same range.
+    """
+    splits = SPLIT_ADJUSTMENTS.get(symbol, [])
+    if not splits:
+        return False
+    cut, ratio = splits[0]
+    pre, post = df["date"] < cut, df["date"] >= cut
+    if not pre.any() or not post.any():
+        # Nothing to compare against; fall back to the documented convention.
+        return True
+    level = float(df.loc[pre, "Close"].median() / df.loc[post, "Close"].median())
+    # Raw pre-split data sits ~`ratio` times higher; adjusted data sits ~1x.
+    # Geometric midpoint splits the two cases with a wide margin either side.
+    return bool(level > ratio ** 0.5)
+
+
 def load_1min_sessions(symbol: str, root: str = ROOT,
                        path: Optional[str] = None) -> list[tuple[pd.Timestamp, list[Bar]]]:
     """1-minute RTH bars, split-adjusted, grouped by session.
 
     `Bar.idx` is minutes since 09:30, so the 5-minute decision bar containing
     fill bar `j` is `j // 5`.
+
+    Files already quoted on the adjusted grid are left alone — see
+    `needs_split_adjustment`.
     """
     path = path or os.path.join(root, f"{symbol}_1min.csv")
     df = pd.read_csv(path)
@@ -67,10 +99,11 @@ def load_1min_sessions(symbol: str, root: str = ROOT,
         df["Date"].astype(str).str.replace(" America/New_York", "", regex=False),
         format="%Y%m%d %H:%M:%S")
     df = df.assign(dt=dt, date=dt.dt.normalize()).sort_values("dt")
-    for cut, ratio in SPLIT_ADJUSTMENTS.get(symbol, []):
-        pre = df["date"] < cut
-        for col in ("Open", "High", "Low", "Close"):
-            df.loc[pre, col] = df.loc[pre, col] / ratio
+    if needs_split_adjustment(df, symbol):
+        for cut, ratio in SPLIT_ADJUSTMENTS.get(symbol, []):
+            pre = df["date"] < cut
+            for col in ("Open", "High", "Low", "Close"):
+                df.loc[pre, col] = df.loc[pre, col] / ratio
 
     out = []
     open_offset = pd.Timedelta("09:30:00")
@@ -213,17 +246,23 @@ def replay_symbol_intrabar(symbol: str, sessions: list, per_decision_bar: int,
 
 # --------------------------------------------------------------- reporting
 def resolution_report(symbol: str, root: str = ROOT,
-                      path: Optional[str] = None) -> None:
+                      path: Optional[str] = None,
+                      start: Optional[pd.Timestamp] = None) -> None:
     """The S10 question, re-asked at 1-minute fill resolution.
 
     Restricted to the dates the 1-minute file covers, and the 5-minute rows are
     recomputed on that same date range so the comparison is like for like.
+
+    `start` narrows the traded window only. Features still come from the full
+    5-minute record, so narrowing it does not truncate ATR5 or thr80.
     """
     from replay import load_sessions, replay_symbol
 
     fine = dict(load_1min_sessions(symbol, root, path))
     every = load_sessions(symbol, root)          # the full 5-minute record
     dates = set(fine) & {d for d, _ in every}
+    if start is not None:
+        dates = {d for d in dates if d >= start}
     print("=" * 78)
     print(f"{symbol} — fill resolution: {len(fine)} 1-minute sessions, "
           f"{len(dates)} usable, {min(dates).date()} → {max(dates).date()}")
@@ -264,20 +303,32 @@ def resolution_report(symbol: str, root: str = ROOT,
     print()
 
 
-def parity_check(symbol: str, root: str = ROOT, path: Optional[str] = None) -> int:
+def parity_check(symbol: str, root: str = ROOT, path: Optional[str] = None,
+                 start: Optional[pd.Timestamp] = None) -> int:
     """Data-quality gate: 1-minute bars aggregated to 5 minutes must match the
-    5-minute file the validated results were produced from."""
+    5-minute file the validated results were produced from.
+
+    The pass rule is unchanged — worst difference under a cent, no uncovered
+    bars. The per-session counts are reported alongside it because the two
+    failure modes need different responses: a vendor whose whole series is on
+    a different basis fails on nearly every session, while a handful of
+    disputed prints fails on a few. Only the first invalidates the study.
+    """
     from replay import load_sessions
 
     fine = dict(load_1min_sessions(symbol, root, path))
     coarse = dict(load_sessions(symbol, root))
     shared = sorted(set(fine) & set(coarse))
-    print(f"{symbol}: {len(fine)} 1-min sessions, {len(shared)} overlap the 5-min file")
+    if start is not None:
+        shared = [d for d in shared if d >= start]
+    print(f"{symbol}: {len(fine)} 1-min sessions, {len(shared)} overlap the 5-min file"
+          + (f" from {start.date()}" if start is not None else ""))
     if not shared:
         print("  no overlap — cannot validate the fetch")
         return 1
 
     worst_px, worst_date, missing = 0.0, None, 0
+    bad_sessions, bad_bars, total_bars = set(), 0, 0
     for d in shared:
         agg = {b.idx: b for b in aggregate(fine[d], 5)}
         for cb in coarse[d]:
@@ -285,13 +336,23 @@ def parity_check(symbol: str, root: str = ROOT, path: Optional[str] = None) -> i
             if ab is None:
                 missing += 1
                 continue
-            for a, c in ((ab.open, cb.open), (ab.high, cb.high),
-                         (ab.low, cb.low), (ab.close, cb.close)):
-                if abs(a - c) > worst_px:
-                    worst_px, worst_date = abs(a - c), d
+            total_bars += 1
+            diff = max(abs(ab.open - cb.open), abs(ab.high - cb.high),
+                       abs(ab.low - cb.low), abs(ab.close - cb.close))
+            if diff > 0.011:
+                bad_sessions.add(d)
+                bad_bars += 1
+            if diff > worst_px:
+                worst_px, worst_date = diff, d
+    print(f"  sessions {shared[0].date()} → {shared[-1].date()}")
     print(f"  worst OHLC difference vs the 5-min file: {worst_px:.4f}"
           f"{'' if worst_date is None else f' on {worst_date.date()}'}")
     print(f"  5-minute bars with no 1-minute coverage: {missing}")
+    print(f"  bars over 1c: {bad_bars} of {total_bars} "
+          f"({bad_bars / max(total_bars, 1):.4%}) "
+          f"across {len(bad_sessions)} of {len(shared)} sessions")
+    if bad_sessions and len(bad_sessions) <= 10:
+        print("    " + ", ".join(str(d.date()) for d in sorted(bad_sessions)))
     ok = worst_px < 0.011 and missing == 0
     print("  " + ("PASS" if ok else "FAIL — investigate before trusting the run"))
     return 0 if ok else 1
@@ -303,14 +364,18 @@ def main() -> int:
     ap.add_argument("--path", default=None, help="1-minute CSV (default <SYM>_1min.csv)")
     ap.add_argument("--check", action="store_true",
                     help="only run the aggregation parity check against the 5-min file")
+    ap.add_argument("--start", default=None,
+                    help="earliest session to trade/validate, YYYY-MM-DD "
+                         "(features always use the full 5-minute history)")
     ap.add_argument("--root", default=ROOT)
     args = ap.parse_args()
 
-    rc = parity_check(args.symbol, args.root, args.path)
+    start = pd.Timestamp(args.start) if args.start else None
+    rc = parity_check(args.symbol, args.root, args.path, start)
     if args.check:
         return rc
     print()
-    resolution_report(args.symbol, args.root, args.path)
+    resolution_report(args.symbol, args.root, args.path, start)
     return rc
 
 

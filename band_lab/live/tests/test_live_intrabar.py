@@ -15,6 +15,7 @@ import pytest
 from intrabar import (
     TARGET_DELAY,
     aggregate,
+    needs_split_adjustment,
     replay_session_intrabar,
     replay_symbol_intrabar,
 )
@@ -127,3 +128,37 @@ def test_degenerate_case_reproduces_the_5min_replay(symbol):
     for col in ("entry_px", "exit_px", "qty", "ret"):
         assert float((tr[col] - ref_tr[col]).abs().max()) < 1e-9, col
     assert (tr["outcome"].to_numpy() == ref_tr["outcome"].to_numpy()).all()
+
+
+# ------------------------------------------------------- split-basis detect
+def _frame(pre_close, post_close):
+    """Minimal 1-minute frame straddling SOXL's 2021-03-02 split."""
+    return pd.DataFrame({
+        "date": [pd.Timestamp("2021-02-16"), pd.Timestamp("2021-03-03")],
+        "Close": [pre_close, post_close]})
+
+
+def test_detects_raw_series_needs_adjusting():
+    """Raw SOXL sits ~15x higher before the split — divide it."""
+    assert needs_split_adjustment(_frame(710.0, 42.0), "SOXL") is True
+
+
+def test_detects_already_adjusted_series():
+    """An adjusted series sits in the same range either side — leave it alone.
+
+    This is the S12 case: dividing it a second time misprices every pre-split
+    session by 15x, and the 5-minute parity gate then reports ~44.
+    """
+    assert needs_split_adjustment(_frame(47.34, 42.0), "SOXL") is False
+
+
+def test_symbol_without_splits_is_never_adjusted():
+    """SOXS has no SPLIT_ADJUSTMENTS entry; its 5-minute file is back-adjusted."""
+    assert needs_split_adjustment(_frame(64800.0, 42.0), "SOXS") is False
+
+
+def test_falls_back_to_the_documented_convention_without_both_sides():
+    """No post-split rows means no ratio to measure; assume the raw convention
+    `fetch_1min.py` documents rather than guessing."""
+    df = pd.DataFrame({"date": [pd.Timestamp("2021-02-16")], "Close": [710.0]})
+    assert needs_split_adjustment(df, "SOXL") is True

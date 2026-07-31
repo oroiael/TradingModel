@@ -174,10 +174,133 @@ specifically, which is a sharper and faster test than watching aggregate bp.
 
 ---
 
-## The 1-minute study (harness built, data outstanding)
+## S11 — the 1-minute study, SOXL: the edge survives, at ~64% of the 5-minute figure
+
+**SOXL 1-minute data is in** (`SOXL_1min.csv`, git-lfs, 642,510 bars,
+2019-12-31 → 2026-07-30 — deeper than the 2022 target the fetcher warned it
+might not reach). SOXS is outstanding, so this section is SOXL only.
+
+Run on the 2022+ window, which is what `IMPLEMENTATION_SPEC.md` asks for and
+which excludes the pre-split data-quality problem in S12 below:
+
+```bash
+python3 band_lab/live/intrabar.py --symbol SOXL --start 2022-01-01
+```
+
+| fill bars | target delay | fill model | bp/ON-day | Sharpe | trades |
+|---|---|---|---:|---:|---:|
+| 5-minute | decision_bar | **spec** | **66.8** | 3.11 | 2,200 |
+| 5-minute | decision_bar | no_better | 10.5 | 0.51 | 2,088 |
+| 5-minute | decision_bar | next_bar | 21.8 | 1.18 | 2,076 |
+| **1-minute** | decision_bar | **spec** | **42.5** | **2.14** | 2,137 |
+| 1-minute | decision_bar | no_better | 10.3 | 0.52 | 2,089 |
+| 1-minute | decision_bar | next_bar | 18.3 | 0.97 | 2,097 |
+| **1-minute** | fill_bar | **spec** | **43.0** | **2.20** | 2,157 |
+| 1-minute | fill_bar | no_better | 12.6 | 0.64 | 2,101 |
+| 1-minute | fill_bar | next_bar | 17.3 | 0.92 | 2,109 |
+
+679 ON days on all rows.
+
+### What it settles
+
+1. **S10's range narrows from 13–66 to roughly 42–43 bp/ON-day.** At five
+   times the resolution the spec fill model gives up 24.3 bp — but it lands
+   nowhere near the harsh floors. `no_better` (10.5) and `next_bar` (21.8)
+   were too pessimistic: real 1-minute paths do return below the price just
+   sold, and roughly two-thirds of the same-bar re-entry edge is genuinely
+   fillable at 1-minute resolution.
+2. **The direction the plan called "genuinely unknown" is down.** Same-bar
+   re-entries fall from 50.3% to 46.3% of entries, and the loss from finer
+   re-entry pricing dominates the gain from earlier target fills.
+3. **`target_delay` barely matters** — 42.5 vs 43.0 bp. The doc expected it to
+   "matter as much as `fill_model`" and push the other way; it does push the
+   other way, but it is worth 0.5 bp against `fill_model`'s 24. The §2.6
+   anti-lookahead reading is therefore close to free, which removes a live
+   ambiguity rather than creating one.
+4. **The result is not a one-period artifact.** Every year loses 21–32 bp and
+   none flips negative:
+
+| year | ON days | 5-min bp | 1-min bp | delta | retained |
+|---|---:|---:|---:|---:|---:|
+| 2022 | 184 | 79.4 | 52.5 | −26.9 | 66% |
+| 2023 | 140 | 84.2 | 52.3 | −31.9 | 62% |
+| 2024 | 151 | 59.2 | 38.0 | −21.3 | 64% |
+| 2025 | 127 | 44.8 | 18.8 | −26.0 | 42% |
+| 2026 | 77 | 56.2 | 49.1 | −7.2 | 87% |
+| **all** | **679** | **66.8** | **42.5** | **−24.3** | **64%** |
+
+Worst day is −8.00% on both (the stop binds identically). Positive days
+64.1% → 61.4%. Over the wider post-split window (2021-03-02+, 753 ON days)
+the same run gives 68.7 → 44.8 bp, the same 65% retention.
+
+### What it does not settle
+
+Sub-minute sequencing is still unresolved, and the same argument applies one
+level down: a 1-minute bar that re-enters below its own exit price is making
+the same assumption S10 objected to, just over a 60-second window instead of
+300. Expect real fills to land below 42.5, not at it. The direction of the
+remaining error is known — it only runs one way.
+
+**Recommendation, unchanged from S10: change no parameter.** Read
+`IMPLEMENTATION_SPEC.md` §8's 61.9 net bp/ON-day as an upper bound and
+**~40 bp/ON-day as the working planning figure** for SOXL. A paper run at 25–40
+bp is consistent with this and is not evidence the engine is broken.
+
+---
+
+## S12 — the 1-minute file is split-adjusted; the 5-minute file is not
+
+The `--check` gate earned its place immediately. `fetch_1min.py` documents
+"SOXL's 2021 split is applied at *read* time by `intrabar.py`, exactly as for
+the 5-minute files — do not pre-adjust here", and `load_1min_sessions`
+divided every pre-2021-03-02 price by 15 on that basis. The delivered file is
+already on the adjusted grid, so it was divided a second time:
+
+| | 2021-02-16 09:30 |
+|---|---|
+| 5-minute file (raw) | 710.05 → ÷15 → 47.34 ✓ |
+| 1-minute file (already adjusted) | 47.34 → ÷15 → **3.16** ✗ |
+
+Volume settles it: the 1-minute file's volume is exactly **15.00×** the
+5-minute file's before the split and **1.00×** after — a fully adjusted
+series, prices and volumes both. The gate reported a worst OHLC difference of
+**44.66**.
+
+`load_1min_sessions` now **detects** the convention (`needs_split_adjustment`)
+instead of assuming it, because the study explicitly accepts any vendor's CSV
+and the vendor decides this, not the repository. That took the worst
+difference from 44.66 to 0.357.
+
+### The residual, and why 2022+ is the right window
+
+| window | sessions | worst diff | bars over 1c | verdict |
+|---|---:|---:|---|---|
+| full overlap (2020-07-16+) | 1,510 | 0.3567 | 871 / 117,348 (0.74%) — 147 sessions pre-split | FAIL |
+| post-split (2021-03-02+) | 1,353 | 0.2000 | 3 / 105,000 | FAIL |
+| **2022+ (the spec's window)** | **1,140** | **0.0700** | **2 / 88,596 (0.002%)** | FAIL |
+
+No 5-minute bar anywhere lacks 1-minute coverage. Pre-split, most bars agree
+to ≤0.005 (two-decimal rounding of the adjusted price) but a minority differ
+by 0.06–0.36 — the two sources genuinely disagree on some pre-split extremes,
+beyond rounding. That window is outside the spec's ask and is excluded via
+the new `--start`.
+
+In the 2022+ window the gate still returns non-zero, on **two disputed prints
+in 88,596 bars** (2023-06-05, 2026-07-21). The strict rule — worst difference
+under a cent — has deliberately **not** been relaxed: weakening an acceptance
+threshold to get a green light is the failure mode this project's discipline
+exists to prevent. The gate now reports the per-session and per-bar counts
+alongside the worst case, so the two failure modes are distinguishable: a
+wrong-basis series fails on nearly every session (as the 44.66 did), while
+this fails on two. S11 is run on the 2022+ window on that basis, stated here
+rather than decided silently in code.
+
+---
+
+## The 1-minute study (harness built, SOXS data outstanding)
 
 S10's range cannot be narrowed with 5-minute data, so the next step is finer
-bars. The harness is built and tested; it needs the data.
+bars. The harness is built and tested; SOXL is done (S11), SOXS needs data.
 
 **The strategy's clock does not change.** The anchor ratchet, the 11:00
 activation and the counters are defined on 5-minute bars (§2.5) and every
@@ -202,12 +325,15 @@ of measuring it.
 ### Running it
 
 ```bash
-# on the Mac, with TWS running (~90 min per symbol at the default pacing)
-python3 band_lab/live/fetch_1min.py --symbol SOXL --start 2022-01-01
-python3 band_lab/live/fetch_1min.py --symbol SOXS --start 2022-01-01
+# SOXL: done — the file is in git-lfs, no fetch needed
+git lfs pull --include="SOXL_1min.csv,SOXL_5min_6Years.csv,SOXS_5min_6Years.csv"
 
-python3 band_lab/live/intrabar.py --symbol SOXL --check   # data-quality gate
-python3 band_lab/live/intrabar.py --symbol SOXL           # the 9-row table
+python3 band_lab/live/intrabar.py --symbol SOXL --check --start 2022-01-01
+python3 band_lab/live/intrabar.py --symbol SOXL --start 2022-01-01   # the 9-row table
+
+# SOXS: still needs data — read the adjustment trap below first
+python3 band_lab/live/fetch_1min.py --symbol SOXS --start 2022-01-01
+python3 band_lab/live/intrabar.py --symbol SOXS --check   # expect this to fail on a raw fetch
 ```
 
 `--check` aggregates the 1-minute bars back to 5 minutes and diffs them
@@ -232,6 +358,37 @@ cleanly when the server stops returning history and reports the earliest
 session it obtained. If it falls short, any vendor's RTH 1-minute bars in the
 same CSV schema will do — the study only needs
 `Date,Open,High,Low,Close,Volume`.
+
+*Settled for SOXL:* the delivered file reaches 2019-12-31, well past the
+target. Retention was not the binding constraint; the price basis was (S12).
+
+### SOXS: the adjustment trap, before the fetch — not after
+
+**`SOXS_5min_6Years.csv` is fully back-adjusted and `SPLIT_ADJUSTMENTS` has no
+SOXS entry**, so `load_1min_sessions` applies nothing and the 1-minute file
+must arrive on that same back-adjusted basis. This is the S7 series that runs
+to $1.17M/share, and the divergence is enormous — first bar close, by year:
+
+| 2020-07-23 | 2022-01-03 | 2024-01-02 | 2026-01-02 |
+|---:|---:|---:|---:|
+| 1,075,204.30 | 64,800.00 | 12,400.00 | 562.00 |
+
+SOXS traded near $25–30 in early 2022, so a raw IBKR fetch will differ from
+the validated series by **~2,000x in the 2022 window alone** — and unlike
+SOXL's single 15:1 split there is no one ratio to divide by, because the
+reverse splits are repeated and ongoing.
+
+Consequences, in order:
+
+1. Run `intrabar.py --symbol SOXS --check` **first**. It will fail loudly and
+   unmistakably if the basis is wrong; it is designed for exactly this.
+2. A raw SOXS fetch is **not** fixable by a read-time constant. It needs the
+   full reverse-split history applied, or a vendor series already back-adjusted
+   to match the 5-minute file.
+3. Do not compare a SOXS 1-minute run against S11's SOXL numbers until the
+   check passes. On a wrong basis the sizing arithmetic in §2.4 silently
+   produces near-zero quantities — the S7 failure, which zeroed 248 sessions
+   without erroring.
 
 ---
 

@@ -37,19 +37,24 @@ python3 -m pytest band_lab/live -q        # 78 tests
 python3 band_lab/live/replay.py --sizing        # S9
 python3 band_lab/live/replay.py --fill-models   # S10
 
-# the 1-minute study (needs a fetch first — see PHASE2_PARITY.md)
-python3 band_lab/live/fetch_1min.py --symbol SOXL --start 2022-01-01
-python3 band_lab/live/intrabar.py --symbol SOXL --check
-python3 band_lab/live/intrabar.py --symbol SOXL
+# the 1-minute study — SOXL data is in git-lfs, SOXS is not yet fetched
+python3 band_lab/live/intrabar.py --symbol SOXL --check --start 2022-01-01
+python3 band_lab/live/intrabar.py --symbol SOXL --start 2022-01-01
 ```
 
 Needs the git-lfs 5-minute CSVs — see [DEPLOYMENT.md](DEPLOYMENT.md) §2.
 
 ## The one thing to read first
 
-[PHASE2_PARITY.md](PHASE2_PARITY.md) §S10. Roughly two-thirds of the
+[PHASE2_PARITY.md](PHASE2_PARITY.md) §S10–S11. Roughly two-thirds of the
 strategy's measured edge comes from re-entries priced inside the bar that
-exited the previous position, at a price that traded before that exit. It is
-a property of the validated engine, not of this code, and it means
-`IMPLEMENTATION_SPEC.md` §8's baselines should be read as an upper bound
-until real fills say otherwise.
+exited the previous position, at a price that traded before that exit (S10).
+The SOXL 1-minute data is now in and narrows that exposure: the edge
+survives, but at **~64% of the 5-minute figure — 42.5 vs 66.8 bp/ON-day**,
+consistently across every year (S11). `IMPLEMENTATION_SPEC.md` §8's baselines
+remain an upper bound; **~40 bp/ON-day is the working planning figure** for
+SOXL until real fills say otherwise.
+
+SOXS is still outstanding, and its 1-minute file has an adjustment trap worth
+reading before the fetch, not after — PHASE2_PARITY.md, "SOXS: the adjustment
+trap".
