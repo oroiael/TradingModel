@@ -60,6 +60,7 @@ so the production path cannot silently drift.
 |---|---|---|
 | [V16_CHURN_JOINT_TEST.md](V16_CHURN_JOINT_TEST.md) | V1 dip depth × V3 profit target × V7 trade cap | **complete — NOT ADOPTED** |
 | [V17_TRADE_CAP_TEST.md](V17_TRADE_CAP_TEST.md) | V7 trade cap, tested at the margin | **complete — NOT ADOPTED** |
+| [V18_VOL_GATE_TEST.md](V18_VOL_GATE_TEST.md) | V10 vol gate: cutoff × lookback | **PROPOSED — awaiting sign-off** |
 
 ## Run
 
