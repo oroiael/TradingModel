@@ -192,6 +192,175 @@ increase worth about a fifth of that sleeve's edge. That is still worth doing
 open question — but it is not a large expected gain, and it should not be
 allowed to delay the paper run.
 
+---
+---
+
+# RESULTS
+
+*(appended after the run; the bar in §6 was not edited)*
+
+## VERDICT: **NOT ADOPTED in either sleeve. V7 stays at 5.**
+
+Per §6's stopping rule, V7 closes for this dataset until sub-minute or live
+fills exist. But two things must be reported alongside that verdict: **one of
+my criteria was badly specified**, and the test surfaced a finding much larger
+than the cap question.
+
+---
+
+## R1. C3 was mis-specified. Disclosed, not quietly fixed.
+
+C3 read: *"retention on cap-binding days must be at least 0.80× the retention
+on non-binding days."* Retention is a ratio of 1-minute to 5-minute edge. On
+non-binding days the 5-minute edge is **approximately zero**, so that
+denominator is unstable and the resulting ratio is meaningless:
+
+| | days | 5-min bp | 1-min bp | "retention" |
+|---|---:|---:|---:|---:|
+| SOXL binding | 136 | 445.1 | 349.9 | 79% |
+| SOXL non-binding | 543 | **−0.4** | −16.9 | **4257%** ← degenerate |
+| SOXS binding | 178 | 436.5 | 361.6 | 83% |
+| SOXS non-binding | 513 | −26.3 | −52.2 | 199% |
+
+C3 mechanically returns FAIL (ratios 0.02 and 0.42). **Those numbers carry no
+information.** The criterion divides by a quantity that is ~0 by construction.
+
+**The substantive question C3 was asking does have a clean answer, and it is
+the opposite of the hypothesis §2 proposed.** Cap-binding days retain **79%
+(SOXL) and 83% (SOXS)** of their 5-minute edge, against **64% and 54%** for
+the sample as a whole. Binding days are the **best**-measured days in the
+sample, not the worst. The concern in §2 — that raising the cap loads capital
+into badly-measured territory — is **not supported**. I was wrong about that.
+
+**I am not rewriting C3 to flip the verdict.** Retroactively repairing a
+criterion after seeing that it blocks an otherwise-passing candidate is
+precisely the failure this whole process exists to prevent, and it would be
+indefensible for me to enforce that discipline on the data and exempt myself.
+The verdict stands as NOT ADOPTED. What follows is the consequence.
+
+## R2. SOXL caps 8 and 9 pass every other criterion
+
+| cap | C1 | C2 | C3 | C4 | C5 | C6 | net bp |
+|---|---|---|---|---|---|---|---:|
+| 6 | ok | **FAIL** (88% vs 67%) | degen | ok | ok | **FAIL** (3/5) | 47.0 |
+| 7 | ok | **FAIL** (86%) | degen | ok | ok | ok (4/5) | 47.8 |
+| **8** | **ok** | **ok** (70% vs 67%) | degen | **ok** (−40.7%) | **ok** (+2.2p) | **ok** (4/5) | **49.3** |
+| **9** | **ok** | **ok** (70%) | degen | **ok** (−41.3%) | **ok** (+2.2p) | **ok** (4/5) | **50.4** |
+| 10 | ok | **FAIL** (72%) | degen | ok | ok | ok (4/5) | 51.8 |
+| 12 | **FAIL** | **FAIL** (94%) | degen | ok | **FAIL** (+3.1p) | **FAIL** (boundary) | 51.3 |
+
+SOXL cap 8 or 9 is blocked **only** by the degenerate criterion. That is a
+live, unresolved question worth **+10.0 to +11.1 bp/ON-day on SOXL** (39.3 →
+49.3/50.4, +25–28%).
+
+It should be settled by a **new prespecified program (V18)** with a
+properly-formed criterion, not by amending this one. V18 must also account for
+the fact that we have now examined these 679 days repeatedly across V16 and
+V17; the multiple-comparison cost is real and rising, and it argues for
+settling this with live fills rather than a fourth pass over the same sample.
+
+## R3. SOXS is cleanly and independently rejected
+
+C4 (drawdown) fails at **every** raised cap: −38.8% at cap 6 against a −38.5%
+floor, and −42.6% at caps 7 through 12 against an incumbent −36.5%. This is
+independent of C3 and of any specification issue. C1 also fails from cap 7
+upward — ordinals 7 and 8 have **negative** mean net returns (−6.5 and −7.7 bp).
+
+**SOXS stays at 5.** This matches the §7 projection exactly.
+
+## R4. T1 — the marginal trade profile
+
+| ordinal | SOXL trades | SOXL mean net bp | SOXL win rate | SOXS trades | SOXS mean net bp | SOXS win rate |
+|---|---:|---:|---:|---:|---:|---:|
+| 1 | 678 | 11.6 | 77.7% | 691 | **−5.2** | 72.8% |
+| 2 | 580 | 14.4 | 74.3% | 581 | 7.6 | 73.1% |
+| 3 | 416 | 13.5 | 74.0% | 442 | 16.1 | 74.7% |
+| 4 | 287 | 10.4 | 72.8% | 330 | 25.3 | 76.7% |
+| 5 | 196 | 9.4 | 73.5% | 246 | 19.1 | 75.2% |
+| **6** | 136 | **38.1** | 80.1% | 178 | **30.1** | 78.7% |
+| **7** | 100 | 5.5 | 73.0% | 139 | **−6.5** | 64.7% |
+| **8** | 66 | 15.6 | 77.3% | 86 | **−7.7** | 66.3% |
+| **9** | 43 | 17.7 | 69.8% | 57 | 24.9 | 78.9% |
+| **10** | 30 | 31.4 | 76.7% | 42 | 58.4 | 85.7% |
+| 11 | 24 | **−15.4** | 66.7% | 33 | **−15.7** | 66.7% |
+| 12 | 16 | −0.9 | 81.2% | 20 | 43.3 | 70.0% |
+
+Marginal trades are **not** systematically worse than the first five — on SOXL
+the 6th trade is the best of any ordinal (38.1 bp, 80.1% win rate). But the
+sample thins fast (136 → 16 trades) and the sign alternates from ordinal 7
+onward in both sleeves, which reads as noise rather than structure. That
+instability is the honest reason not to push the cap on this evidence, and it
+is a better reason than C3 gave.
+
+*The per-ordinal `retention` column in the raw output is unstable for the same
+reason as C3 — near-zero denominators — and should not be read literally.*
+
+## R5. The finding that matters more than V7
+
+Investigating T2's arithmetic (it reconciles exactly: 136 × 349.9 + 543 ×
+−16.9, over 679 days, = the 56.6 bp overall) surfaced this. **At the
+production config — cap 5, 1-minute fills, net of costs:**
+
+| SOXL | days | % of ON days | net bp/day | share of total P&L |
+|---|---:|---:|---:|---:|
+| 0–2 fills | 263 | 38.7% | **−69.8** | −69% |
+| 3–4 fills | 220 | 32.4% | +15.5 | +13% |
+| **5 fills (capped)** | **196** | **28.9%** | **+212.6** | **+156%** |
+
+| SOXS | days | % of ON days | net bp/day | share of total P&L |
+|---|---:|---:|---:|---:|
+| 0–2 fills | 249 | 36.0% | **−147.5** | −175% |
+| 3–4 fills | 196 | 28.4% | −19.6 | −18% |
+| **5 fills (capped)** | **246** | **35.6%** | **+250.0** | **+294%** |
+
+**The strategy's entire edge comes from the ~30% of ON days that reach the
+trade cap. The other ~70% lose money** — −31.0 bp/day on SOXL and −91.2 on
+SOXS.
+
+The mechanism is the +1% / −4% asymmetry (V3 vs V4). A day that opens a
+position and stops out books −4% with no churn to offset it; a day that cycles
+five times books roughly +5%. Low-fill days are, by construction, the days
+where the first trade went against the position.
+
+This is not a fill-model artifact — it is a property of the locked strategy,
+visible at both resolutions. It has three consequences worth raising:
+
+1. **The "ON-day rate 52%" framing understates the concentration.** The
+   strategy is effectively active — in P&L terms — on about 15% of all
+   sessions (30% of the 52% that are ON).
+2. **It reframes the day filter (V9) and vol gate (V10).** Those variables
+   decide which days to trade, and the payoff to selecting well is far larger
+   than the payoff to any churn parameter. That is where the remaining
+   research value is, and it is Tier 2 in the earlier prioritisation.
+3. **It is a live risk-management fact**, not a research curiosity: capital
+   is exposed on ~70% of ON days for a negative expected contribution, to earn
+   the right to be positioned on the other 30%.
+
+## R6. Projection scorecard (§7, written before the run)
+
+| projected | outcome |
+|---|---|
+| "NOT ADOPTED, or SOXL-only (~55%)" | **NOT ADOPTED** ✓ |
+| "SOXS almost certainly stays at 5 — nothing changes an already-measured drawdown" | **Correct.** C4 failed at every cap, independently ✓ |
+| "SOXL rests entirely on C2 and C3" | **Correct** — C2 passes at 8/9, C3 turned out degenerate ✓ |
+| "Hard close (~15%), the most useful outcome" | Partially — closed on the specified bar, but SOXL 8/9 is a live near-miss, not a clean close ✗ |
+| "cap-binding days are the days we trust least" (§2 hypothesis) | **Wrong.** They retain 79%/83% vs 64%/54% overall ✗ |
+
+## R7. Recommendation
+
+1. **Adopt nothing from V17.** V7 stays at 5 in both sleeves.
+2. **SOXS: close V7 permanently.** The drawdown failure is robust and
+   independent of the specification flaw.
+3. **SOXL cap 8–9 is unresolved, not rejected.** Settle it with live fills, or
+   with a fresh V18 carrying a correctly-formed criterion and an explicit
+   multiple-comparison discount. Do not amend V17.
+4. **Redirect research to day selection (V9/V10), not churn parameters.** R5
+   shows the concentration of edge across days dwarfs anything the churn
+   parameters can deliver.
+5. The priority note in §8 stands, and R5 strengthens it.
+
+---
+
 ## 8. Priority note
 
 V17 is **not** the highest-value next action. `PHASE2_PARITY.md` S11's residual

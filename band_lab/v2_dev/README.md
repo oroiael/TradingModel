@@ -59,11 +59,12 @@ so the production path cannot silently drift.
 | program | variables | status |
 |---|---|---|
 | [V16_CHURN_JOINT_TEST.md](V16_CHURN_JOINT_TEST.md) | V1 dip depth × V3 profit target × V7 trade cap | **complete — NOT ADOPTED** |
-| [V17_TRADE_CAP_TEST.md](V17_TRADE_CAP_TEST.md) | V7 trade cap, tested at the margin | **PROPOSED — awaiting sign-off** |
+| [V17_TRADE_CAP_TEST.md](V17_TRADE_CAP_TEST.md) | V7 trade cap, tested at the margin | **complete — NOT ADOPTED** |
 
 ## Run
 
 ```bash
 python3 band_lab/v2_dev/churn_joint_test.py            # full program
 python3 band_lab/v2_dev/churn_joint_test.py --quick    # coarse grid, for iteration
+python3 band_lab/v2_dev/trade_cap_test.py             # V17
 ```
