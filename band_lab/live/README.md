@@ -3,9 +3,11 @@
 Phase 2 of `band_lab/IMPLEMENTATION_SPEC.md` §9: the always-on service that
 trades the SOXL and SOXS sleeves on IBKR, against a paper account first.
 
-**Status: Stage 1 complete.** The strategy core and sleeve state machine are
-built and proven equivalent to the Phase 1 backtest engine. Nothing here has
-connected to IBKR yet.
+**Status: Stages 1-4 built; not yet connected to a broker.** The strategy
+core, sleeve state machine, broker adapter, persistence, order manager and the
+§5 daily timetable all exist and are tested against a `FakeIB` double. **No
+code here has ever talked to IBKR** — Stage 5 (go live on paper) is a launch
+on your machine, not a code change. See [DEPLOYMENT.md](DEPLOYMENT.md) §9.
 
 | document | what it is |
 |---|---|
@@ -22,10 +24,11 @@ connected to IBKR yet.
 | `replay.py` | offline driver + equivalence report + the S9/S10 diagnostics | 1 ✅ |
 | `intrabar.py` | 5-minute decisions, 1-minute fills — the S10 resolution study | 1 ✅ |
 | `fetch_1min.py` | IBKR 1-minute bar fetcher (resumable, paced) | 1 ✅ |
-| `tests/` | 82 tests: core arithmetic, state machine (§10.4–8, 14), equivalence, intrabar, fetcher | 1 ✅ |
-| `broker.py`, `store.py` | ib_async adapter, bar feed, SQLite | 2 |
-| `orders.py` | OrderManager: ratchet, OCA, flatten, reconciliation | 3 |
-| `engine.py` | the §5 daily timetable | 4 |
+| `tests/` | 115 tests: core arithmetic, state machine (§10.4–8, 14), equivalence, intrabar, fetcher | 1 ✅ |
+| `broker.py` | ib_async adapter + `FakeIB` test double; live-data assertion, session hours, reconcile primitives | 2 ✅ |
+| `store.py` | SQLite (WAL): bars, decisions, orders, fills, quotes, counters, daily | 2 ✅ |
+| `orders.py` | OrderManager: deterministic refs, ratchet, OCA, partial fills, flatten, reconcile | 3 ✅ |
+| `engine.py` | the §5 daily timetable | 4 ✅ |
 | `report.py` | 16:10 reconcile, shadow parity, weekly §8 report | 6 |
 | `risk.py`, `watchdog.py` | day-loss breaker, kill switch, independent flatten | 7 |
 
@@ -33,7 +36,7 @@ connected to IBKR yet.
 
 ```bash
 python3 band_lab/live/replay.py           # equivalence vs phase1 — exit 0 == green
-python3 -m pytest band_lab/live -q        # 82 tests
+python3 -m pytest band_lab/live -q        # 115 tests
 python3 band_lab/live/replay.py --sizing        # S9
 python3 band_lab/live/replay.py --fill-models   # S10
 
