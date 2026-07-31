@@ -20,7 +20,9 @@ connected to IBKR yet.
 | `strategy_core.py` | pure strategy: §2.1–§2.4 arithmetic, gate, filter, levels, sizing | 1 ✅ |
 | `sleeve.py` | per-sleeve state machine (§2.5–§2.8); emits `Intent`s, performs no I/O | 1 ✅ |
 | `replay.py` | offline driver + equivalence report + the S9/S10 diagnostics | 1 ✅ |
-| `tests/` | 58 tests: core arithmetic, state machine (§10.4–8, 14), equivalence | 1 ✅ |
+| `intrabar.py` | 5-minute decisions, 1-minute fills — the S10 resolution study | 1 ✅ |
+| `fetch_1min.py` | IBKR 1-minute bar fetcher (resumable, paced) | 1 ✅ |
+| `tests/` | 78 tests: core arithmetic, state machine (§10.4–8, 14), equivalence, intrabar, fetcher | 1 ✅ |
 | `broker.py`, `store.py` | ib_async adapter, bar feed, SQLite | 2 |
 | `orders.py` | OrderManager: ratchet, OCA, flatten, reconciliation | 3 |
 | `engine.py` | the §5 daily timetable | 4 |
@@ -31,9 +33,14 @@ connected to IBKR yet.
 
 ```bash
 python3 band_lab/live/replay.py           # equivalence vs phase1 — exit 0 == green
-python3 -m pytest band_lab/live -q        # 58 tests
+python3 -m pytest band_lab/live -q        # 78 tests
 python3 band_lab/live/replay.py --sizing        # S9
 python3 band_lab/live/replay.py --fill-models   # S10
+
+# the 1-minute study (needs a fetch first — see PHASE2_PARITY.md)
+python3 band_lab/live/fetch_1min.py --symbol SOXL --start 2022-01-01
+python3 band_lab/live/intrabar.py --symbol SOXL --check
+python3 band_lab/live/intrabar.py --symbol SOXL
 ```
 
 Needs the git-lfs 5-minute CSVs — see [DEPLOYMENT.md](DEPLOYMENT.md) §2.

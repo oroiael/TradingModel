@@ -174,6 +174,67 @@ specifically, which is a sharper and faster test than watching aggregate bp.
 
 ---
 
+## The 1-minute study (harness built, data outstanding)
+
+S10's range cannot be narrowed with 5-minute data, so the next step is finer
+bars. The harness is built and tested; it needs the data.
+
+**The strategy's clock does not change.** The anchor ratchet, the 11:00
+activation and the counters are defined on 5-minute bars (§2.5) and every
+validated result depends on that cadence. `intrabar.py` separates the two
+clocks: decisions stay on the 5-minute series, and only the price a fill is
+assumed to occur at moves to 1-minute resolution.
+
+Two switches, both simulator-side:
+
+| switch | values | meaning |
+|---|---|---|
+| `fill_model` | `spec` / `no_better` / `next_bar` | as S10, but "same bar" now means the same *minute* |
+| `target_delay` | `decision_bar` / `fill_bar` | §2.6's "the target may fill from the next bar onward" — the next 5-minute bar (the validated reading) or the next fill bar |
+
+`target_delay` matters as much as `fill_model` and pushes the other way: at
+5-minute resolution the rule forces a profitable position to wait up to five
+minutes before its target can fill, which is over-conservative for a resting
+limit order. Expect the 1-minute run to *raise* target fills while *shrinking*
+same-bar re-entry. The net direction is genuinely unknown — which is the point
+of measuring it.
+
+### Running it
+
+```bash
+# on the Mac, with TWS running (~90 min per symbol at the default pacing)
+python3 band_lab/live/fetch_1min.py --symbol SOXL --start 2022-01-01
+python3 band_lab/live/fetch_1min.py --symbol SOXS --start 2022-01-01
+
+python3 band_lab/live/intrabar.py --symbol SOXL --check   # data-quality gate
+python3 band_lab/live/intrabar.py --symbol SOXL           # the 9-row table
+```
+
+`--check` aggregates the 1-minute bars back to 5 minutes and diffs them
+against the file every validated number came from. If that does not pass,
+nothing downstream is worth reading.
+
+### Two traps this harness already avoids
+
+- **Truncated feature history.** ATR5 needs 5 prior sessions and thr80 needs
+  120. Rebuilding the history from only the 1-minute window stands down every
+  early session and silently deletes it from the sample. Features are always
+  computed from the full 5-minute record, as they are live.
+- **Comparing different harnesses.** Fed 5-minute bars as both streams,
+  `intrabar.py` reproduces `replay.py` exactly (asserted for both sleeves in
+  `test_live_intrabar.py`), so a 1-minute difference is a resolution effect
+  rather than an artifact of a second implementation.
+
+### Known risk on the data
+
+IBKR's retention for 1-minute bars may not reach 2022. The fetcher stops
+cleanly when the server stops returning history and reports the earliest
+session it obtained. If it falls short, any vendor's RTH 1-minute bars in the
+same CSV schema will do — the study only needs
+`Date,Open,High,Low,Close,Volume`.
+
+---
+
 ## What Stage 1 does not cover
 
 The broker adapter, order management, persistence, safety systems and
