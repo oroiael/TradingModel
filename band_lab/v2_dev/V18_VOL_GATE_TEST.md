@@ -197,6 +197,189 @@ the reason to run this rather than declare it settled.
 **What I am not projecting:** the loosening direction (cutoffs 4–5). There is
 no prior evidence either way, since those days have never been in the sample.
 
+---
+---
+
+# RESULTS
+
+*(appended after the run; the bar in §7 was not edited)*
+
+## VERDICT: **NOT ADOPTED in either sleeve. V10 stands at 6.0% / 5 days.**
+
+Per §7, V10's cutoff and lookback close for this dataset. The incumbent came
+out of this stronger than it went in.
+
+---
+
+## R1. §2 was the whole test, and it was decisive
+
+The metric trap was not hypothetical. SOXL at a 10% cutoff:
+
+| | bp/ON-day | bp/**calendar** day |
+|---|---:|---:|
+| incumbent 6.0% / 5d | 39.3 | **23.4** |
+| cutoff 10.0% / 5d | **93.9** (+139%) | **10.9 (−54%)** |
+
+**On the per-ON-day metric this looks like the best result in the entire
+project. It more than halves what the account actually earns**, because ON
+days collapse from 679 to 132. Every tightening shows the same pattern.
+
+Had V18 optimised bp/ON-day — the metric every prior program in this
+repository reports — it would have adopted a change that cuts returns in half
+and called it a doubling. That is the single most useful thing this program
+produced.
+
+## R2. SOXL: the incumbent is the best cell on the grid
+
+**Zero of 32 cells beat 6.0% / 5d on net bp/calendar day.** Not a marginal
+win — an outright one. The nearest challengers:
+
+| cutoff / lookback | bp/cal | vs inc | bp/ON | ON days | MaxDD | Calmar |
+|---|---:|---:|---:|---:|---:|---:|
+| **6.0% / 5d (locked)** | **23.4** | — | 39.3 | 679 | −40.6% | 1.66 |
+| 6.0% / 10d | 23.2 | −0.3 | 37.7 | 700 | −32.7% | 2.02 |
+| 7.0% / 20d | 21.9 | −1.5 | 50.7 | 493 | −24.5% | 2.59 |
+| 5.0% / 5d | 20.4 | −3.1 | 26.9 | 863 | −37.3% | 1.42 |
+| 9.0% / 5d | 15.6 | −7.9 | **80.2** | 221 | −22.1% | 1.96 |
+
+Note 6.0%/10d and 7.0%/20d have materially **better Calmar** (2.02, 2.59 vs
+1.66) at slightly lower return — a genuine risk/return trade the primary
+metric does not capture. That is a legitimate observation for a future
+risk-budgeting decision, not an adoption: D1 is the return metric and these
+do not beat it.
+
+## R3. SOXS: three cells beat the incumbent, all on a grid boundary
+
+| cutoff / lookback | bp/cal | vs inc | interior? |
+|---|---:|---:|---|
+| 6.0% / **3d** | 20.9 | **+2.6** | no — lookback boundary |
+| 7.0% / **3d** | 20.6 | **+2.3** | no — lookback boundary |
+| 6.0% / **20d** | 19.6 | +1.3 | no — lookback boundary |
+| **best interior cell** | **18.3** | **+0.0** | **the incumbent** |
+
+All three sit on the lookback axis boundary, which under D6 means the optimum
+may lie outside the tested range — unresolved, not a result. They also fail on
+substance: 6.0%/3d fails **D4** (MaxDD −43.4% against a −38.5% floor);
+7.0%/3d fails **D1** (3 of 5 years).
+
+**Disclosed grid-design limitation.** `LOOKBACKS = [3, 5, 10, 20]` has only
+**two** interior values (5 and 10), so the lookback axis could only ever adopt
+one of two settings. That is thin, and all three SOXS winners wanting to leave
+5 is a signal the axis was under-sampled. It does not overturn the verdict —
+a boundary optimum is unresolved by construction, and the best *interior* cell
+is the incumbent in both sleeves — but a future program on the lookback should
+use a denser axis. Reported rather than repaired, per §7.
+
+## R4. T2 — ATR5 predicts churn strongly, and profit not at all
+
+The result I said would change my mind **appeared**, cleanly and monotonically
+in both sleeves: the share of days reaching the 5-trade cap (V17 R5's
+profitable cohort) rises with ATR5 without a single reversal.
+
+| ATR5 decile | SOXL cap share | SOXL net bp/ON-day | SOXS cap share | SOXS net bp/ON-day |
+|---|---:|---:|---:|---:|
+| 1 (lowest) | 10% | **+63.1** | 20% | +10.8 |
+| 2 | 10% | +40.3 | 16% | −46.6 |
+| 3 | 13% | +39.2 | 20% | +48.0 |
+| 4 | 19% | **−16.9** | 19% | −15.5 |
+| 5 | 26% | +16.1 | 32% | +41.0 |
+| 6 | 36% | +21.4 | 41% | +67.0 |
+| 7 | 32% | **−13.5** | 43% | −0.4 |
+| 8 | 40% | +70.7 | 39% | +41.0 |
+| 9 | 44% | +72.4 | 59% | +84.9 |
+| 10 (highest) | **57%** | +100.4 | **67%** | +73.1 |
+
+**Cap share is monotone. Profitability is not.** SOXL's *lowest* ATR5 decile
+has the lowest churn (10% cap share) and the **fourth-highest** net return
+(+63.1 bp/ON-day). The mechanism V17 R5 identified is real, but ATR5 does not
+select for profit through it.
+
+## R5. Why — the low-volatility days are profitable for the opposite reason
+
+Exit mix by ATR5 decile explains the whole result:
+
+| ATR5 decile | SOXL stop % | SOXL target % | SOXL flatten % |
+|---|---:|---:|---:|
+| 1 (lowest) | **6%** | 63% | **31%** |
+| 5 | 14% | 68% | 18% |
+| 10 (highest) | **14%** | 79% | **7%** |
+
+SOXS is the same shape (6% → 12–13% stops, 34% → 7% flattens).
+
+**Two different profitable regimes:**
+
+- **Low ATR5:** few round trips, but the −4% stop is rarely reached (6%) and
+  a third of positions are simply flattened at the close near breakeven.
+  Quietly positive with little tail.
+- **High ATR5:** many round trips and a high target-hit rate (79–82%), paying
+  for a stop rate that has more than doubled.
+
+The gate cannot be tightened because it would delete the first regime, which
+is profitable through *safety* rather than through churn. That is why D2
+failed for every tightening on SOXL, and it is a better reason than the sweep
+alone gives.
+
+**The U-shape returns.** `STRATEGY_SPEC.md` records V10's original program
+closing a U-shape as "era-noise". It reappears here in SOXL on independent
+1-minute data, with a mechanism attached. **But it does not replicate in
+SOXS** — that sleeve's middle deciles are erratic rather than U-shaped, and at
+~68–69 days per decile the standard error is large enough that a single decile
+means little. So: suggestive, not established, and consistent with the
+original "era-noise" verdict being right.
+
+It points at V10's **form** (a band rather than a cliff), which §4 explicitly
+excluded from this program and which was not prespecified. Testing it would be
+a **fifth** pass over the same 679/691 sessions. It should not be run on this
+data.
+
+## R6. T5 — the doc/engine discrepancy is immaterial
+
+`STRATEGY_SPEC.md`'s variable board records V10 as *"SOXL input"*; the engine
+uses each sleeve's own ATR5. On the 1,140 shared SOXS sessions:
+
+| | ON days |
+|---|---:|
+| SOXS's own ATR5 (as built) | 859 |
+| SOXL's ATR5 (as documented) | 843 |
+
+The two agree on **1,104 of 1,140 sessions (97%)**, correlation **0.991**.
+
+**No change proposed.** The engine's behaviour is the validated one — every
+published number was produced with per-sleeve ATR5 — so this is a description
+defect. `STRATEGY_SPEC.md`'s variable board should be corrected to read
+"own-symbol input", the same class of fix Phase 1 made to §2.1.
+
+## R7. Projection scorecard (§8, written before the run)
+
+| projected | outcome |
+|---|---|
+| "SOXL expected to fail (~70%), on D2, because its lowest band is profitable" | **Correct, and stronger than projected** — the incumbent is the single best cell of 32 ✓ |
+| "SOXS the plausible candidate, ~+1 bp/calendar day" | **Magnitude close** (+2.6 actual) ✓ |
+| "SOXS most likely rejected on effect size (D7)" | **Wrong criterion.** SOXS *passed* D7 (+2.6 bp, 14.2%); it failed D4, D6 ✗ |
+| "The U-shape may reappear; that would itself be a result" | **Reappeared in SOXL, not in SOXS** ✓ |
+| "What would change my mind: T2 showing ATR5 separating the cohort" | **It did — monotonically in both sleeves.** The conclusion held anyway, for a reason I had not anticipated (R5) ✗ |
+
+The last row is the one worth keeping: the evidence I had nominated as
+decisive arrived, and the decision did not change, because churn and profit
+turned out to be separable. Nominating decisive evidence in advance is still
+right — it just has to be allowed to lose.
+
+## R8. Recommendation
+
+1. **Adopt nothing. V10 stands at 6.0% / 5 days**, now with materially better
+   support than it had: on the correct metric it is the best of 32 cells in
+   SOXL and the best interior cell in SOXS.
+2. **Correct `STRATEGY_SPEC.md`'s variable board** to say own-symbol ATR5
+   input (R6). Documentation fix, no strategy change.
+3. **Stop sweeping this dataset.** V16, V17 and V18 have adopted nothing across
+   four passes and ~1,040 cells. That is the correct outcome each time, and it
+   is also the signal: the locked parameters are not the binding constraint.
+   The S11 residual is, and only live fills settle it.
+4. Record for a future risk-budgeting discussion (not an adoption): SOXL at
+   6.0%/10d gives Calmar 2.02 against the incumbent's 1.66 for −0.3 bp/cal-day.
+
+---
+
 ## 9. Priority note
 
 Unchanged from V16 and V17: this is **not** the critical path. The paper run

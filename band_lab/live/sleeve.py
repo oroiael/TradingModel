@@ -41,6 +41,7 @@ from strategy_core import (  # noqa: E402
 from spec_constants import (  # noqa: E402
     DIP_PCT,
     F_SIZE,
+    GATE_ATR5_MIN,
     MAX_FILLS,
     MAX_STOPS,
     START_TIME,
@@ -146,6 +147,7 @@ class SleeveConfig:
     dip_pct: float = DIP_PCT              # V1
     target_pct: float = TARGET_PCT        # V3
     stop_pct: float = STOP_PCT            # V4
+    gate_atr5_min: float = GATE_ATR5_MIN  # V10 cutoff
 
     def __post_init__(self):
         if self.sizing_basis not in ("limit", "fill"):
@@ -226,7 +228,8 @@ class SleeveStateMachine:
                       late_open: bool) -> Decision:
         """06:00 pre-open job. A gate-OFF sleeve can place no order today."""
         self.date = date
-        self.gate = gate_decision(atr5, is_half_day, late_open)
+        self.gate = gate_decision(atr5, is_half_day, late_open,
+                                  self.cfg.gate_atr5_min)
         self.state = SleeveState.OBSERVING if self.gate.ok else SleeveState.GATE_OFF
         if not self.gate.ok:
             self._emit(IntentKind.DORMANT, reason=self.gate.reason)

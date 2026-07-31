@@ -197,7 +197,8 @@ def replay_symbol_intrabar(symbol: str, sessions: list, per_decision_bar: int,
                            fill_model: str = "spec",
                            target_delay: str = "decision_bar",
                            fine_by_date: Optional[dict] = None,
-                           trade_dates: Optional[set] = None):
+                           trade_dates: Optional[set] = None,
+                           atr_lookback: Optional[int] = None):
     """Replay `sessions`, a list of (date, decision_bars) in date order.
 
     `sessions` must be the **full** 5-minute record, not just the window the
@@ -218,7 +219,9 @@ def replay_symbol_intrabar(symbol: str, sessions: list, per_decision_bar: int,
 
     for date, dbars in sessions:
         stats = session_stats(dbars)
-        atr5, thr80 = history.atr5(), history.thr80()
+        atr5 = (history.atr5() if atr_lookback is None
+                else history.atr5(atr_lookback))
+        thr80 = history.thr80()
 
         if trade_dates is None or date in trade_dates:
             fbars = fine_by_date.get(date, dbars)
