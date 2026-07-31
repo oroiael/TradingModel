@@ -22,7 +22,7 @@ connected to IBKR yet.
 | `replay.py` | offline driver + equivalence report + the S9/S10 diagnostics | 1 ✅ |
 | `intrabar.py` | 5-minute decisions, 1-minute fills — the S10 resolution study | 1 ✅ |
 | `fetch_1min.py` | IBKR 1-minute bar fetcher (resumable, paced) | 1 ✅ |
-| `tests/` | 78 tests: core arithmetic, state machine (§10.4–8, 14), equivalence, intrabar, fetcher | 1 ✅ |
+| `tests/` | 82 tests: core arithmetic, state machine (§10.4–8, 14), equivalence, intrabar, fetcher | 1 ✅ |
 | `broker.py`, `store.py` | ib_async adapter, bar feed, SQLite | 2 |
 | `orders.py` | OrderManager: ratchet, OCA, flatten, reconciliation | 3 |
 | `engine.py` | the §5 daily timetable | 4 |
@@ -33,13 +33,16 @@ connected to IBKR yet.
 
 ```bash
 python3 band_lab/live/replay.py           # equivalence vs phase1 — exit 0 == green
-python3 -m pytest band_lab/live -q        # 78 tests
+python3 -m pytest band_lab/live -q        # 82 tests
 python3 band_lab/live/replay.py --sizing        # S9
 python3 band_lab/live/replay.py --fill-models   # S10
 
-# the 1-minute study — SOXL data is in git-lfs, SOXS is not yet fetched
-python3 band_lab/live/intrabar.py --symbol SOXL --check --start 2022-01-01
-python3 band_lab/live/intrabar.py --symbol SOXL --start 2022-01-01
+# the 1-minute study — both files are in git-lfs, no fetch needed
+git lfs pull --include="SOXL_1min.csv,SOXS_1min.csv,SOXL_5min_6Years.csv,SOXS_5min_6Years.csv"
+for S in SOXL SOXS; do
+  python3 band_lab/live/intrabar.py --symbol $S --check --start 2022-01-01
+  python3 band_lab/live/intrabar.py --symbol $S --start 2022-01-01
+done
 ```
 
 Needs the git-lfs 5-minute CSVs — see [DEPLOYMENT.md](DEPLOYMENT.md) §2.
@@ -49,12 +52,19 @@ Needs the git-lfs 5-minute CSVs — see [DEPLOYMENT.md](DEPLOYMENT.md) §2.
 [PHASE2_PARITY.md](PHASE2_PARITY.md) §S10–S11. Roughly two-thirds of the
 strategy's measured edge comes from re-entries priced inside the bar that
 exited the previous position, at a price that traded before that exit (S10).
-The SOXL 1-minute data is now in and narrows that exposure: the edge
-survives, but at **~64% of the 5-minute figure — 42.5 vs 66.8 bp/ON-day**,
-consistently across every year (S11). `IMPLEMENTATION_SPEC.md` §8's baselines
-remain an upper bound; **~40 bp/ON-day is the working planning figure** for
-SOXL until real fills say otherwise.
+**Both sleeves' 1-minute data is now in**, and it narrows that exposure: the
+edge survives, but at 54–64% of the 5-minute figure (S11).
 
-SOXS is still outstanding, and its 1-minute file has an adjustment trap worth
-reading before the fetch, not after — PHASE2_PARITY.md, "SOXS: the adjustment
-trap".
+| | 5-minute | 1-minute | retained |
+|---|---:|---:|---:|
+| SOXL | 66.8 bp/ON-day | **42.5** | 64% |
+| SOXS | 63.0 bp/ON-day | **34.2** | 54% |
+| pair (w=0.50) | 54.4 bp/day | **32.1** | 59% |
+
+`IMPLEMENTATION_SPEC.md` §8's baselines remain an upper bound. Plan on
+**~40 bp/ON-day for SOXL and ~30 for SOXS** until real fills say otherwise.
+
+Two things to carry forward: **SOXS is the more fragile sleeve** — its
+`no_better` floor is negative and its 2023 turns negative at 1-minute
+resolution — and the **pair's diversification is the most robust finding**,
+halving the worst day to −4.57%.

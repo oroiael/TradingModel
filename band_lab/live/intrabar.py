@@ -303,16 +303,32 @@ def resolution_report(symbol: str, root: str = ROOT,
     print()
 
 
+#: Gate tolerance, in basis points of price.
+#:
+#: This was originally "under a cent", which is well defined only for a series
+#: quoted on a real $0.01 tick grid. SOXS's 5-minute file is back-adjusted and
+#: opens at $1.07M/share (the S7 series): there, a cent is 2 parts per billion,
+#: and no correct file could ever pass. The units of a back-adjusted series are
+#: an artifact of its reverse-split history, so the comparison has to be
+#: relative — as the strategy itself is, since §2 is written in percentages.
+#:
+#: 1 bp is *tighter* than the old rule everywhere SOXL actually trades (1 bp of
+#: $47 is 0.5c, of $150 is 1.5c), so this does not weaken the SOXL gate; it
+#: makes the SOXS gate expressible at all.
+PARITY_TOL_BP = 1.0
+
+
 def parity_check(symbol: str, root: str = ROOT, path: Optional[str] = None,
-                 start: Optional[pd.Timestamp] = None) -> int:
+                 start: Optional[pd.Timestamp] = None,
+                 tol_bp: float = PARITY_TOL_BP) -> int:
     """Data-quality gate: 1-minute bars aggregated to 5 minutes must match the
     5-minute file the validated results were produced from.
 
-    The pass rule is unchanged — worst difference under a cent, no uncovered
-    bars. The per-session counts are reported alongside it because the two
-    failure modes need different responses: a vendor whose whole series is on
-    a different basis fails on nearly every session, while a handful of
-    disputed prints fails on a few. Only the first invalidates the study.
+    Tolerance is relative (`PARITY_TOL_BP`), not a fixed cent — see that
+    constant. The per-session counts are reported alongside the worst case
+    because the two failure modes need different responses: a series on the
+    wrong basis fails on nearly every session, while a handful of disputed
+    prints fails on a few. Only the first invalidates the study.
     """
     from replay import load_sessions
 
@@ -327,7 +343,7 @@ def parity_check(symbol: str, root: str = ROOT, path: Optional[str] = None,
         print("  no overlap — cannot validate the fetch")
         return 1
 
-    worst_px, worst_date, missing = 0.0, None, 0
+    worst_px, worst_bp, worst_date, missing = 0.0, 0.0, None, 0
     bad_sessions, bad_bars, total_bars = set(), 0, 0
     for d in shared:
         agg = {b.idx: b for b in aggregate(fine[d], 5)}
@@ -339,21 +355,25 @@ def parity_check(symbol: str, root: str = ROOT, path: Optional[str] = None,
             total_bars += 1
             diff = max(abs(ab.open - cb.open), abs(ab.high - cb.high),
                        abs(ab.low - cb.low), abs(ab.close - cb.close))
-            if diff > 0.011:
+            ref = max(abs(cb.open), abs(cb.high), abs(cb.low), abs(cb.close))
+            rel = diff / ref * 1e4 if ref else 0.0
+            if rel > tol_bp:
                 bad_sessions.add(d)
                 bad_bars += 1
-            if diff > worst_px:
-                worst_px, worst_date = diff, d
+            worst_px = max(worst_px, diff)
+            if rel > worst_bp:
+                worst_bp, worst_date = rel, d
     print(f"  sessions {shared[0].date()} → {shared[-1].date()}")
-    print(f"  worst OHLC difference vs the 5-min file: {worst_px:.4f}"
+    print(f"  worst OHLC difference vs the 5-min file: {worst_bp:.3f} bp"
+          f" (absolute {worst_px:.4f})"
           f"{'' if worst_date is None else f' on {worst_date.date()}'}")
     print(f"  5-minute bars with no 1-minute coverage: {missing}")
-    print(f"  bars over 1c: {bad_bars} of {total_bars} "
+    print(f"  bars over {tol_bp:g} bp: {bad_bars} of {total_bars} "
           f"({bad_bars / max(total_bars, 1):.4%}) "
           f"across {len(bad_sessions)} of {len(shared)} sessions")
     if bad_sessions and len(bad_sessions) <= 10:
         print("    " + ", ".join(str(d.date()) for d in sorted(bad_sessions)))
-    ok = worst_px < 0.011 and missing == 0
+    ok = worst_bp <= tol_bp and missing == 0
     print("  " + ("PASS" if ok else "FAIL — investigate before trusting the run"))
     return 0 if ok else 1
 
