@@ -58,7 +58,8 @@ so the production path cannot silently drift.
 
 | program | variables | status |
 |---|---|---|
-| [V16_CHURN_JOINT_TEST.md](V16_CHURN_JOINT_TEST.md) | V1 dip depth × V3 profit target × V7 trade cap | see document |
+| [V16_CHURN_JOINT_TEST.md](V16_CHURN_JOINT_TEST.md) | V1 dip depth × V3 profit target × V7 trade cap | **complete — NOT ADOPTED** |
+| [V17_TRADE_CAP_TEST.md](V17_TRADE_CAP_TEST.md) | V7 trade cap, tested at the margin | **PROPOSED — awaiting sign-off** |
 
 ## Run
 
