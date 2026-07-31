@@ -9,3 +9,7 @@ band_lab/phase1/out/decision_log_*.csv
 band_lab/phase1/out/trade_log_*.csv
 band_lab/phase1/out/parity_daily_*.csv
 band_lab/phase1/out/spec_literal_*.csv
+
+# band_lab/live: runtime state and local secrets — never committed
+band_lab/live/state/
+band_lab/live/config.local.toml

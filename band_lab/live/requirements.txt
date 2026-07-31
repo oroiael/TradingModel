@@ -1,0 +1,12 @@
+# band_lab/live — Phase 2 engine
+#
+# Stage 1 needs only pandas/numpy/pytest. ib_async is listed now so the
+# environment is built once; it is first used in Stage 2 (broker adapter).
+#
+# Versions are lower bounds verified against the Stage 1 suite, not hard pins:
+# pandas 3.0.5, numpy 2.4.6, pytest 9.1.1, ib_async 2.1.0.
+
+pandas>=2.2
+numpy>=1.26
+pytest>=8.0
+ib_async>=2.0
