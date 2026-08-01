@@ -123,6 +123,8 @@ class Broker:
     def quote(self, symbol: str) -> Quote: ...
     def historical_bars(self, symbol: str, end: datetime, duration: str,
                         bar_size: str = "5 mins") -> list[Bar]: ...
+    def historical_sessions(self, symbol: str, end: datetime, duration: str,
+                            bar_size: str = "5 mins") -> list[tuple]: ...
     def place_limit(self, symbol, action, qty, limit_px, order_ref,
                     oca_group="", transmit=True) -> int: ...
     def place_stop(self, symbol, action, qty, stop_px, order_ref,
@@ -274,8 +276,9 @@ class IBBroker(Broker):
             return float(x) if x is not None and x == x else 0.0
         return Quote(_f(t.bid), _f(t.ask), _f(t.last), _f(t.bidSize), _f(t.askSize))
 
-    def historical_bars(self, symbol, end, duration, bar_size="5 mins") -> list[Bar]:
-        """RTH bars, clock-indexed like the CSVs (§2.1: index 0 is 09:30)."""
+    def _dated_bars(self, symbol, end, duration, bar_size):
+        """(date, Bar) pairs. Bars are clock-indexed like the CSVs — §2.1:
+        index 0 is the 09:30 bar, addressed by clock time, not file position."""
         ib = self._require()
         bars = ib.reqHistoricalData(
             self.contract(symbol),
@@ -288,9 +291,21 @@ class IBBroker(Broker):
             dt = b.date if isinstance(b.date, datetime) else datetime.strptime(
                 str(b.date), "%Y%m%d  %H:%M:%S")
             mins = dt.hour * 60 + dt.minute - (9 * 60 + 30)
-            out.append(Bar(mins // step, float(b.open), float(b.high),
-                           float(b.low), float(b.close), float(b.volume)))
+            out.append((dt.date(), Bar(mins // step, float(b.open), float(b.high),
+                                       float(b.low), float(b.close), float(b.volume))))
         return out
+
+    def historical_bars(self, symbol, end, duration, bar_size="5 mins") -> list[Bar]:
+        return [b for _, b in self._dated_bars(symbol, end, duration, bar_size)]
+
+    def historical_sessions(self, symbol, end, duration,
+                            bar_size="5 mins") -> list[tuple]:
+        """Grouped by calendar date, oldest first — the shape FeatureHistory
+        and the shadow-parity replay both consume."""
+        grouped: dict = {}
+        for day, bar in self._dated_bars(symbol, end, duration, bar_size):
+            grouped.setdefault(day, []).append(bar)
+        return [(d, sorted(v, key=lambda b: b.idx)) for d, v in sorted(grouped.items())]
 
     # ------------------------------------------------------------ commands
     def _order(self, action, qty, order_ref, oca_group, transmit):
@@ -389,6 +404,7 @@ class FakeIB(Broker):
         self.quotes: dict[str, Quote] = {s: Quote(10.0, 10.02, 10.01) for s in symbols}
         self.hours: dict[str, SessionHours] = {}
         self.bars: dict[str, list[Bar]] = {}
+        self.sessions: dict[str, list[tuple]] = {}
         self.market_data_type = MARKET_DATA_LIVE
         self.global_cancels = 0
         self.connect_count = 0
@@ -436,6 +452,9 @@ class FakeIB(Broker):
 
     def historical_bars(self, symbol, end, duration, bar_size="5 mins"):
         return list(self.bars.get(symbol, []))
+
+    def historical_sessions(self, symbol, end, duration, bar_size="5 mins"):
+        return list(self.sessions.get(symbol, []))
 
     # commands
     def _add(self, symbol, action, qty, order_type, order_ref,

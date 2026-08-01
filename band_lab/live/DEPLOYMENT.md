@@ -4,10 +4,12 @@ Setup and runbook for the Phase 2 engine. Build stages are in
 [PHASE2_PLAN.md](PHASE2_PLAN.md); Stage 1's result is in
 [PHASE2_PARITY.md](PHASE2_PARITY.md).
 
-> **What exists today: Stages 1–4.** Strategy core, sleeve state machine,
-> broker adapter, SQLite store, OrderManager and the §5 timetable — 115 tests,
-> all green against a `FakeIB` double. **No code here has ever connected to
-> IBKR.** Stage 5 is a launch, not a code drop: §12 is the go-live procedure.
+> **What exists today: Stages 1–4, runnable.** Strategy core, sleeve state
+> machine, broker adapter, SQLite store, OrderManager, the §5 timetable, and
+> `run.py` — the service entrypoint that drives a whole day end to end. 130
+> tests, all green against a `FakeIB` double. **No code here has ever
+> connected to IBKR.** Stage 5 is a launch, not a code drop: §12 is the
+> go-live procedure, and §12.1 is the next action.
 > Stages 6 (reporting) and 7 (watchdog, day-loss breaker) are built *during*
 > the paper run, per PHASE2_PLAN.md §5 — they protect capital that is not at
 > risk on paper, but they are prerequisites for Phase 3.
@@ -286,10 +288,26 @@ python3 band_lab/live/replay.py             # exit 0
 python3 band_lab/phase1/parity.py           # exit 0
 ```
 
-Then wire `Engine` to a live `IBBroker` with `readonly=True` for one session
-and confirm: the gate fires at 06:00, the filter at 10:00, the limit *would*
-arm at 11:00 at the price `replay.py` says it should, and the bar feed shows
-no `BAR GAP` errors.
+Then run one real session against TWS with transmit off:
+
+```bash
+python3 band_lab/live/run.py --dry-run
+```
+
+`--dry-run` forces `transmit=False`, which puts the adapter in `readonly` mode
+— decisions are computed, logged to SQLite and printed; nothing reaches the
+market. Confirm four things:
+
+| check | where |
+|---|---|
+| gate fires at 06:00 with the ATR5 you expect | console, and the `daily` table |
+| filter fires at 10:00 | `daily.filter_reason` |
+| the limit *would* arm at 11:00 at the price `replay.py` says | `decisions` table vs an EOD replay of the same bars |
+| **no `BAR GAP` errors all session** | console `[error]` lines, and `feed.missing_before()` |
+
+The bar-gap check is the one to watch. A missed bar understates
+`session_high`, which is the anchor everything ratchets from, and the polled
+feed is the only place that can silently lose one.
 
 ### 12.2 Go live
 

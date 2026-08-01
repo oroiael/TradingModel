@@ -3,11 +3,11 @@
 Phase 2 of `band_lab/IMPLEMENTATION_SPEC.md` §9: the always-on service that
 trades the SOXL and SOXS sleeves on IBKR, against a paper account first.
 
-**Status: Stages 1-4 built; not yet connected to a broker.** The strategy
-core, sleeve state machine, broker adapter, persistence, order manager and the
-§5 daily timetable all exist and are tested against a `FakeIB` double. **No
-code here has ever talked to IBKR** — Stage 5 (go live on paper) is a launch
-on your machine, not a code change. See [DEPLOYMENT.md](DEPLOYMENT.md) §9.
+**Status: Stages 1-4 complete and runnable; not yet connected to a broker.**
+`run.py` drives a whole trading day end to end — pre-open, bar feed, orders,
+flatten, reconcile — and is proven against a `FakeIB` double. **No code here
+has ever talked to IBKR.** The next step is Stage 4's acceptance: one real
+session with `--dry-run` (transmit off). See [DEPLOYMENT.md](DEPLOYMENT.md) §12.
 
 | document | what it is |
 |---|---|
@@ -24,11 +24,15 @@ on your machine, not a code change. See [DEPLOYMENT.md](DEPLOYMENT.md) §9.
 | `replay.py` | offline driver + equivalence report + the S9/S10 diagnostics | 1 ✅ |
 | `intrabar.py` | 5-minute decisions, 1-minute fills — the S10 resolution study | 1 ✅ |
 | `fetch_1min.py` | IBKR 1-minute bar fetcher (resumable, paced) | 1 ✅ |
-| `tests/` | 115 tests: core arithmetic, state machine (§10.4–8, 14), equivalence, intrabar, fetcher | 1 ✅ |
+| `tests/` | 130 tests: core arithmetic, state machine (§10.4–8, 14), equivalence, intrabar, fetcher | 1 ✅ |
 | `broker.py` | ib_async adapter + `FakeIB` test double; live-data assertion, session hours, reconcile primitives | 2 ✅ |
 | `store.py` | SQLite (WAL): bars, decisions, orders, fills, quotes, counters, daily | 2 ✅ |
 | `orders.py` | OrderManager: deterministic refs, ratchet, OCA, partial fills, flatten, reconcile | 3 ✅ |
-| `engine.py` | the §5 daily timetable | 4 ✅ |
+| `engine.py` | the §5 daily timetable (logic) | 4 ✅ |
+| `run.py` | **the service entrypoint** — the timetable driven by a wall clock | 4 ✅ |
+| `config.py` | deployment config; delegates strategy numbers to §12 and refuses changes | 4 ✅ |
+| `features.py` | ATR5/thr80 bootstrap: CSV backbone + broker top-up, percentages only | 4 ✅ |
+| `feed.py` | 5-minute bar feed (polled historical), holds back the forming bar | 4 ✅ |
 | `report.py` | 16:10 reconcile, shadow parity, weekly §8 report | 6 |
 | `risk.py`, `watchdog.py` | day-loss breaker, kill switch, independent flatten | 7 |
 
@@ -36,7 +40,8 @@ on your machine, not a code change. See [DEPLOYMENT.md](DEPLOYMENT.md) §9.
 
 ```bash
 python3 band_lab/live/replay.py           # equivalence vs phase1 — exit 0 == green
-python3 -m pytest band_lab/live -q        # 115 tests
+python3 -m pytest band_lab/live -q        # 130 tests
+python3 band_lab/live/run.py --dry-run     # Stage 4: a session with transmit OFF
 python3 band_lab/live/replay.py --sizing        # S9
 python3 band_lab/live/replay.py --fill-models   # S10
 
