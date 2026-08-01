@@ -214,6 +214,52 @@ python3 band_lab/live/intrabar.py --symbol SOXL           # the 9-row table
 against the file every validated number came from. If that does not pass,
 nothing downstream is worth reading.
 
+### What the existing documents already say about this
+
+Reviewed 2026-07-31, because it changes how this study should be read.
+
+**No 1-minute work had ever been done in this project.** Every reference to
+1-minute data across `band_lab` is one of three things: the `Better with:`
+field of a V-programme's prespecified test template (whose companion
+`Data now:` field always reads "sufficient — 5-min bars regenerate every
+trade"); an assumption-register entry marking A1/A2 **Untested**; or a
+recommendation for future work. The repository held no 1-minute file until
+2026-07-31.
+
+That makes this study the discharge of two standing items:
+
+- `MASTER_STRATEGY_DOCUMENT.md` §7 limitations, item 1 — *"Sub-5-minute fill
+  sequencing (A1/A2)... **This is the highest-priority item for the
+  validator.**"*
+- §7's third-party validation checklist item **(c)** — *"obtain 1-minute data
+  for 2022 and 2026 and re-test fills."* (Item (b), the clean-room
+  re-implementation, was Phase 1.)
+
+**Two consequences that are easy to miss.**
+
+First, §2.6's anti-lookahead rule is a *5-minute-specific* patch. V5 found the
+same class of defect — "an unknowable intrabar sequence booked as certain
+profit" — and fixed it with "target fills from the next bar onward", which on
+5-minute bars forces a five-minute wait before a winner may be taken. That is
+the `decision_bar` reading. `target_delay=fill_bar` asks what the rule means
+once bars are not five minutes wide, and is arguably closer to its intent,
+since live the OCA genuinely rests from the moment of fill. The 1-minute run
+therefore re-tests the v5 fix's calibration, not only S10.
+
+Second, **V5 named this data as the condition for re-opening its own
+verdict** — on rejecting the 09:35 start: *"its trades live in the bars where
+touch-fill assumptions are least believable (revisit only if 1-min data +
+cost model ever land)."* V5 also records that the bug's effect "scales with
+bar range: rampant 09:30–10:00, mild at midday", the same scaling that drives
+S10. The condition is now met. Several other decisions were taken on data
+their own programme flagged as coarser than ideal (V11 T2/T4, V8 T4, V1/V3
+T2, V2 T3).
+
+None of that is licence to re-open anything. §11 requires a deliberate,
+documented, re-validated decision, and a fill-resolution study is not one —
+it must not become a start-time re-optimisation by the back door. Recorded
+here so the option is visible and explicit rather than stumbled into.
+
 ### Split adjustment — the trap the first real fetch hit
 
 The repository's 5-minute CSVs hold SOXL's **unadjusted** pre-2021-03-02
