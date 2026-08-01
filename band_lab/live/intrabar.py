@@ -84,8 +84,9 @@ def needs_split_adjustment(df: pd.DataFrame, symbol: str) -> bool:
 
 
 def load_1min_sessions(symbol: str, root: str = ROOT,
-                       path: Optional[str] = None) -> list[tuple[pd.Timestamp, list[Bar]]]:
-    """1-minute RTH bars, split-adjusted, grouped by session.
+                       path: Optional[str] = None,
+                       split_adjust: bool = False) -> list[tuple[pd.Timestamp, list[Bar]]]:
+    """1-minute RTH bars grouped by session.
 
     `Bar.idx` is minutes since 09:30, so the 5-minute decision bar containing
     fill bar `j` is `j // 5`.
@@ -132,6 +133,33 @@ def aggregate(fill_bars: Sequence[Bar], per_decision_bar: int) -> list[Bar]:
 
 
 # ------------------------------------------------------------------ replay
+class PriceScaleError(ValueError):
+    """The fill stream and the decision stream are not on the same price scale.
+
+    Almost always a split-adjustment mismatch. It must be fatal rather than a
+    warning: mixing scales silently produces a *plausible-looking* table —
+    entries fill at the low scale while the 15:55 flatten books at the high
+    one, which reads as an enormous edge instead of as an error.
+    """
+
+
+def _assert_same_price_scale(decision_bars: Sequence[Bar],
+                             fill_bars: Sequence[Bar], tol: float = 0.05) -> None:
+    if not decision_bars or not fill_bars:
+        return
+    d = float(np.median([b.close for b in decision_bars]))
+    f = float(np.median([b.close for b in fill_bars]))
+    if d <= 0 or f <= 0 or abs(f / d - 1.0) > tol:
+        ratio = f / d if d else float("inf")
+        raise PriceScaleError(
+            f"fill bars are {ratio:.4g}x the decision bars "
+            f"(median close {f:.4f} vs {d:.4f}). If this is ~1/15 or ~15 on "
+            "SOXL, it is the 2021-03-02 split: the repository's 5-minute CSV "
+            "is unadjusted and IBKR's fetched data is adjusted. See "
+            "load_1min_sessions(split_adjust=...) and run "
+            "`intrabar.py --check`.")
+
+
 def replay_session_intrabar(decision_bars: list[Bar], fill_bars: list[Bar],
                             sm: SleeveStateMachine, per_decision_bar: int,
                             fill_model: str = "spec",
@@ -146,6 +174,8 @@ def replay_session_intrabar(decision_bars: list[Bar], fill_bars: list[Bar],
         raise ValueError(f"bad fill_model={fill_model!r}")
     if target_delay not in TARGET_DELAY:
         raise ValueError(f"bad target_delay={target_delay!r}")
+
+    _assert_same_price_scale(decision_bars, fill_bars)
 
     start, stop = sm.cfg.start_idx, sm.cfg.last_holding_idx
     by_decision: dict[int, list[Bar]] = {}
@@ -261,7 +291,7 @@ def resolution_report(symbol: str, root: str = ROOT,
     """
     from replay import load_sessions, replay_symbol
 
-    fine = dict(load_1min_sessions(symbol, root, path))
+    fine = dict(load_1min_sessions(symbol, root, path, split_adjust))
     every = load_sessions(symbol, root)          # the full 5-minute record
     dates = set(fine) & {d for d, _ in every}
     if start is not None:
@@ -335,7 +365,7 @@ def parity_check(symbol: str, root: str = ROOT, path: Optional[str] = None,
     """
     from replay import load_sessions
 
-    fine = dict(load_1min_sessions(symbol, root, path))
+    fine = dict(load_1min_sessions(symbol, root, path, split_adjust))
     coarse = dict(load_sessions(symbol, root))
     shared = sorted(set(fine) & set(coarse))
     if start is not None:
@@ -350,6 +380,7 @@ def parity_check(symbol: str, root: str = ROOT, path: Optional[str] = None,
     bad_sessions, bad_bars, total_bars = set(), 0, 0
     for d in shared:
         agg = {b.idx: b for b in aggregate(fine[d], 5)}
+        era = "pre" if d < cut else "post"
         for cb in coarse[d]:
             ab = agg.get(cb.idx)
             if ab is None:
@@ -370,6 +401,9 @@ def parity_check(symbol: str, root: str = ROOT, path: Optional[str] = None,
     print(f"  worst OHLC difference vs the 5-min file: {worst_bp:.3f} bp"
           f" (absolute {worst_px:.4f})"
           f"{'' if worst_date is None else f' on {worst_date.date()}'}")
+    if cuts:
+        print(f"    pre-split {worst_by_era['pre']:.4f} | "
+              f"post-split {worst_by_era['post']:.4f}")
     print(f"  5-minute bars with no 1-minute coverage: {missing}")
     print(f"  bars over {tol_bp:g} bp: {bad_bars} of {total_bars} "
           f"({bad_bars / max(total_bars, 1):.4%}) "
@@ -379,6 +413,47 @@ def parity_check(symbol: str, root: str = ROOT, path: Optional[str] = None,
     ok = worst_bp <= tol_bp and missing == 0
     print("  " + ("PASS" if ok else "FAIL — investigate before trusting the run"))
     return 0 if ok else 1
+
+
+def worst_bars(symbol: str, root: str = ROOT, path: Optional[str] = None,
+               split_adjust: bool = False, n: int = 15) -> None:
+    """Dump the worst-disagreeing bars side by side.
+
+    Whether the 5-minute file is *wider* or *narrower* than the aggregated
+    1-minute bars is the diagnostic: systematically wider means the 1-minute
+    fetch is missing extreme prints (a filtering difference), narrower means
+    the 5-minute file carries prints the 1-minute tape does not.
+    """
+    from replay import load_sessions
+
+    fine = dict(load_1min_sessions(symbol, root, path, split_adjust))
+    coarse = dict(load_sessions(symbol, root))
+    rows = []
+    for d in sorted(set(fine) & set(coarse)):
+        agg = {b.idx: b for b in aggregate(fine[d], 5)}
+        for cb in coarse[d]:
+            ab = agg.get(cb.idx)
+            if ab is None:
+                continue
+            for field in ("open", "high", "low", "close"):
+                a, c = getattr(ab, field), getattr(cb, field)
+                if c:
+                    rows.append((abs(a - c) / abs(c) * 1e4, d, cb.idx, field, a, c))
+    rows.sort(reverse=True)
+
+    print(f"\n{symbol} — {n} worst-disagreeing bars (1-min aggregate vs 5-min file)")
+    print(f"{'date':<12}{'bar':>5}{'field':>7}{'1-min agg':>12}{'5-min':>12}"
+          f"{'diff bp':>10}")
+    for bp, d, idx, field, a, c in rows[:n]:
+        print(f"{str(d.date()):<12}{idx:>5}{field:>7}{a:>12.4f}{c:>12.4f}{bp:>10.1f}")
+
+    wider = sum(1 for bp, _, _, f, a, c in rows[:200]
+                if (f == "high" and c > a) or (f == "low" and c < a))
+    narrower = sum(1 for bp, _, _, f, a, c in rows[:200]
+                   if (f == "high" and c < a) or (f == "low" and c > a))
+    print(f"\nof the 200 worst: 5-min range wider {wider}, narrower {narrower}")
+    print("  wider  -> the 1-minute fetch is missing extreme prints")
+    print("  narrower -> the 5-minute file carries prints the 1-minute tape lacks")
 
 
 def main() -> int:
@@ -396,6 +471,10 @@ def main() -> int:
     start = pd.Timestamp(args.start) if args.start else None
     rc = parity_check(args.symbol, args.root, args.path, start)
     if args.check:
+        return rc
+    if rc and not args.force:
+        print("\nrefusing to run the study on data that failed the check "
+              "(--force to override)")
         return rc
     print()
     resolution_report(args.symbol, args.root, args.path, start)
