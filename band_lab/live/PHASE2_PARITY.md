@@ -174,6 +174,68 @@ specifically, which is a sharper and faster test than watching aggregate bp.
 
 ---
 
+## S10 measured at 1-minute resolution (2026-07-31)
+
+1-minute RTH bars fetched from IBKR, 1,653 sessions, 2020-07-16 → 2026-07-21.
+Decisions stay on the 5-minute clock; only the assumed fill price changes.
+
+| fill bars | target delay | fill model | bp/ON-day | Sharpe | trades |
+|---|---|---|---:|---:|---:|
+| 5-minute | decision_bar | **spec** | **65.9** | **3.14** | 2,460 |
+| 5-minute | decision_bar | no_better | 12.6 | 0.62 | 2,338 |
+| 5-minute | decision_bar | next_bar | 21.4 | 1.18 | 2,322 |
+| **1-minute** | decision_bar | **spec** | **42.5** | **2.17** | 2,393 |
+| 1-minute | decision_bar | no_better | 12.5 | 0.64 | 2,337 |
+| 1-minute | decision_bar | next_bar | 20.7 | 1.12 | 2,347 |
+| 1-minute | fill_bar | spec | 42.8 | 2.22 | 2,413 |
+| 1-minute | fill_bar | no_better | 14.4 | 0.75 | 2,349 |
+| 1-minute | fill_bar | next_bar | 19.8 | 1.08 | 2,360 |
+
+**Refining the fill resolution five-fold removes 23.4 bp — 35% of the measured
+edge.** Three findings behind that number:
+
+1. **`target_delay` is not load-bearing.** The prediction that faster target
+   fills would offset the loss was wrong: `fill_bar` adds +0.3 bp. §2.6's
+   anti-lookahead patch, calibrated on 5-minute bars, costs almost nothing at
+   finer resolution.
+2. **The conservative models are resolution-invariant** — `no_better` 12.6 →
+   12.5, `next_bar` 21.4 → 20.7 — while `spec` fell 23.4. They are measuring
+   something that does not depend on bar width, and `spec` converges toward
+   them as resolution improves. That makes them a floor rather than an
+   artifact of coarse data.
+3. **The dependency survives the refinement.** 45% of entries are still
+   same-bar re-entries at 1-minute, and `spec` − `no_better` is still 30 bp.
+   Most of the *remaining* edge rests on within-minute sequencing.
+
+**Planning range: ~13–43 bp/ON-day gross**, against the published 65.6. Net of
+the $75K-sleeve cost of 3.2 bp: ~39 bp at the optimistic bound, ~9–11 bp at
+the conservative one. Positive under every model tested.
+
+### This invalidates §8's monitoring baselines
+
+`IMPLEMENTATION_SPEC.md` §8 publishes **61.9 net bp/ON-day** for SOXL and
+instructs the live system to investigate >20% deviations as structural
+breaks. If the true value is nearer 39, a correctly functioning paper run
+reads as a 35% miss on day one — the same failure mode Phase 1 corrected §8
+for once already, one resolution deeper. **The baselines must be revised or
+annotated before Phase 2 starts**, and the revision belongs to whoever owns
+the strategy document, not to this harness.
+
+### Data caveat, quantified and immaterial
+
+The 1-minute file does not aggregate exactly to the 5-minute file: 8.8% of
+bars differ by more than 1 bp, worst 90 bp on 2021-02-24, confined to 160
+pre-split sessions. Those sessions hold **26 of 779 ON-days (3.3%) and −0.7%
+of total P&L** — `thr80` needs 120 prior sessions, so the first ON-day is
+2021-01-06 and most of the affected range never traded. It cannot change the
+result above.
+
+It is still unexplained, and it matters for Stage 2 for a different reason:
+if IBKR's history does not reproduce the research record, `thr80` continuity
+across the seam needs checking before the live engine relies on it.
+
+---
+
 ## The 1-minute study (harness built, data outstanding)
 
 S10's range cannot be narrowed with 5-minute data, so the next step is finer

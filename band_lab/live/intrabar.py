@@ -388,6 +388,47 @@ def parity_check(symbol: str, root: str = ROOT, path: Optional[str] = None,
     return 0 if ok else 1
 
 
+def worst_bars(symbol: str, root: str = ROOT, path: Optional[str] = None,
+               split_adjust: bool = False, n: int = 15) -> None:
+    """Dump the worst-disagreeing bars side by side.
+
+    Whether the 5-minute file is *wider* or *narrower* than the aggregated
+    1-minute bars is the diagnostic: systematically wider means the 1-minute
+    fetch is missing extreme prints (a filtering difference), narrower means
+    the 5-minute file carries prints the 1-minute tape does not.
+    """
+    from replay import load_sessions
+
+    fine = dict(load_1min_sessions(symbol, root, path, split_adjust))
+    coarse = dict(load_sessions(symbol, root))
+    rows = []
+    for d in sorted(set(fine) & set(coarse)):
+        agg = {b.idx: b for b in aggregate(fine[d], 5)}
+        for cb in coarse[d]:
+            ab = agg.get(cb.idx)
+            if ab is None:
+                continue
+            for field in ("open", "high", "low", "close"):
+                a, c = getattr(ab, field), getattr(cb, field)
+                if c:
+                    rows.append((abs(a - c) / abs(c) * 1e4, d, cb.idx, field, a, c))
+    rows.sort(reverse=True)
+
+    print(f"\n{symbol} — {n} worst-disagreeing bars (1-min aggregate vs 5-min file)")
+    print(f"{'date':<12}{'bar':>5}{'field':>7}{'1-min agg':>12}{'5-min':>12}"
+          f"{'diff bp':>10}")
+    for bp, d, idx, field, a, c in rows[:n]:
+        print(f"{str(d.date()):<12}{idx:>5}{field:>7}{a:>12.4f}{c:>12.4f}{bp:>10.1f}")
+
+    wider = sum(1 for bp, _, _, f, a, c in rows[:200]
+                if (f == "high" and c > a) or (f == "low" and c < a))
+    narrower = sum(1 for bp, _, _, f, a, c in rows[:200]
+                   if (f == "high" and c < a) or (f == "low" and c > a))
+    print(f"\nof the 200 worst: 5-min range wider {wider}, narrower {narrower}")
+    print("  wider  -> the 1-minute fetch is missing extreme prints")
+    print("  narrower -> the 5-minute file carries prints the 1-minute tape lacks")
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description="1-minute fill-resolution study")
     ap.add_argument("--symbol", default="SOXL")
@@ -400,8 +441,15 @@ def main() -> int:
                          "(IBKR's is already adjusted)")
     ap.add_argument("--force", action="store_true",
                     help="run the study even if the data-quality check fails")
+    ap.add_argument("--worst", type=int, default=0, metavar="N",
+                    help="dump the N worst-disagreeing bars and exit")
     ap.add_argument("--root", default=ROOT)
     args = ap.parse_args()
+
+    if args.worst:
+        worst_bars(args.symbol, args.root, args.path, args.split_adjust,
+                   args.worst)
+        return 0
 
     rc = parity_check(args.symbol, args.root, args.path, args.split_adjust)
     if args.check:

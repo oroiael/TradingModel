@@ -47,9 +47,14 @@ Needs the git-lfs 5-minute CSVs — see [DEPLOYMENT.md](DEPLOYMENT.md) §2.
 
 ## The one thing to read first
 
-[PHASE2_PARITY.md](PHASE2_PARITY.md) §S10. Roughly two-thirds of the
-strategy's measured edge comes from re-entries priced inside the bar that
-exited the previous position, at a price that traded before that exit. It is
-a property of the validated engine, not of this code, and it means
-`IMPLEMENTATION_SPEC.md` §8's baselines should be read as an upper bound
-until real fills say otherwise.
+[PHASE2_PARITY.md](PHASE2_PARITY.md) §S10. Most of the strategy's measured
+edge comes from re-entries priced inside the bar that exited the previous
+position, at a price that traded before that exit — a property of the
+validated engine, not of this code.
+
+**Measured at 1-minute resolution (2026-07-31): 65.9 → 42.5 bp/ON-day, a 35%
+reduction, with a floor of ~12.5 bp under the conservative fill model.** The
+planning range is ~13–43 bp gross, not 65.6. `IMPLEMENTATION_SPEC.md` §8's
+monitoring baselines (61.9 net bp for SOXL) would flag a correctly
+functioning paper run as a structural break, and need revising before Phase 2
+starts.
