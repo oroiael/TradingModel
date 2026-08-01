@@ -47,6 +47,20 @@ the V9 direction-aware filter): **65.6 bp/traded-day, Sharpe 3.09, worst
 day −8.0%, maxDD −36.5%** on gated days 2020-07 → 2026-07. (The 59.6 bp
 / Sharpe 2.87 / −32.1% figures quoted in the V5 section below predate
 the V9 adoption and are correct only for that comparison.)
+
+> **FILL-RESOLUTION AMENDMENT (2026-08).** Every bp figure in this document
+> is measured on **5-minute** bars. `band_lab/live/PHASE2_PARITY.md` S10/S11
+> shows that roughly half of that edge is booked on re-entries priced at
+> levels that had already traded within the same bar — a time-ordering
+> artifact of the bar size, not of the rules. On 1-minute fill data
+> (2022-01 → 2026-07) the same locked config gives **42.5 bp/ON-day on SOXL
+> (64% retained) and 34.2 on SOXS (54%)**.
+>
+> **Read every headline number below as an upper bound.** The rules are
+> unchanged and the strategy is still clearly profitable; the *estimate of
+> its size* was inflated. Nothing in the variable board changed as a result —
+> see §0.2.
+
 Walk-forward-supported (start-time OOS 60.6 bp / Sharpe 2.76; original
 config-selection OOS retained ~83% of in-sample edge). Code:
 `churn_harvest.py`, `regime_gate.py`, `walk_forward_and_combo.py`,
@@ -69,6 +83,42 @@ config-selection OOS retained ~83% of in-sample edge). Code:
 | V11 | sizing | **flat f only** + 2-stop breaker | six-test program; pyramid WITHDRAWN (dominated at matched exposure) and bootstrap re-run on current series — `sizing_verification.py` | **tested & adopted (revised)** |
 | V12 | sleeve role | day sleeve = core | four splits; WF (core robust, satellite fragile) | **tested** |
 | — | engine | prior-bar trigger, next-bar target | lookahead bug found & fixed in V5 | **corrected** |
+
+## 0.2 Re-tested against 1-minute fill data (2026-08) — nothing adopted
+
+S10/S11 established that the 5-minute engine over-credits same-bar re-entry
+(§0.1's headline, amended above). That biases any parameter chosen by
+sweeping *whose value controls how often that mechanism fires* — so the
+churn-rate and day-selection variables were re-tested on 1-minute fills, in
+`band_lab/v2_dev/`, each against an adoption bar written before the run.
+
+| program | variables re-tested | cells | outcome |
+|---|---|---:|---|
+| [V16](v2_dev/V16_CHURN_JOINT_TEST.md) | V1 dip x V3 target x V7 cap (jointly) | 672 | **NOT ADOPTED** |
+| [V17](v2_dev/V17_TRADE_CAP_TEST.md) | V7 cap, at the margin | 16 + diagnostics | **NOT ADOPTED** |
+| [V18](v2_dev/V18_VOL_GATE_TEST.md) | V10 cutoff x lookback | 64 | **NOT ADOPTED** |
+
+**All §12 constants stand.** Three findings are worth carrying, because they
+change how future programs should be run rather than what the strategy is:
+
+1. **Walk-forward is not protective on this dataset** (V16). The rejected V16
+   winner beat the incumbent out-of-sample in 5 of 5 held-out years in both
+   sleeves — a bias present in every year is identical in every fold.
+2. **`bp/ON-day` is invalid for any day-selection test** (V18). The gate moves
+   the denominator: a 10% ATR5 cutoff shows 93.9 bp/ON-day against 39.3, while
+   *halving* what the account earns per calendar day. Day-selection variables
+   must be judged per **calendar** day.
+3. **Edge is concentrated in ~30% of ON days** (V17 R5) — those reaching the
+   trade cap. The other ~70% lose money. Low-volatility days are profitable
+   through *safety* (the −4% stop rarely fires), high-volatility days through
+   *churn*; that is why the gate cannot be tightened without deleting a
+   profitable regime.
+
+**Correction to §0.1 (V18 R6).** The V10 row reads "SOXL input". The engine
+computes **each sleeve's own** ATR5 (`phase1/spec_engine.py`,
+`live/replay.py`), and every published number was produced that way. The two
+series agree on 97% of sessions (correlation 0.991), so the difference is
+immaterial — but the board's wording is wrong and the engine is right.
 
 ---
 
@@ -418,9 +468,13 @@ future idea then gets an honest OOS verdict automatically.
 2. **Unified sweep-with-walk-forward harness**: any config grid in, OOS
    table + plateau map out; hard cap ~6 free parameters per experiment;
    report neighborhoods, never single best cells.
-3. **1-minute data for 1–2 key years** (2022, 2026): validates A1/A2 and
-   opens sub-1% dip depths — the one place where "more resolution" could
-   genuinely raise capacity of the edge.
+3. ~~**1-minute data for 1–2 key years** (2022, 2026)~~ — **DONE (2026-08).**
+   Both sleeves now have full 1-minute history (2019-12 → 2026-07, git-lfs).
+   A1/A2 are settled in the pessimistic direction: `PHASE2_PARITY.md` S11
+   puts the locked config at 42.5 bp/ON-day (SOXL) and 34.2 (SOXS) against
+   the 5-minute 65.6 / 57.7. Sub-1% dip depths were opened and tested
+   (`v2_dev/` V16) and **rejected** — they raise return only by increasing
+   the same-bar re-entry reliance the finer data exists to measure.
 4. **Structural variant queue** through the harness: adaptive dip/target
    (× OR30), start-time sweep, band-referenced stops, short side, sizing
    rules.
