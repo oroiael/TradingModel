@@ -231,6 +231,14 @@ From `IMPLEMENTATION_SPEC.md` §8 (measured, machine-checked by
 | net bp per ON day | 61.9 | 48.1 |
 | worst day | −8.00% | −8.00% |
 
+> **AMENDED 2026-08 — these are upper bounds.** `PHASE2_PARITY.md` S11
+> re-ran the locked config on 1-minute fill data: **SOXL 42.5 bp/ON-day
+> (64% of the 5-minute figure) and SOXS 34.2 (54%)**. Plan on **~40 net
+> bp/ON-day for SOXL and ~30 for SOXS**; a paper run at 20–40 bp is
+> consistent with the evidence and is not, on its own, a broken engine.
+> The 4-week / ~10–11 ON-day sample size below applies with even more force
+> against the wider uncertainty.
+
 **The live system does not start at parity with these, and should not be
 expected to.** `phase1/PHASE1_PARITY.md` §4: adopting the spec's four
 residual rules is worth **+0.3 bp/ON-day on SOXL and +3.5 on SOXS** against

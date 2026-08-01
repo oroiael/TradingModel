@@ -15,6 +15,7 @@ import pytest
 from intrabar import (
     TARGET_DELAY,
     aggregate,
+    needs_split_adjustment,
     replay_session_intrabar,
     replay_symbol_intrabar,
 )
@@ -129,45 +130,35 @@ def test_degenerate_case_reproduces_the_5min_replay(symbol):
     assert (tr["outcome"].to_numpy() == ref_tr["outcome"].to_numpy()).all()
 
 
-# ------------------------------------------------------------- price scales
-def test_mismatched_price_scales_raise_rather_than_produce_a_table():
-    """A split-adjustment mismatch must be fatal, not silently plausible.
+# ------------------------------------------------------- split-basis detect
+def _frame(pre_close, post_close):
+    """Minimal 1-minute frame straddling SOXL's 2021-03-02 split."""
+    return pd.DataFrame({
+        "date": [pd.Timestamp("2021-02-16"), pd.Timestamp("2021-03-03")],
+        "Close": [pre_close, post_close]})
 
-    Regression for the 2026-07 fetch: IBKR's 1-minute data is already
-    split-adjusted, the repo's 5-minute CSV is not, and adjusting the former
-    again put the fill stream at 1/15 the decision scale. Entries then filled
-    at the low scale while the 15:55 flatten booked at the high one, which
-    reads as an enormous edge instead of as an error.
+
+def test_detects_raw_series_needs_adjusting():
+    """Raw SOXL sits ~15x higher before the split — divide it."""
+    assert needs_split_adjustment(_frame(710.0, 42.0), "SOXL") is True
+
+
+def test_detects_already_adjusted_series():
+    """An adjusted series sits in the same range either side — leave it alone.
+
+    This is the S12 case: dividing it a second time misprices every pre-split
+    session by 15x, and the 5-minute parity gate then reports ~44.
     """
-    from intrabar import PriceScaleError
-
-    dbars = [Bar(i, 45.0, 45.0, 45.0, 45.0) for i in range(START_IDX + 2)]
-    fine = [Bar(j, 3.0, 3.0, 3.0, 3.0) for j in range((START_IDX + 2) * 5)]
-    sm = _armed(SleeveStateMachine(_cfg()))
-    with pytest.raises(PriceScaleError, match="split"):
-        replay_session_intrabar(dbars, fine, sm, 5)
+    assert needs_split_adjustment(_frame(47.34, 42.0), "SOXL") is False
 
 
-def test_matching_price_scales_pass_the_guard():
-    dbars = [Bar(i, 45.0, 45.2, 44.8, 45.0) for i in range(START_IDX + 2)]
-    fine = [Bar(j, 45.0, 45.1, 44.9, 45.0) for j in range((START_IDX + 2) * 5)]
-    sm = _armed(SleeveStateMachine(_cfg()))
-    replay_session_intrabar(dbars, fine, sm, 5)     # must not raise
+def test_symbol_without_splits_is_never_adjusted():
+    """SOXS has no SPLIT_ADJUSTMENTS entry; its 5-minute file is back-adjusted."""
+    assert needs_split_adjustment(_frame(64800.0, 42.0), "SOXS") is False
 
 
-def test_one_minute_loader_does_not_split_adjust_by_default(tmp_path):
-    """IBKR data arrives adjusted; the 5-minute repo files do not."""
-    from intrabar import load_1min_sessions
-
-    path = tmp_path / "SOXL_1min.csv"
-    rows = ["Date,Open,High,Low,Close,Volume"]
-    for m in range(3):
-        rows.append(f"20210216 09:{30 + m}:00 America/New_York,45.0,45.0,45.0,45.0,10")
-    path.write_text("\n".join(rows) + "\n")
-
-    plain = load_1min_sessions("SOXL", root=str(tmp_path), path=str(path))
-    assert plain[0][1][0].close == pytest.approx(45.0)
-
-    adjusted = load_1min_sessions("SOXL", root=str(tmp_path), path=str(path),
-                                  split_adjust=True)
-    assert adjusted[0][1][0].close == pytest.approx(3.0)
+def test_falls_back_to_the_documented_convention_without_both_sides():
+    """No post-split rows means no ratio to measure; assume the raw convention
+    `fetch_1min.py` documents rather than guessing."""
+    df = pd.DataFrame({"date": [pd.Timestamp("2021-02-16")], "Close": [710.0]})
+    assert needs_split_adjustment(df, "SOXL") is True

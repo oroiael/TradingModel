@@ -4,10 +4,15 @@ Setup and runbook for the Phase 2 engine. Build stages are in
 [PHASE2_PLAN.md](PHASE2_PLAN.md); Stage 1's result is in
 [PHASE2_PARITY.md](PHASE2_PARITY.md).
 
-> **What exists today: Stage 1 only.** The strategy core, the sleeve state
-> machine, the replay harness and 58 tests. **Nothing here connects to IBKR
-> yet** — the broker adapter is Stage 2. §1–§5 below are runnable now; §6–§8
-> prepare the machine so that Stage 2 is a code drop, not a setup day.
+> **What exists today: Stages 1–4, runnable.** Strategy core, sleeve state
+> machine, broker adapter, SQLite store, OrderManager, the §5 timetable, and
+> `run.py` — the service entrypoint that drives a whole day end to end. 130
+> tests, all green against a `FakeIB` double. **No code here has ever
+> connected to IBKR.** Stage 5 is a launch, not a code drop: §12 is the
+> go-live procedure, and §12.1 is the next action.
+> Stages 6 (reporting) and 7 (watchdog, day-loss breaker) are built *during*
+> the paper run, per PHASE2_PLAN.md §5 — they protect capital that is not at
+> risk on paper, but they are prerequisites for Phase 3.
 
 ---
 
@@ -225,7 +230,7 @@ Every strategy parameter is deliberately **absent** — those live in
 `phase1/spec_constants.py` and `validate_config` rejects any attempt to
 override them (§6.8, §12).
 
-## 10. Daily runbook (Stage 5 onward — not yet runnable)
+## 10. Daily runbook (Stage 5 onward)
 
 | Time (ET) | What happens |
 |---|---|
@@ -246,6 +251,119 @@ override them (§6.8, §12).
 | equivalence FAILS after a code change | that is the gate doing its job — the sleeve's decisions changed; diff before going further |
 | TWS API refuses the connection | port 7497 vs 7496, trusted IP, and whether TWS is actually logged in to the **paper** account |
 | orders silently do nothing | Read-Only API is on, or an order-precaution dialog is waiting on screen |
-| `intrabar.py --check` FAILs pre-split only | split adjustment. The check prints the 1-min/5-min ratio and the fix: ~0.0667 = adjusted twice (drop `--split-adjust`), ~15 = not adjusted (add it) |
-| `PriceScaleError` during a study run | same cause, caught at replay time so a mixed-scale table can never be produced |
-| 1-minute file has more sessions than the 5-minute file | `--check` reports their bar counts; sessions under 100 bars are partial fetches, not real sessions |
+
+---
+
+## 12. Stage 5 — going live on paper
+
+This is the procedure. It is a launch, not a code change: everything it runs
+already exists and is tested. Work through it in order and stop at the first
+step that does not behave as described.
+
+### 12.0 Before anything else
+
+`PHASE2_PLAN.md` §6 lists seven questions that could not be verified against
+IBKR's documentation from the build environment (outbound access to
+`interactivebrokers.github.io` is blocked, and still was at this build). Each
+is marked `ASSUMPTION §6.n` at its use site in `broker.py`. **Three of them
+are answered by the first session and should be checked deliberately, not
+noticed later:**
+
+| # | assumption in code | how to check on day one |
+|---|---|---|
+| §6.1 | `place_stop` uses a plain `STP`, assumed to be broker-side and to survive an API disconnect | after a bracket goes on, kill the engine process. The stop must still be visible in TWS. **This is the most safety-critical item in the system** — §6.1 requires a stop that outlives the engine. |
+| §6.3 | `ocaType=1` on the bracket | fill a target and confirm the sibling stop cancels, and that the group survives a disconnect |
+| §6.2 | TWS auto-restart at 23:00 | confirm the engine reconnects and `on_connect()` reconciles without duplicate counting |
+
+### 12.1 Dry run with transmit off — half a day, not a week
+
+`PHASE2_PLAN.md` Stage 4's acceptance: one live session with orders not
+transmitted, decisions logged, then compared against an EOD replay of the same
+bars.
+
+```bash
+source .venv-live/bin/activate
+python3 -m pytest band_lab/live -q          # 115 tests, all must pass
+python3 band_lab/live/replay.py             # exit 0
+python3 band_lab/phase1/parity.py           # exit 0
+```
+
+Then run one real session against TWS with transmit off:
+
+```bash
+python3 band_lab/live/run.py --dry-run
+```
+
+`--dry-run` forces `transmit=False`, which puts the adapter in `readonly` mode
+— decisions are computed, logged to SQLite and printed; nothing reaches the
+market. Confirm four things:
+
+| check | where |
+|---|---|
+| gate fires at 06:00 with the ATR5 you expect | console, and the `daily` table |
+| filter fires at 10:00 | `daily.filter_reason` |
+| the limit *would* arm at 11:00 at the price `replay.py` says | `decisions` table vs an EOD replay of the same bars |
+| **no `BAR GAP` errors all session** | console `[error]` lines, and `feed.missing_before()` |
+
+The bar-gap check is the one to watch. A missed bar understates
+`session_high`, which is the anchor everything ratchets from, and the polled
+feed is the only place that can silently lose one.
+
+### 12.2 Go live
+
+Only after 12.1 is clean:
+
+1. TWS paper, Read-Only API **off**, auto-restart 23:00, trusted IP 127.0.0.1.
+2. `f = 1.00`, `w = 0.50` — §12 values, unchanged.
+3. Both sleeves from day one.
+4. **First ~3 sessions are shakedown and are excluded from the evidence set**
+   (PHASE2_PLAN.md Stage 5).
+
+### 12.3 What the run is actually for
+
+Per `PHASE2_PLAN.md` §1 this is a plumbing and cost-data run, not a fill-realism
+run — IBKR's paper simulator fills a resting limit when the market trades
+through it, which is close to the backtest's own assumption, so paper largely
+confirms the backtest by construction.
+
+**The one exception is `PHASE2_PARITY.md` S10/S11, and it is the reason to
+launch.** S10 is a question of *time ordering*, not queue position: a re-entry
+order sent after an exit can only fill against prints that occur after it is
+sent. If the backtest's re-entry prices are not achievable, paper fills show it
+in the fill prices themselves, within days.
+
+Every fill is logged with the quoted bid/ask at that moment (`fills` and
+`quotes` tables). Two questions to ask of that data in week one:
+
+1. **Did any fill occur without the quote reaching the limit?** If yes, paper
+   cannot validate A1 at all and the §8 baselines stay unfalsified.
+2. **On same-bar re-entries, is the achieved price at or worse than the price
+   just sold?** S11 predicts a systematic gap here. This is the sharper and
+   faster test — sharper than watching aggregate bp, which needs months.
+
+### 12.4 What to expect, so a normal result is not misread
+
+`PHASE2_PARITY.md` S11, measured on 1-minute data:
+
+| | §8 published (upper bound) | 1-minute planning figure |
+|---|---:|---:|
+| SOXL | 61.9 net bp/ON-day | **~40** |
+| SOXS | 48.1 net bp/ON-day | **~30** |
+
+**A paper run at 20–40 bp/ON-day is consistent with the evidence and is not
+a sign the engine is broken.** Investigate structural breaks — >20% for a
+month on fill counts or ON-day rates — not noise. The engine is ON ~52% of
+sessions, so four weeks yields only ~10–11 ON-days per sleeve; a single week
+proves nothing.
+
+### 12.5 Still missing before Phase 3 (real money)
+
+Built during the run, per PHASE2_PLAN.md Stage 5-7 — on paper they protect
+capital that is not at risk, but **none of them is optional before Phase 3**:
+
+- `report.py` — the 16:10 daily shadow-parity report (Stage 6). This is the
+  instrument that answers 12.3, so build it first, in week one.
+- `risk.py` — the −8.5% day-loss breaker. `Engine.day_loss_breached()`
+  measures the condition today but nothing acts on it.
+- `watchdog.py` — separate process, heartbeat → `reqGlobalCancel` + flatten.
+- Alerting (email/push/desktop) and service supervision (launchd).

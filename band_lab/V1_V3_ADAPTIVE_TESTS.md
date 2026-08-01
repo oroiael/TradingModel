@@ -1,5 +1,7 @@
 # V1/V3 Test Program — Adaptive Dip & Target Levels
 
+> **AMENDED 2026-08 — read with `live/PHASE2_PARITY.md` S11.** V1 (dip) and V3 (target) were re-swept jointly on 1-minute fill data by [`v2_dev/V16`](v2_dev/V16_CHURN_JOINT_TEST.md) — **672 cells, nothing adopted**. Tighter values do raise return, but only by increasing the same-bar re-entry reliance the finer data exists to measure.
+
 Current values: **dip 1%, target 1%, both fixed** — swept as constants
 (dip 1–3%, target 1–2%, both plateau-optimal at 1%) but never allowed to
 scale with the day's band. The motivating tension: a 1% dip is a third of

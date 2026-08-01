@@ -1,5 +1,7 @@
 # Phase 1 — Clean-Room Backtest Parity
 
+> **AMENDED 2026-08.** This document's job — proving a clean-room engine reproduces the published §8 numbers — **stands unchanged**. But those numbers are 5-minute figures: `../live/PHASE2_PARITY.md` S11 shows the locked config gives 42.5 bp/ON-day (SOXL) and 34.2 (SOXS) on 1-minute fills. Parity with the spec is not the same as the spec being achievable.
+
 **Result: PASS.** A backtest engine written from `IMPLEMENTATION_SPEC.md`
 §2 alone reproduces the research engine's daily P&L series exactly — 787
 SOXL ON-days and 801 SOXS ON-days, worst single-day divergence

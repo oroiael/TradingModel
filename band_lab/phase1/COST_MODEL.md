@@ -1,5 +1,7 @@
 # Cost Model — review and per-trade replacement
 
+> **AMENDED 2026-08.** The per-trade cost model here is unaffected by fill resolution and stands. The *gross* edge it is netted against is not: see `../live/PHASE2_PARITY.md` S11 — costs are a larger share of a 42.5 bp gross edge than of a 65.6 bp one, which matters most for SOXS (9.6 bp/ON-day against 34.2 gross).
+
 **Short answer: the incumbent cost model is not wrong, it is conservative,
 and its conservatism is hidden inside the wrong term.** Replacing it with
 per-trade costing built on the Phase 1 trade logs moves net edge by

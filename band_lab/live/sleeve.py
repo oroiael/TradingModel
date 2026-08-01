@@ -39,10 +39,14 @@ from strategy_core import (  # noqa: E402
     target_price,
 )
 from spec_constants import (  # noqa: E402
+    DIP_PCT,
     F_SIZE,
+    GATE_ATR5_MIN,
     MAX_FILLS,
     MAX_STOPS,
     START_TIME,
+    STOP_PCT,
+    TARGET_PCT,
     TICK_SIZE,
     bar_index,
 )
@@ -135,10 +139,22 @@ class SleeveConfig:
     max_stops: int = MAX_STOPS
     start_idx: int = START_IDX
     last_holding_idx: int = LAST_HOLDING_IDX
+    # V1/V3/V4 levels. These default to the locked §12 values and MUST stay
+    # there for anything on the production path — `spec_constants.validate_config`
+    # rejects a live engine that moves them. They are settable only so the
+    # v2_dev research harness can sweep them without forking the engine, which
+    # would reintroduce the "two harnesses" problem PHASE2_PARITY.md warns about.
+    dip_pct: float = DIP_PCT              # V1
+    target_pct: float = TARGET_PCT        # V3
+    stop_pct: float = STOP_PCT            # V4
+    gate_atr5_min: float = GATE_ATR5_MIN  # V10 cutoff
 
     def __post_init__(self):
         if self.sizing_basis not in ("limit", "fill"):
             raise ValueError(f"bad sizing_basis={self.sizing_basis!r}")
+        for name in ("dip_pct", "target_pct", "stop_pct"):
+            if not 0.0 < getattr(self, name) < 1.0:
+                raise ValueError(f"bad {name}={getattr(self, name)!r}")
 
 
 # ------------------------------------------------------------ state machine
@@ -212,7 +228,8 @@ class SleeveStateMachine:
                       late_open: bool) -> Decision:
         """06:00 pre-open job. A gate-OFF sleeve can place no order today."""
         self.date = date
-        self.gate = gate_decision(atr5, is_half_day, late_open)
+        self.gate = gate_decision(atr5, is_half_day, late_open,
+                                  self.cfg.gate_atr5_min)
         self.state = SleeveState.OBSERVING if self.gate.ok else SleeveState.GATE_OFF
         if not self.gate.ok:
             self._emit(IntentKind.DORMANT, reason=self.gate.reason)
@@ -273,7 +290,7 @@ class SleeveStateMachine:
 
     def _limit_from_anchor(self) -> float:
         return entry_limit_price(self._anchor, self.cfg.tick_rounding,
-                                 self.cfg.tick_size)
+                                 self.cfg.tick_size, self.cfg.dip_pct)
 
     def _size(self, price: float) -> float:
         return order_quantity(self.cfg.f, self.cfg.sleeve_capital, price,
@@ -327,9 +344,9 @@ class SleeveStateMachine:
         self._bracket = Bracket(
             qty=self._qty,
             target_px=target_price(self._entry_px, self.cfg.tick_rounding,
-                                   self.cfg.tick_size),
+                                   self.cfg.tick_size, self.cfg.target_pct),
             stop_px=stop_price(self._entry_px, self.cfg.tick_rounding,
-                               self.cfg.tick_size),
+                               self.cfg.tick_size, self.cfg.stop_pct),
         )
         self._emit(IntentKind.PLACE_BRACKET, qty=self._qty,
                    target_px=self._bracket.target_px,

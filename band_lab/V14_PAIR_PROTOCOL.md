@@ -1,5 +1,7 @@
 # V14 — Full Protocol on the SOXL + SOXS Pair
 
+> **AMENDED 2026-08 — read with `live/PHASE2_PARITY.md` S11.** The pair's **diversification survives 1-minute fills** — the most robust finding of that re-test: worst day −8.0% alone vs −4.6% paired, 59% of the 5-minute edge retained. But both sleeves' bp figures are upper bounds (`live/PHASE2_PARITY.md` S11), and SOXS is the weaker half (54% retained vs SOXL's 64%, and its 2023 turns negative).
+
 Trigger: §9.5 found a −0.70-correlated SOXS sleeve running the locked
 rules unchanged (57.7 bp/ON-day, 6/6 years positive), with a 50/50 pair
 showing Sharpe 4.28 and maxDD −12.4% against SOXL-alone's 2.26 / −36.5%.

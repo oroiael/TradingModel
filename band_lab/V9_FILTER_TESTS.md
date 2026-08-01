@@ -1,5 +1,7 @@
 # V9 Test Program — Day-Filter Boundary for the Churn Harvester Core
 
+> **AMENDED 2026-08 — read with `live/PHASE2_PARITY.md` S11.** Not re-tested. `v2_dev/V18` deliberately excluded V9 so that day-selection effects stay attributable, but V17 R5 (edge concentrated in ~30% of ON days) makes this the strongest remaining candidate for a future program.
+
 Current value: **skip the day when OR30 ≥ the trailing 80th percentile of
 OR30** (OR30 = 09:30–10:00 high-low range / open; threshold recomputed
 monthly from ~2 years, currently ≈5.4%). What IS tested: the filter

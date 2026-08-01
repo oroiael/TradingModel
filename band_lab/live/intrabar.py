@@ -54,6 +54,35 @@ TARGET_DELAY = (
 
 
 # --------------------------------------------------------------------- data
+def needs_split_adjustment(df: pd.DataFrame, symbol: str) -> bool:
+    """Is this 1-minute file quoted on the raw (pre-split) price grid?
+
+    `fetch_1min.py` assumes IBKR returns unadjusted bars, exactly like the
+    repository's 5-minute CSVs, and leaves the split to read time. That is an
+    assumption about the vendor, not a property of the file — a source that
+    delivers an already-adjusted series would be divided by 15 a second time
+    and silently misprice every pre-split session by 15x. Since the study only
+    needs `Date,Open,High,Low,Close,Volume` from *any* vendor
+    (PHASE2_PARITY.md), the convention has to be detected rather than assumed.
+
+    The test is the ratio of the median pre-split close to the median
+    post-split close. On the raw grid SOXL trades near $700 before 2021-03-02
+    and near $40 after; already-adjusted, both sides sit in the same range.
+    """
+    splits = SPLIT_ADJUSTMENTS.get(symbol, [])
+    if not splits:
+        return False
+    cut, ratio = splits[0]
+    pre, post = df["date"] < cut, df["date"] >= cut
+    if not pre.any() or not post.any():
+        # Nothing to compare against; fall back to the documented convention.
+        return True
+    level = float(df.loc[pre, "Close"].median() / df.loc[post, "Close"].median())
+    # Raw pre-split data sits ~`ratio` times higher; adjusted data sits ~1x.
+    # Geometric midpoint splits the two cases with a wide margin either side.
+    return bool(level > ratio ** 0.5)
+
+
 def load_1min_sessions(symbol: str, root: str = ROOT,
                        path: Optional[str] = None,
                        split_adjust: bool = False) -> list[tuple[pd.Timestamp, list[Bar]]]:
@@ -62,12 +91,8 @@ def load_1min_sessions(symbol: str, root: str = ROOT,
     `Bar.idx` is minutes since 09:30, so the 5-minute decision bar containing
     fill bar `j` is `j // 5`.
 
-    **`split_adjust` defaults to False, unlike the 5-minute loader.** The
-    repository's 5-minute CSVs hold SOXL's *unadjusted* pre-2021-03-02 prices
-    and are divided by 15 at read time; data fetched fresh from IBKR comes
-    back already adjusted, so adjusting it again puts the fill stream at 1/15
-    the scale of the decision stream. Pass True only for a vendor file that is
-    genuinely unadjusted — `parity_check` diagnoses which you have.
+    Files already quoted on the adjusted grid are left alone — see
+    `needs_split_adjustment`.
     """
     path = path or os.path.join(root, f"{symbol}_1min.csv")
     df = pd.read_csv(path)
@@ -75,7 +100,7 @@ def load_1min_sessions(symbol: str, root: str = ROOT,
         df["Date"].astype(str).str.replace(" America/New_York", "", regex=False),
         format="%Y%m%d %H:%M:%S")
     df = df.assign(dt=dt, date=dt.dt.normalize()).sort_values("dt")
-    if split_adjust:
+    if needs_split_adjustment(df, symbol):
         for cut, ratio in SPLIT_ADJUSTMENTS.get(symbol, []):
             pre = df["date"] < cut
             for col in ("Open", "High", "Low", "Close"):
@@ -202,7 +227,8 @@ def replay_symbol_intrabar(symbol: str, sessions: list, per_decision_bar: int,
                            fill_model: str = "spec",
                            target_delay: str = "decision_bar",
                            fine_by_date: Optional[dict] = None,
-                           trade_dates: Optional[set] = None):
+                           trade_dates: Optional[set] = None,
+                           atr_lookback: Optional[int] = None):
     """Replay `sessions`, a list of (date, decision_bars) in date order.
 
     `sessions` must be the **full** 5-minute record, not just the window the
@@ -223,7 +249,9 @@ def replay_symbol_intrabar(symbol: str, sessions: list, per_decision_bar: int,
 
     for date, dbars in sessions:
         stats = session_stats(dbars)
-        atr5, thr80 = history.atr5(), history.thr80()
+        atr5 = (history.atr5() if atr_lookback is None
+                else history.atr5(atr_lookback))
+        thr80 = history.thr80()
 
         if trade_dates is None or date in trade_dates:
             fbars = fine_by_date.get(date, dbars)
@@ -252,17 +280,22 @@ def replay_symbol_intrabar(symbol: str, sessions: list, per_decision_bar: int,
 # --------------------------------------------------------------- reporting
 def resolution_report(symbol: str, root: str = ROOT,
                       path: Optional[str] = None,
-                      split_adjust: bool = False) -> None:
+                      start: Optional[pd.Timestamp] = None) -> None:
     """The S10 question, re-asked at 1-minute fill resolution.
 
     Restricted to the dates the 1-minute file covers, and the 5-minute rows are
     recomputed on that same date range so the comparison is like for like.
+
+    `start` narrows the traded window only. Features still come from the full
+    5-minute record, so narrowing it does not truncate ATR5 or thr80.
     """
     from replay import load_sessions, replay_symbol
 
     fine = dict(load_1min_sessions(symbol, root, path, split_adjust))
     every = load_sessions(symbol, root)          # the full 5-minute record
     dates = set(fine) & {d for d, _ in every}
+    if start is not None:
+        dates = {d for d in dates if d >= start}
     print("=" * 78)
     print(f"{symbol} — fill resolution: {len(fine)} 1-minute sessions, "
           f"{len(dates)} usable, {min(dates).date()} → {max(dates).date()}")
@@ -303,66 +336,48 @@ def resolution_report(symbol: str, root: str = ROOT,
     print()
 
 
-def _scale_diagnosis(symbol: str, fine: dict, coarse: dict,
-                     shared: Sequence[pd.Timestamp]) -> None:
-    """Report the fill/decision price ratio either side of each split date."""
-    cuts = [c for c, _ in SPLIT_ADJUSTMENTS.get(symbol, [])]
-    if not cuts:
-        return
-    cut = cuts[0]
-    for label, dates in (("before", [d for d in shared if d < cut]),
-                         ("after", [d for d in shared if d >= cut])):
-        if not dates:
-            continue
-        ratios = [float(np.median([b.close for b in fine[d]]))
-                  / float(np.median([b.close for b in coarse[d]])) for d in dates]
-        r = float(np.median(ratios))
-        verdict = "ok" if abs(r - 1.0) <= 0.05 else "MISMATCH"
-        print(f"  price scale {label} {cut.date()}: 1-min / 5-min = {r:.4f}  [{verdict}]")
-        if verdict == "MISMATCH":
-            if abs(r - 1.0 / 15.0) < 0.02:
-                print("     -> the 1-minute data was adjusted twice; it is already "
-                      "split-adjusted. Drop --split-adjust.")
-            elif abs(r - 15.0) < 1.0:
-                print("     -> the 1-minute data is NOT split-adjusted. "
-                      "Re-run with --split-adjust.")
+#: Gate tolerance, in basis points of price.
+#:
+#: This was originally "under a cent", which is well defined only for a series
+#: quoted on a real $0.01 tick grid. SOXS's 5-minute file is back-adjusted and
+#: opens at $1.07M/share (the S7 series): there, a cent is 2 parts per billion,
+#: and no correct file could ever pass. The units of a back-adjusted series are
+#: an artifact of its reverse-split history, so the comparison has to be
+#: relative — as the strategy itself is, since §2 is written in percentages.
+#:
+#: 1 bp is *tighter* than the old rule everywhere SOXL actually trades (1 bp of
+#: $47 is 0.5c, of $150 is 1.5c), so this does not weaken the SOXL gate; it
+#: makes the SOXS gate expressible at all.
+PARITY_TOL_BP = 1.0
 
 
 def parity_check(symbol: str, root: str = ROOT, path: Optional[str] = None,
-                 split_adjust: bool = False) -> int:
+                 start: Optional[pd.Timestamp] = None,
+                 tol_bp: float = PARITY_TOL_BP) -> int:
     """Data-quality gate: 1-minute bars aggregated to 5 minutes must match the
-    5-minute file the validated results were produced from."""
+    5-minute file the validated results were produced from.
+
+    Tolerance is relative (`PARITY_TOL_BP`), not a fixed cent — see that
+    constant. The per-session counts are reported alongside the worst case
+    because the two failure modes need different responses: a series on the
+    wrong basis fails on nearly every session, while a handful of disputed
+    prints fails on a few. Only the first invalidates the study.
+    """
     from replay import load_sessions
 
     fine = dict(load_1min_sessions(symbol, root, path, split_adjust))
     coarse = dict(load_sessions(symbol, root))
     shared = sorted(set(fine) & set(coarse))
-    print(f"{symbol}: {len(fine)} 1-min sessions, {len(shared)} overlap the 5-min file")
-    extra = sorted(set(fine) - set(shared))
-    if extra:
-        counts = sorted(len(fine[d]) for d in extra)
-        # a full RTH session is 390 one-minute bars; a half-day is 210
-        stubs = [d for d in extra if len(fine[d]) < 100]
-        print(f"  {len(extra)} 1-minute sessions are absent from the 5-minute "
-              "file and are excluded from the study")
-        print(f"     bars per session: min {counts[0]}, "
-              f"median {counts[len(counts) // 2]}, max {counts[-1]}  "
-              f"(full RTH = 390, half-day = 210)")
-        if stubs:
-            print(f"     {len(stubs)} of them have <100 bars — likely partial "
-                  "fetches rather than real sessions, e.g. "
-                  + ", ".join(str(d.date()) for d in stubs[:4])
-                  + ("..." if len(stubs) > 4 else ""))
+    if start is not None:
+        shared = [d for d in shared if d >= start]
+    print(f"{symbol}: {len(fine)} 1-min sessions, {len(shared)} overlap the 5-min file"
+          + (f" from {start.date()}" if start is not None else ""))
     if not shared:
         print("  no overlap — cannot validate the fetch")
         return 1
 
-    _scale_diagnosis(symbol, fine, coarse, shared)
-
-    worst_px, worst_date, missing = 0.0, None, 0
-    worst_by_era = {"pre": 0.0, "post": 0.0}
-    cuts = [c for c, _ in SPLIT_ADJUSTMENTS.get(symbol, [])]
-    cut = cuts[0] if cuts else pd.Timestamp.min
+    worst_px, worst_bp, worst_date, missing = 0.0, 0.0, None, 0
+    bad_sessions, bad_bars, total_bars = set(), 0, 0
     for d in shared:
         agg = {b.idx: b for b in aggregate(fine[d], 5)}
         era = "pre" if d < cut else "post"
@@ -371,19 +386,31 @@ def parity_check(symbol: str, root: str = ROOT, path: Optional[str] = None,
             if ab is None:
                 missing += 1
                 continue
-            for a, c in ((ab.open, cb.open), (ab.high, cb.high),
-                         (ab.low, cb.low), (ab.close, cb.close)):
-                diff = abs(a - c)
-                worst_by_era[era] = max(worst_by_era[era], diff)
-                if diff > worst_px:
-                    worst_px, worst_date = diff, d
-    print(f"  worst OHLC difference vs the 5-min file: {worst_px:.4f}"
+            total_bars += 1
+            diff = max(abs(ab.open - cb.open), abs(ab.high - cb.high),
+                       abs(ab.low - cb.low), abs(ab.close - cb.close))
+            ref = max(abs(cb.open), abs(cb.high), abs(cb.low), abs(cb.close))
+            rel = diff / ref * 1e4 if ref else 0.0
+            if rel > tol_bp:
+                bad_sessions.add(d)
+                bad_bars += 1
+            worst_px = max(worst_px, diff)
+            if rel > worst_bp:
+                worst_bp, worst_date = rel, d
+    print(f"  sessions {shared[0].date()} → {shared[-1].date()}")
+    print(f"  worst OHLC difference vs the 5-min file: {worst_bp:.3f} bp"
+          f" (absolute {worst_px:.4f})"
           f"{'' if worst_date is None else f' on {worst_date.date()}'}")
     if cuts:
         print(f"    pre-split {worst_by_era['pre']:.4f} | "
               f"post-split {worst_by_era['post']:.4f}")
     print(f"  5-minute bars with no 1-minute coverage: {missing}")
-    ok = worst_px < 0.011 and missing == 0
+    print(f"  bars over {tol_bp:g} bp: {bad_bars} of {total_bars} "
+          f"({bad_bars / max(total_bars, 1):.4%}) "
+          f"across {len(bad_sessions)} of {len(shared)} sessions")
+    if bad_sessions and len(bad_sessions) <= 10:
+        print("    " + ", ".join(str(d.date()) for d in sorted(bad_sessions)))
+    ok = worst_bp <= tol_bp and missing == 0
     print("  " + ("PASS" if ok else "FAIL — investigate before trusting the run"))
     return 0 if ok else 1
 
@@ -435,23 +462,14 @@ def main() -> int:
     ap.add_argument("--path", default=None, help="1-minute CSV (default <SYM>_1min.csv)")
     ap.add_argument("--check", action="store_true",
                     help="only run the aggregation parity check against the 5-min file")
-    ap.add_argument("--split-adjust", action="store_true",
-                    help="apply the repo's split table to the 1-minute file; "
-                         "needed only for genuinely unadjusted vendor data "
-                         "(IBKR's is already adjusted)")
-    ap.add_argument("--force", action="store_true",
-                    help="run the study even if the data-quality check fails")
-    ap.add_argument("--worst", type=int, default=0, metavar="N",
-                    help="dump the N worst-disagreeing bars and exit")
+    ap.add_argument("--start", default=None,
+                    help="earliest session to trade/validate, YYYY-MM-DD "
+                         "(features always use the full 5-minute history)")
     ap.add_argument("--root", default=ROOT)
     args = ap.parse_args()
 
-    if args.worst:
-        worst_bars(args.symbol, args.root, args.path, args.split_adjust,
-                   args.worst)
-        return 0
-
-    rc = parity_check(args.symbol, args.root, args.path, args.split_adjust)
+    start = pd.Timestamp(args.start) if args.start else None
+    rc = parity_check(args.symbol, args.root, args.path, start)
     if args.check:
         return rc
     if rc and not args.force:
@@ -459,7 +477,7 @@ def main() -> int:
               "(--force to override)")
         return rc
     print()
-    resolution_report(args.symbol, args.root, args.path, args.split_adjust)
+    resolution_report(args.symbol, args.root, args.path, start)
     return rc
 
 

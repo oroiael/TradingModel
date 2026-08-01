@@ -1,5 +1,7 @@
 # V2 Test Program — Entry Anchor for the Churn Harvester Core
 
+> **AMENDED 2026-08 — read with `live/PHASE2_PARITY.md` S11.** This program's headline — instant re-entry worth **+47.9 bp/day of the core's 65.6** — is now understood to be **largely a 5-minute fill-model artifact**. `live/PHASE2_PARITY.md` S10 measures the same quantity from the other direction; S11 re-runs it on 1-minute fills. The mechanism is real but roughly half the size. Read the numbers below as of their date.
+
 Current value: **the session rolling high** (prior bars only, RTH from
 09:30): the entry is a resting limit 1% below the highest print of the
 day so far. This is the last open variable on the status board — after

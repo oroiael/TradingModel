@@ -512,8 +512,15 @@ levels.
 **Known limitations / unverified assumptions (the honest list):**
 1. **Sub-5-minute fill sequencing** (A1/A2): stop-before-target within a
    bar is assumed (conservative), and limit fills at the touch are
-   assumed (optimistic). 1-minute or tick data would settle both. This
-   is the highest-priority item for the validator.
+   assumed (optimistic). **PARTLY SETTLED 2026-08 with 1-minute data** —
+   `band_lab/live/PHASE2_PARITY.md` S10/S11. A2 does *not* cut both ways:
+   roughly half the 5-minute edge was booked on re-entries priced at levels
+   that had already traded. At 1-minute fill resolution the locked config
+   gives **42.5 bp/ON-day on SOXL (64% retained) and 34.2 on SOXS (54%)**.
+   Sub-*minute* sequencing remains unresolved and the residual error runs
+   the same direction, so real fills should land below those figures. This
+   is still the highest-priority item for the validator, and only live fills
+   close it.
 2. **Cumulative selection bias**: 12 sequential audit programs each ran
    walk-forwards, but the sequence itself was steered by results. The
    clean test is forward: paper trading against the backtest's daily
@@ -535,7 +542,9 @@ levels.
 (a) re-run every `band_lab/v*_tests.py` script from raw CSVs and diff
 against `band_lab/out/*.csv`; (b) independently re-implement the locked
 rules from §4 alone (clean-room) and compare daily P&L series; (c)
-obtain 1-minute data for 2022 and 2026 and re-test fills; (d) run the
+~~obtain 1-minute data for 2022 and 2026 and re-test fills~~ **— done, see
+`live/PHASE2_PARITY.md` S11 and `v2_dev/`; re-run
+`python3 band_lab/live/intrabar.py --symbol SOXL --start 2022-01-01`**; (d) run the
 transfer test on TQQQ/FAS/SPXL; (e) audit the no-lookahead claims in
 `v2_anchor_tests.py` (the canonical current-core implementation);
 (f) 3–6 months of paper trading with fills logged against the §6.3

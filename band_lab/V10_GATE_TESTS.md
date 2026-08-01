@@ -1,5 +1,7 @@
 # V10 Test Program — Volatility Gate for the Churn Harvester Core
 
+> **AMENDED 2026-08 — read with `live/PHASE2_PARITY.md` S11.** Re-tested on 1-minute fill data by [`v2_dev/V18`](v2_dev/V18_VOL_GATE_TEST.md) — **cutoff and lookback confirmed, nothing adopted**. V18 also found this program's metric (`bp/ON-day`) is invalid for a gate test, and corrected the 'SOXL input' note: the engine uses each sleeve's own ATR5.
+
 Current value: **trade only when ATR5 ≥ 6.0%**, where ATR5 = 5-session
 trailing mean of (High−Low)/Open, known before the open. What IS tested:
 the gate's existence and rough location (quartile decomposition −9/+30/

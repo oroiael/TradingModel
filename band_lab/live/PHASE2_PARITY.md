@@ -174,72 +174,197 @@ specifically, which is a sharper and faster test than watching aggregate bp.
 
 ---
 
-## S10 measured at 1-minute resolution (2026-07-31)
+## S11 — the 1-minute study, both sleeves: the edge survives at ~54–64%
 
-1-minute RTH bars fetched from IBKR, 1,653 sessions, 2020-07-16 → 2026-07-21.
-Decisions stay on the 5-minute clock; only the assumed fill price changes.
+**Both 1-minute files are in**, in git-lfs, and neither needed a fetch:
 
-| fill bars | target delay | fill model | bp/ON-day | Sharpe | trades |
-|---|---|---|---:|---:|---:|
-| 5-minute | decision_bar | **spec** | **65.9** | **3.14** | 2,460 |
-| 5-minute | decision_bar | no_better | 12.6 | 0.62 | 2,338 |
-| 5-minute | decision_bar | next_bar | 21.4 | 1.18 | 2,322 |
-| **1-minute** | decision_bar | **spec** | **42.5** | **2.17** | 2,393 |
-| 1-minute | decision_bar | no_better | 12.5 | 0.64 | 2,337 |
-| 1-minute | decision_bar | next_bar | 20.7 | 1.12 | 2,347 |
-| 1-minute | fill_bar | spec | 42.8 | 2.22 | 2,413 |
-| 1-minute | fill_bar | no_better | 14.4 | 0.75 | 2,349 |
-| 1-minute | fill_bar | next_bar | 19.8 | 1.08 | 2,360 |
+| file | bars | coverage |
+|---|---:|---|
+| `SOXL_1min.csv` | 642,510 | 2019-12-31 → 2026-07-30 |
+| `SOXS_1min.csv` | 642,563 | 2019-12-31 → 2026-07-31 |
 
-**Refining the fill resolution five-fold removes 23.4 bp — 35% of the measured
-edge.** Three findings behind that number:
+Both reach far past the 2022 target `fetch_1min.py` warned IBKR's retention
+might not deliver. Run on the 2022+ window, which is what
+`IMPLEMENTATION_SPEC.md` asks for and which excludes the pre-2022 data-quality
+problem in S12:
 
-1. **`target_delay` is not load-bearing.** The prediction that faster target
-   fills would offset the loss was wrong: `fill_bar` adds +0.3 bp. §2.6's
-   anti-lookahead patch, calibrated on 5-minute bars, costs almost nothing at
-   finer resolution.
-2. **The conservative models are resolution-invariant** — `no_better` 12.6 →
-   12.5, `next_bar` 21.4 → 20.7 — while `spec` fell 23.4. They are measuring
-   something that does not depend on bar width, and `spec` converges toward
-   them as resolution improves. That makes them a floor rather than an
-   artifact of coarse data.
-3. **The dependency survives the refinement.** 45% of entries are still
-   same-bar re-entries at 1-minute, and `spec` − `no_better` is still 30 bp.
-   Most of the *remaining* edge rests on within-minute sequencing.
+```bash
+python3 band_lab/live/intrabar.py --symbol SOXL --start 2022-01-01
+python3 band_lab/live/intrabar.py --symbol SOXS --start 2022-01-01
+```
 
-**Planning range: ~13–43 bp/ON-day gross**, against the published 65.6. Net of
-the $75K-sleeve cost of 3.2 bp: ~39 bp at the optimistic bound, ~9–11 bp at
-the conservative one. Positive under every model tested.
+| fill bars | target delay | fill model | SOXL bp | SOXL Sharpe | SOXS bp | SOXS Sharpe |
+|---|---|---|---:|---:|---:|---:|
+| 5-minute | decision_bar | **spec** | **66.8** | 3.11 | **63.0** | 2.91 |
+| 5-minute | decision_bar | no_better | 10.5 | 0.51 | 4.4 | 0.21 |
+| 5-minute | decision_bar | next_bar | 21.8 | 1.18 | 2.5 | 0.13 |
+| **1-minute** | decision_bar | **spec** | **42.5** | **2.14** | **34.2** | **1.70** |
+| 1-minute | decision_bar | no_better | 10.3 | 0.52 | −0.9 | −0.05 |
+| 1-minute | decision_bar | next_bar | 18.3 | 0.97 | 3.5 | 0.18 |
+| **1-minute** | fill_bar | **spec** | **43.0** | **2.20** | **39.8** | **2.01** |
+| 1-minute | fill_bar | no_better | 12.6 | 0.64 | −1.5 | −0.08 |
+| 1-minute | fill_bar | next_bar | 17.3 | 0.92 | 3.5 | 0.19 |
 
-### This invalidates §8's monitoring baselines
+679 SOXL ON days, 691 SOXS, on every row of their column.
 
-`IMPLEMENTATION_SPEC.md` §8 publishes **61.9 net bp/ON-day** for SOXL and
-instructs the live system to investigate >20% deviations as structural
-breaks. If the true value is nearer 39, a correctly functioning paper run
-reads as a 35% miss on day one — the same failure mode Phase 1 corrected §8
-for once already, one resolution deeper. **The baselines must be revised or
-annotated before Phase 2 starts**, and the revision belongs to whoever owns
-the strategy document, not to this harness.
+### What it settles
 
-### Data caveat, quantified and immaterial
+1. **S10's range narrows sharply.** SOXL goes from "13–66" to **42–43**; SOXS
+   from "2–61" to **34–40**. At five times the resolution the spec model gives
+   up 24.3 bp on SOXL and 28.8 on SOXS — but both land far above the harsh
+   floors. `no_better` and `next_bar` were too pessimistic: real 1-minute paths
+   do return below the price just sold, and most of the same-bar re-entry edge
+   is genuinely fillable.
+2. **The direction the plan called "genuinely unknown" is down**, for both.
+   Same-bar re-entries fall from 50.3% → 46.3% of entries on SOXL and
+   51.4% → 46.0% on SOXS. The loss from finer re-entry pricing dominates the
+   gain from earlier target fills in both sleeves.
+3. **`target_delay` matters on SOXS but not on SOXL** — 0.5 bp on SOXL
+   (42.5 → 43.0), **5.6 bp on SOXS** (34.2 → 39.8). The doc expected it to
+   "matter as much as `fill_model`"; that holds only for SOXS, and even there
+   `fill_model` is 5x larger. The validated `decision_bar` reading is the
+   conservative one in both sleeves, so keeping it costs at most 5.6 bp and
+   creates no live ambiguity.
+4. **SOXS is the more fragile sleeve, and the finer data widens the gap.**
+   Its `no_better` floor is *negative* at 1-minute resolution (−0.9 / −1.5 bp)
+   where SOXL's stays at +10 to +13. Retention under the validated reading is
+   **54% for SOXS against 64% for SOXL**. SOXS's edge is more concentrated in
+   same-bar re-entry, exactly as S10's 5-minute counts implied (75.9 of 61.2
+   bp/ON-day, vs SOXL's 62.5 of 65.9).
+5. **Neither result is a one-period artifact, but SOXS has a bad year.**
 
-The 1-minute file does not aggregate exactly to the 5-minute file: 8.8% of
-bars differ by more than 1 bp, worst 90 bp on 2021-02-24, confined to 160
-pre-split sessions. Those sessions hold **26 of 779 ON-days (3.3%) and −0.7%
-of total P&L** — `thr80` needs 120 prior sessions, so the first ON-day is
-2021-01-06 and most of the affected range never traded. It cannot change the
-result above.
+| year | SOXL ON | SOXL 5-min | SOXL 1-min | ret | SOXS ON | SOXS 5-min | SOXS 1-min | ret |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|
+| 2022 | 184 | 79.4 | 52.5 | 66% | 180 | 87.4 | 58.3 | 67% |
+| 2023 | 140 | 84.2 | 52.3 | 62% | 149 | 27.1 | **−6.5** | −24% |
+| 2024 | 151 | 59.2 | 38.0 | 64% | 159 | 38.1 | 18.4 | 48% |
+| 2025 | 127 | 44.8 | 18.8 | 42% | 115 | 100.5 | 58.8 | 58% |
+| 2026 | 77 | 56.2 | 49.1 | 87% | 88 | 70.3 | 50.6 | 72% |
+| **all** | **679** | **66.8** | **42.5** | **64%** | **691** | **63.0** | **34.2** | **54%** |
 
-It is still unexplained, and it matters for Stage 2 for a different reason:
-if IBKR's history does not reproduce the research record, `thr80` continuity
-across the seam needs checking before the live engine relies on it.
+SOXL never flips negative in any year. **SOXS 2023 does** — +27.1 bp at
+5-minute resolution becomes −6.5 at 1-minute. That is the single most
+important row in this table: it is a full year in which the sleeve's entire
+apparent edge is a fill-resolution artifact. Worst day is −8.00% on all four
+series (the stop binds identically). Positive days: SOXL 64.1% → 61.4%,
+SOXS 57.6% → 53.4%.
+
+### The pair
+
+The two sleeves at w=0.50 each, which is what §2.4 actually deploys:
+
+| fill model | days | bp/day | Sharpe | worst day |
+|---|---:|---:|---:|---:|
+| 5-minute spec | 818 | 54.4 | 5.74 | −4.00% |
+| **1-minute spec** | 818 | **32.1** | **3.83** | −4.57% |
+| 1-minute spec, fill_bar | 818 | 34.7 | 4.17 | −4.57% |
+
+Pairing survives the resolution change well: 59% retention against 54–64% for
+the individual sleeves, and the Sharpe stays high because the worst day nearly
+halves (−8.00% → −4.57%) on 552 both-on days. The diversification V14 measured
+is not a fill-model artifact — it is the most robust finding here.
+
+### What it does not settle
+
+Sub-minute sequencing is still unresolved, and the same argument applies one
+level down: a 1-minute bar that re-enters below its own exit price is making
+the same assumption S10 objected to, over a 60-second window instead of 300.
+Expect real fills below these figures, not at them. The direction of the
+remaining error is known — it only runs one way.
+
+**Recommendation, unchanged from S10: change no parameter.** Read
+`IMPLEMENTATION_SPEC.md` §8's 61.9 / 48.1 net bp/ON-day as upper bounds, and
+plan on roughly **40 bp/ON-day for SOXL and 30 for SOXS**. A paper run at
+20–40 bp is consistent with this and is not evidence the engine is broken.
+Treat SOXS's contribution as the less certain half of the pair.
 
 ---
 
-## The 1-minute study (harness built, data outstanding)
+## S12 — the 1-minute file is split-adjusted; the 5-minute file is not
+
+The `--check` gate earned its place immediately. `fetch_1min.py` documents
+"SOXL's 2021 split is applied at *read* time by `intrabar.py`, exactly as for
+the 5-minute files — do not pre-adjust here", and `load_1min_sessions`
+divided every pre-2021-03-02 price by 15 on that basis. The delivered file is
+already on the adjusted grid, so it was divided a second time:
+
+| | 2021-02-16 09:30 |
+|---|---|
+| 5-minute file (raw) | 710.05 → ÷15 → 47.34 ✓ |
+| 1-minute file (already adjusted) | 47.34 → ÷15 → **3.16** ✗ |
+
+Volume settles it: the 1-minute file's volume is exactly **15.00×** the
+5-minute file's before the split and **1.00×** after — a fully adjusted
+series, prices and volumes both. The gate reported a worst OHLC difference of
+**44.66**.
+
+`load_1min_sessions` now **detects** the convention (`needs_split_adjustment`)
+instead of assuming it, because the study explicitly accepts any vendor's CSV
+and the vendor decides this, not the repository. That took the worst
+difference from 44.66 to 0.357.
+
+### A cent is not a threshold on a back-adjusted series
+
+SOXS forced a second correction. The gate's rule was "worst difference under a
+cent", which is well defined only on a real $0.01 tick grid.
+`SOXS_5min_6Years.csv` is the back-adjusted S7 series and opens at
+**$1,075,204/share**: there, a cent is 2 parts per billion, and no correct
+file could ever pass. The units of a back-adjusted series are an artifact of
+its reverse-split history and carry no information.
+
+The tolerance is now **relative** (`PARITY_TOL_BP = 1.0`), which is what the
+strategy itself is — §2 is written in percentages throughout. This is not a
+relaxation: 1 bp is *tighter* than a cent everywhere SOXL actually trades
+(1 bp of $47 is half a cent), and SOXL fails on exactly the same two sessions
+under both rules. It makes the SOXS gate expressible at all. Both absolute
+and relative figures are printed.
+
+### Why 2022+ is the right window, for both sleeves
+
+Worst relative difference per session, by year — the pattern is the same in
+both sleeves and it is not about the split:
+
+| year | SOXL median | SOXL max | SOXL >1bp | SOXS median | SOXS max | SOXS >1bp |
+|---|---:|---:|---:|---:|---:|---:|
+| 2020 | 25.7 bp | 63.4 | 118 / 118 | 15.4 bp | 48.5 | 80 / 113 |
+| 2021 | 0.0 | 90.8 | 40 / 252 | 0.0 | 60.8 | 66 / 252 |
+| 2022 | 0.0 | 0.00 | **0** / 251 | 0.0 | 28.2 | **1** / 251 |
+| 2023 | 0.0 | 32.9 | **1** / 250 | 0.0 | 57.7 | **1** / 250 |
+| 2024 | 0.0 | 0.00 | **0** / 252 | 0.0 | 0.00 | **0** / 252 |
+| 2025 | 0.0 | 0.00 | **0** / 250 | 0.0 | 0.00 | **0** / 250 |
+| 2026 | 0.0 | 2.58 | **1** / 137 | 0.0 | 0.00 | **0** / 140 |
+
+2020–21 is dirty in **both** symbols; 2022 onward is essentially exact in
+both. SOXL's dirty sessions coincide with its pre-split window, but SOXS has
+no split adjustment applied at all and is dirty over the same span — so the
+cause is a source/vintage boundary in the 5-minute files at the end of 2021,
+not the split arithmetic. No 5-minute bar anywhere lacks 1-minute coverage.
+
+Final gate state on the spec's window:
+
+| window | sessions | worst | bars over 1 bp | verdict |
+|---|---:|---:|---|---|
+| SOXL 2022+ | 1,140 | 32.8 bp | 2 / 88,596 (0.0023%) | FAIL |
+| SOXS 2022+ | 1,143 | 57.0 bp | 2 / 88,830 (0.0023%) | FAIL |
+
+Both still return non-zero, each on **two disputed prints in ~88,700 bars**.
+The strict rule has deliberately **not** been loosened to get a green light —
+that is the failure mode this project's discipline exists to prevent. Instead
+the gate reports per-bar and per-session counts alongside the worst case, so
+the two failure modes are distinguishable: a wrong-basis series fails on
+nearly every session (as the 44.66 did), while this fails on two.
+
+**2023-06-05 is one of the two in both sleeves**, which is positive evidence:
+a shared bad print in the 5-minute source, not a fetch error in either file.
+S11 is run on the 2022+ window on that basis, stated here rather than decided
+silently in code.
+
+---
+
+## The 1-minute study — how it works
 
 S10's range cannot be narrowed with 5-minute data, so the next step is finer
-bars. The harness is built and tested; it needs the data.
+bars. Both sleeves are now measured (S11); this section is the method.
 
 **The strategy's clock does not change.** The anchor ratchet, the 11:00
 activation and the counters are defined on 5-minute bars (§2.5) and every
@@ -254,22 +379,26 @@ Two switches, both simulator-side:
 | `fill_model` | `spec` / `no_better` / `next_bar` | as S10, but "same bar" now means the same *minute* |
 | `target_delay` | `decision_bar` / `fill_bar` | §2.6's "the target may fill from the next bar onward" — the next 5-minute bar (the validated reading) or the next fill bar |
 
-`target_delay` matters as much as `fill_model` and pushes the other way: at
-5-minute resolution the rule forces a profitable position to wait up to five
-minutes before its target can fill, which is over-conservative for a resting
-limit order. Expect the 1-minute run to *raise* target fills while *shrinking*
-same-bar re-entry. The net direction is genuinely unknown — which is the point
-of measuring it.
+`target_delay` was expected to matter as much as `fill_model` and to push the
+other way: at 5-minute resolution the rule forces a profitable position to
+wait up to five minutes before its target can fill, which is over-conservative
+for a resting limit order. The 1-minute run should *raise* target fills while
+*shrinking* same-bar re-entry, and the net direction was genuinely unknown.
+
+**Measured (S11): the net direction is down, and the expectation about
+`target_delay` held only for SOXS** — 5.6 bp there, 0.5 bp on SOXL, against
+`fill_model`'s 24–29 bp in both.
 
 ### Running it
 
 ```bash
-# on the Mac, with TWS running (~90 min per symbol at the default pacing)
-python3 band_lab/live/fetch_1min.py --symbol SOXL --start 2022-01-01
-python3 band_lab/live/fetch_1min.py --symbol SOXS --start 2022-01-01
+# both files are in git-lfs; neither needs a fetch
+git lfs pull --include="SOXL_1min.csv,SOXS_1min.csv,SOXL_5min_6Years.csv,SOXS_5min_6Years.csv"
 
-python3 band_lab/live/intrabar.py --symbol SOXL --check   # data-quality gate
-python3 band_lab/live/intrabar.py --symbol SOXL           # the 9-row table
+for S in SOXL SOXS; do
+  python3 band_lab/live/intrabar.py --symbol $S --check --start 2022-01-01
+  python3 band_lab/live/intrabar.py --symbol $S --start 2022-01-01   # the 9-row table
+done
 ```
 
 `--check` aggregates the 1-minute bars back to 5 minutes and diffs them
@@ -364,6 +493,30 @@ cleanly when the server stops returning history and reports the earliest
 session it obtained. If it falls short, any vendor's RTH 1-minute bars in the
 same CSV schema will do — the study only needs
 `Date,Open,High,Low,Close,Volume`.
+
+*Settled for both:* the delivered files reach 2019-12-31, well past the
+target. Retention was never the binding constraint; the price basis was (S12).
+
+### SOXS arrived on the correct basis — but check it on any refetch
+
+`SOXS_5min_6Years.csv` is the back-adjusted S7 series and `SPLIT_ADJUSTMENTS`
+has **no** SOXS entry, so `load_1min_sessions` applies nothing: the 1-minute
+file has to already be on that same back-adjusted basis. The delivered
+`SOXS_1min.csv` is — it opens at **$5,160,020.64/share** on 2019-12-31 and
+decays to ~$51 by 2026-07-31, tracking the 5-minute file throughout (which
+opens at $1,075,204.30 on 2020-07-23, the first session the two share).
+
+That is a fortunate outcome, not a guaranteed one, and it is worth stating
+what would have happened otherwise: SOXS traded near $25–30 in early 2022, so
+a **raw** IBKR fetch would differ from the validated series by ~2,000x in the
+2022 window alone, and — unlike SOXL's single 15:1 split — there is no one
+ratio to divide by, because the reverse splits are repeated and ongoing. On a
+wrong basis the §2.4 sizing arithmetic silently produces near-zero
+quantities: the S7 failure, which zeroed 248 sessions without erroring.
+
+So on any refetch or vendor change, run `intrabar.py --symbol SOXS --check`
+**first**. It is designed for exactly this and now fails in relative terms, so
+it works on a series quoted in millions.
 
 ---
 
