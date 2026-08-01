@@ -214,6 +214,30 @@ python3 band_lab/live/intrabar.py --symbol SOXL           # the 9-row table
 against the file every validated number came from. If that does not pass,
 nothing downstream is worth reading.
 
+### Split adjustment — the trap the first real fetch hit
+
+The repository's 5-minute CSVs hold SOXL's **unadjusted** pre-2021-03-02
+prices and are divided by 15 at read time. Data fetched fresh from IBKR comes
+back **already adjusted**. Adjusting it again puts the fill stream at 1/15 the
+scale of the decision stream, and the failure is not obvious: entries fill at
+the low scale while the 15:55 flatten books at the high one, so the table
+reads as an enormous edge rather than as an error (the first run reported
+3,784 bp/ON-day).
+
+Three things now prevent it:
+
+- `load_1min_sessions(split_adjust=False)` is the **default**, which is
+  correct for IBKR data. Pass `--split-adjust` only for genuinely unadjusted
+  vendor files.
+- `--check` reports the 1-min/5-min price ratio either side of each split
+  date and names the fix: a ratio of ~0.0667 means adjusted twice, ~15 means
+  not adjusted at all.
+- A mismatch of more than 5% now raises `PriceScaleError` at replay time
+  rather than producing a table.
+
+`intrabar.py` also refuses to run the study at all when `--check` fails
+(`--force` overrides).
+
 ### Two traps this harness already avoids
 
 - **Truncated feature history.** ATR5 needs 5 prior sessions and thr80 needs

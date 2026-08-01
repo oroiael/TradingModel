@@ -127,3 +127,47 @@ def test_degenerate_case_reproduces_the_5min_replay(symbol):
     for col in ("entry_px", "exit_px", "qty", "ret"):
         assert float((tr[col] - ref_tr[col]).abs().max()) < 1e-9, col
     assert (tr["outcome"].to_numpy() == ref_tr["outcome"].to_numpy()).all()
+
+
+# ------------------------------------------------------------- price scales
+def test_mismatched_price_scales_raise_rather_than_produce_a_table():
+    """A split-adjustment mismatch must be fatal, not silently plausible.
+
+    Regression for the 2026-07 fetch: IBKR's 1-minute data is already
+    split-adjusted, the repo's 5-minute CSV is not, and adjusting the former
+    again put the fill stream at 1/15 the decision scale. Entries then filled
+    at the low scale while the 15:55 flatten booked at the high one, which
+    reads as an enormous edge instead of as an error.
+    """
+    from intrabar import PriceScaleError
+
+    dbars = [Bar(i, 45.0, 45.0, 45.0, 45.0) for i in range(START_IDX + 2)]
+    fine = [Bar(j, 3.0, 3.0, 3.0, 3.0) for j in range((START_IDX + 2) * 5)]
+    sm = _armed(SleeveStateMachine(_cfg()))
+    with pytest.raises(PriceScaleError, match="split"):
+        replay_session_intrabar(dbars, fine, sm, 5)
+
+
+def test_matching_price_scales_pass_the_guard():
+    dbars = [Bar(i, 45.0, 45.2, 44.8, 45.0) for i in range(START_IDX + 2)]
+    fine = [Bar(j, 45.0, 45.1, 44.9, 45.0) for j in range((START_IDX + 2) * 5)]
+    sm = _armed(SleeveStateMachine(_cfg()))
+    replay_session_intrabar(dbars, fine, sm, 5)     # must not raise
+
+
+def test_one_minute_loader_does_not_split_adjust_by_default(tmp_path):
+    """IBKR data arrives adjusted; the 5-minute repo files do not."""
+    from intrabar import load_1min_sessions
+
+    path = tmp_path / "SOXL_1min.csv"
+    rows = ["Date,Open,High,Low,Close,Volume"]
+    for m in range(3):
+        rows.append(f"20210216 09:{30 + m}:00 America/New_York,45.0,45.0,45.0,45.0,10")
+    path.write_text("\n".join(rows) + "\n")
+
+    plain = load_1min_sessions("SOXL", root=str(tmp_path), path=str(path))
+    assert plain[0][1][0].close == pytest.approx(45.0)
+
+    adjusted = load_1min_sessions("SOXL", root=str(tmp_path), path=str(path),
+                                  split_adjust=True)
+    assert adjusted[0][1][0].close == pytest.approx(3.0)

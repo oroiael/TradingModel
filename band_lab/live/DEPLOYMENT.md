@@ -246,3 +246,6 @@ override them (§6.8, §12).
 | equivalence FAILS after a code change | that is the gate doing its job — the sleeve's decisions changed; diff before going further |
 | TWS API refuses the connection | port 7497 vs 7496, trusted IP, and whether TWS is actually logged in to the **paper** account |
 | orders silently do nothing | Read-Only API is on, or an order-precaution dialog is waiting on screen |
+| `intrabar.py --check` FAILs pre-split only | split adjustment. The check prints the 1-min/5-min ratio and the fix: ~0.0667 = adjusted twice (drop `--split-adjust`), ~15 = not adjusted (add it) |
+| `PriceScaleError` during a study run | same cause, caught at replay time so a mixed-scale table can never be produced |
+| 1-minute file has more sessions than the 5-minute file | `--check` reports their bar counts; sessions under 100 bars are partial fetches, not real sessions |
