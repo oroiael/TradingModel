@@ -162,3 +162,36 @@ def test_falls_back_to_the_documented_convention_without_both_sides():
     `fetch_1min.py` documents rather than guessing."""
     df = pd.DataFrame({"date": [pd.Timestamp("2021-02-16")], "Close": [710.0]})
     assert needs_split_adjustment(df, "SOXL") is True
+
+
+# --------------------------------------------------------------- CLI wiring
+def test_cli_failure_branch_does_not_crash(monkeypatch):
+    """Regression: a merge once dropped --force from the parser while leaving
+    `args.force` in main(), so any failing check raised AttributeError instead
+    of reporting the failure. Cheap to assert, and it fails loudly."""
+    import intrabar
+
+    monkeypatch.setattr(intrabar, "parity_check", lambda *a, **k: 1)
+    monkeypatch.setattr("sys.argv", ["intrabar.py", "--symbol", "SOXL"])
+    assert intrabar.main() == 1
+
+
+def test_cli_check_only_returns_the_check_result(monkeypatch):
+    import intrabar
+
+    monkeypatch.setattr(intrabar, "parity_check", lambda *a, **k: 0)
+    monkeypatch.setattr(intrabar, "resolution_report",
+                        lambda *a, **k: pytest.fail("must not run under --check"))
+    monkeypatch.setattr("sys.argv", ["intrabar.py", "--symbol", "SOXL", "--check"])
+    assert intrabar.main() == 0
+
+
+@pytest.mark.slow
+@pytest.mark.parametrize("symbol", ["SOXL", "SOXS"])
+def test_parity_check_runs_on_the_real_files(symbol):
+    """Regression: the same merge left `split_adjust` referenced in
+    parity_check and resolution_report after the parameter was removed, so
+    both raised NameError on any real invocation."""
+    from intrabar import parity_check
+
+    assert parity_check(symbol, start=pd.Timestamp("2026-06-01")) in (0, 1)

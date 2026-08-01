@@ -84,8 +84,7 @@ def needs_split_adjustment(df: pd.DataFrame, symbol: str) -> bool:
 
 
 def load_1min_sessions(symbol: str, root: str = ROOT,
-                       path: Optional[str] = None,
-                       split_adjust: bool = False) -> list[tuple[pd.Timestamp, list[Bar]]]:
+                       path: Optional[str] = None) -> list[tuple[pd.Timestamp, list[Bar]]]:
     """1-minute RTH bars grouped by session.
 
     `Bar.idx` is minutes since 09:30, so the 5-minute decision bar containing
@@ -156,8 +155,7 @@ def _assert_same_price_scale(decision_bars: Sequence[Bar],
             f"(median close {f:.4f} vs {d:.4f}). If this is ~1/15 or ~15 on "
             "SOXL, it is the 2021-03-02 split: the repository's 5-minute CSV "
             "is unadjusted and IBKR's fetched data is adjusted. See "
-            "load_1min_sessions(split_adjust=...) and run "
-            "`intrabar.py --check`.")
+            "`needs_split_adjustment` and run `intrabar.py --check`.")
 
 
 def replay_session_intrabar(decision_bars: list[Bar], fill_bars: list[Bar],
@@ -291,7 +289,7 @@ def resolution_report(symbol: str, root: str = ROOT,
     """
     from replay import load_sessions, replay_symbol
 
-    fine = dict(load_1min_sessions(symbol, root, path, split_adjust))
+    fine = dict(load_1min_sessions(symbol, root, path))
     every = load_sessions(symbol, root)          # the full 5-minute record
     dates = set(fine) & {d for d, _ in every}
     if start is not None:
@@ -365,7 +363,7 @@ def parity_check(symbol: str, root: str = ROOT, path: Optional[str] = None,
     """
     from replay import load_sessions
 
-    fine = dict(load_1min_sessions(symbol, root, path, split_adjust))
+    fine = dict(load_1min_sessions(symbol, root, path))
     coarse = dict(load_sessions(symbol, root))
     shared = sorted(set(fine) & set(coarse))
     if start is not None:
@@ -380,7 +378,6 @@ def parity_check(symbol: str, root: str = ROOT, path: Optional[str] = None,
     bad_sessions, bad_bars, total_bars = set(), 0, 0
     for d in shared:
         agg = {b.idx: b for b in aggregate(fine[d], 5)}
-        era = "pre" if d < cut else "post"
         for cb in coarse[d]:
             ab = agg.get(cb.idx)
             if ab is None:
@@ -401,9 +398,6 @@ def parity_check(symbol: str, root: str = ROOT, path: Optional[str] = None,
     print(f"  worst OHLC difference vs the 5-min file: {worst_bp:.3f} bp"
           f" (absolute {worst_px:.4f})"
           f"{'' if worst_date is None else f' on {worst_date.date()}'}")
-    if cuts:
-        print(f"    pre-split {worst_by_era['pre']:.4f} | "
-              f"post-split {worst_by_era['post']:.4f}")
     print(f"  5-minute bars with no 1-minute coverage: {missing}")
     print(f"  bars over {tol_bp:g} bp: {bad_bars} of {total_bars} "
           f"({bad_bars / max(total_bars, 1):.4%}) "
@@ -416,7 +410,7 @@ def parity_check(symbol: str, root: str = ROOT, path: Optional[str] = None,
 
 
 def worst_bars(symbol: str, root: str = ROOT, path: Optional[str] = None,
-               split_adjust: bool = False, n: int = 15) -> None:
+               n: int = 15) -> None:
     """Dump the worst-disagreeing bars side by side.
 
     Whether the 5-minute file is *wider* or *narrower* than the aggregated
@@ -426,7 +420,7 @@ def worst_bars(symbol: str, root: str = ROOT, path: Optional[str] = None,
     """
     from replay import load_sessions
 
-    fine = dict(load_1min_sessions(symbol, root, path, split_adjust))
+    fine = dict(load_1min_sessions(symbol, root, path))
     coarse = dict(load_sessions(symbol, root))
     rows = []
     for d in sorted(set(fine) & set(coarse)):
@@ -465,8 +459,16 @@ def main() -> int:
     ap.add_argument("--start", default=None,
                     help="earliest session to trade/validate, YYYY-MM-DD "
                          "(features always use the full 5-minute history)")
+    ap.add_argument("--force", action="store_true",
+                    help="run the study even if the data-quality check fails")
+    ap.add_argument("--worst", type=int, default=0, metavar="N",
+                    help="dump the N worst-disagreeing bars and exit")
     ap.add_argument("--root", default=ROOT)
     args = ap.parse_args()
+
+    if args.worst:
+        worst_bars(args.symbol, args.root, args.path, args.worst)
+        return 0
 
     start = pd.Timestamp(args.start) if args.start else None
     rc = parity_check(args.symbol, args.root, args.path, start)
