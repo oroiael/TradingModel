@@ -148,14 +148,16 @@ class FeatureHistory:
         self._range_pct.append(stats.range_pct)
         self._or30.append(stats.or30)
 
-    def atr5(self) -> float:
+    def atr5(self, lookback: int = ATR_LOOKBACK) -> float:
         """§2.1 — mean daily_range_pct over the 5 completed sessions before d.
 
-        NaN when fewer than 5 prior sessions exist; §2.2 then refuses the day.
+        NaN when fewer than `lookback` prior sessions exist; §2.2 then refuses
+        the day. `lookback` defaults to the locked §12 value and is a parameter
+        only so the v2_dev V18 program can sweep it without forking this code.
         """
-        if len(self._range_pct) < ATR_LOOKBACK:
+        if len(self._range_pct) < lookback:
             return float("nan")
-        return float(np.mean(self._range_pct[-ATR_LOOKBACK:]))
+        return float(np.mean(self._range_pct[-lookback:]))
 
     def thr80(self) -> float:
         """§2.1 — 80th percentile of OR30 over the prior 504 sessions.

@@ -385,6 +385,28 @@ with `python3 band_lab/phase1/parity.py` (section D); the raw table is
 
 Wide variance applies to every bp figure; a single week proves nothing.
 
+> **AMENDED 2026-08 — read this table as an UPPER BOUND, not as the
+> expectation.** `band_lab/live/PHASE2_PARITY.md` S10/S11 measured, on
+> 1-minute fill data, that roughly half of the 5-minute engine's edge was
+> booked on re-entries priced at levels that had already traded — a
+> time-ordering artifact of 5-minute bars, not a property of the strategy.
+> Re-run at 1-minute fill resolution over 2022-01 → 2026-07:
+>
+> | | §8 gross above | 1-minute gross | retained |
+> |---|---:|---:|---:|
+> | SOXL | 65.6 | **42.5** | 64% |
+> | SOXS | 57.7 | **34.2** | 54% |
+>
+> **Planning figures for the paper run: ~40 net bp/ON-day for SOXL and ~30
+> for SOXS.** A run at 20–40 bp is consistent with this evidence and is *not*
+> on its own a sign the engine is broken. The residual error runs one
+> direction only (sub-minute sequencing is still unresolved), so real fills
+> should land below the 1-minute figures rather than at them.
+>
+> **No §12 constant changed.** Three separate re-test programs
+> (`band_lab/v2_dev/` V16, V17, V18 — ~1,040 parameter cells across V1, V3,
+> V7, V10) adopted nothing. The numbers above moved; the strategy did not.
+
 > **Corrected 2026-07 (Phase 1).** This table previously read "target-hit
 > share of exits ≈ 75–80%" and "net bp per ON day ≈ 50". Neither matched
 > the engine it was meant to describe: the target share is ≈71% (≈88% if

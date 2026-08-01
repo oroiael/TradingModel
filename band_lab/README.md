@@ -1,5 +1,20 @@
 # Band Lab — SOXL daily band, excursions, and the churn-harvest playbook
 
+> **Start here.** This README describes the original 5-minute research. Two
+> things have happened since and both change how its numbers should be read:
+>
+> | | |
+> |---|---|
+> | **1-minute fill data (2026-08)** | `live/PHASE2_PARITY.md` S10–S12. Roughly half the 5-minute edge was booked on re-entries priced at levels that had already traded. At 1-minute resolution the locked config gives **42.5 bp/ON-day on SOXL and 34.2 on SOXS**, against 65.6 / 57.7 here. **Every bp figure below is an upper bound.** |
+> | **Re-tests (V16–V18)** | `v2_dev/` re-swept V1, V3, V7 and V10 on the finer data — ~1,040 cells — and **adopted nothing**. The strategy is unchanged; only the estimate of its size moved. |
+>
+> | where to look | for |
+> |---|---|
+> | [`STRATEGY_SPEC.md`](STRATEGY_SPEC.md) §0.2 | the locked rules + what the re-tests found |
+> | [`IMPLEMENTATION_SPEC.md`](IMPLEMENTATION_SPEC.md) §8 | the baselines the paper run is measured against |
+> | [`live/`](live/) | the Phase 2 engine (Stages 1–4, runnable) |
+> | [`v2_dev/`](v2_dev/) | the development line — nothing here is approved for trading |
+
 Deep dive on SOXL's intraday structure (5-min bars, 2020-07 → 2026-07,
 split-adjusted) aimed at active/automated trading: what band does SOXL churn
 in each day, what tells you the band width early, when do the steep
