@@ -248,3 +248,66 @@ rather than structural. It should not be adopted on this evidence.
   second pass would be fitting to the same 679/691 days.
 - Adopt nothing from V16.
 
+
+
+---
+
+## Addendum (2026-08) — V3 swept over its full plausible range, 0.25%–5.00%
+
+Asked whether the profit target should be swept wider and finer than V16's
+0.50–2.00%. V16's grid was already at 0.25% granularity across 0.50–1.50, so
+the genuinely untested values were **0.25%, 1.75%, and 2.25–5.00%**. Run as a
+scoping diagnostic — 1-minute fills, net of costs, V1/V4/V7 locked, **no
+prespecified bar, so nothing here can be adopted**.
+
+| target | SOXL net bp | SOXL MaxDD | SOXL target-hit | SOXL same-bar | SOXS net bp | SOXS MaxDD |
+|---|---:|---:|---:|---:|---:|---:|
+| 0.25% | 41.3 | −24.0% | 94% | **88%** | 37.4 | −25.5% |
+| 0.50% | 45.8 | −28.3% | 86% | 85% | 30.1 | −30.6% |
+| 0.75% | **47.1** | −33.4% | 78% | 75% | 25.6 | −34.3% |
+| **1.00%** | **39.3** | −40.6% | 70% | **66%** | **30.3** | −36.5% |
+| 1.50% | 36.8 | −41.8% | 57% | 56% | 11.2 | −49.9% |
+| 2.00% | 26.8 | −46.6% | 46% | 17% | 6.4 | −64.1% |
+| 3.00% | 26.1 | −47.7% | 31% | 15% | −3.4 | −78.6% |
+| 4.00% | 17.3 | −45.9% | 21% | −5% | −3.7 | −77.8% |
+| 5.00% | 18.6 | −45.3% | 13% | −28% | −1.0 | −75.0% |
+
+**The wide half is closed by measurement.** Above 2.00% SOXL never recovers
+the incumbent (−13 to −22 bp throughout) and SOXS turns **negative from 3.00%
+with drawdowns past −75%**. The mechanism is visible in the exit mix: the
+target-hit rate falls from 70% to 13% while the 15:55 flatten rises to 65%,
+and fills/day falls from 3.18 to 1.41 — so the V7 cap of 5 never binds. At
+those targets this is no longer a churn harvester, and the rest of the locked
+config no longer describes it. **No further program is warranted above 2%.**
+
+**The tight half is not closed, but it cannot be closed with this data.** The
+`same-bar` column is monotone in the target: 88% at 0.25%, 66% at the
+incumbent, 17% at 2.00%. Return and same-bar reliance move together because
+**they are the same axis** — a tighter target produces more round trips, and
+more round trips are exactly what the S10 mechanism prices. 0.75% earns
++7.8 bp with a better MaxDD (−33.4% vs −40.6%), and it does so while taking
+same-bar reliance from 66% to 75%. That is B6's rejection, and it stands.
+
+*(SOXS `same-bar` is omitted above 2.25% — its denominator, total P&L,
+approaches zero there, so the ratio is degenerate. Same defect class as
+V17's C3; the negative returns are the point in that region regardless.)*
+
+Two independent, documented reasons the sub-1% question cannot be settled
+offline — both measured by the paper run and by nothing else:
+
+1. **The mechanism.** Only real fills establish whether a re-entry priced
+   inside the exit bar is achievable (`PHASE2_PARITY.md` S10 §"Why this makes
+   paper trading *more* valuable").
+2. **The spread.** `phase1/COST_MODEL.md` §4 (G3): *"the spread cannot be
+   measured — the repository holds 5-minute OHLCV and no quotes"*, and the
+   cost model carries a 0c/1c/2c sensitivity instead. A 0.25% target is 25 bp
+   gross; at SOXL's lower prices a 1-cent spread is ~2.5 bp of that, and the
+   sensitivity that is tolerable at 100 bp is not at 25. `PHASE2_PLAN.md` §1
+   names real quoted spreads at real order events as the one cost input no
+   further analysis can supply.
+
+**Recommendation: no new program on V3 now.** Re-open 0.50–0.75% only after
+the paper run reports achieved fill prices on same-bar re-entries. If those
+fills land at the backtest's assumed prices, B6's premise weakens and the
+tighter target becomes a live question with evidence behind it; if they do
+not, the tight targets are confirmed dead and V3 closes for good.
