@@ -1,0 +1,227 @@
+
+==============================================================================
+T1.1  RETURN DISTRIBUTIONS AND STYLIZED FACTS
+==============================================================================
+      ann_ret_5m  ann_vol_5m  ann_ret_1d  ann_vol_1d  sharpe_1d  skew_1d  exkurt_1d  worst_day  best_day   JB_p  hill_tail_alpha  max_dd
+sym                                                                                                                                     
+SPXL      0.0676      0.3934      0.2911      0.4979     0.5847  -0.3125     5.2166    -0.1980    0.2473 0.0000           2.8134 -0.6386
+FAS      -0.0628      0.4485      0.2619      0.5636     0.4647  -0.2154     4.0220    -0.2477    0.2030 0.0000           3.1141 -0.6775
+VXX      -0.3101      0.5586     -0.7457      0.6671    -1.1178   0.9829     7.3321    -0.2350    0.3490 0.0000           3.0343 -0.9897
+
+Autocorrelation structure (5-min intra-session returns):
+  SPXL: ACF(returns) lags1-6 = [-0.0118 -0.0142  0.0079  0.0122 -0.0075 -0.0016]
+        ACF(|returns|) 1-6  = [0.318  0.3219 0.3169 0.3028 0.304  0.3093]   Ljung-Box(12) p=6.632e-21
+  FAS: ACF(returns) lags1-6 = [-0.0097 -0.0141 -0.0015  0.0108 -0.001   0.0027]
+        ACF(|returns|) 1-6  = [0.2933 0.2962 0.2769 0.2622 0.255  0.2537]   Ljung-Box(12) p=1.055e-09
+  VXX: ACF(returns) lags1-6 = [-0.0211 -0.0083  0.0017  0.0002 -0.0131  0.0017]
+        ACF(|returns|) 1-6  = [0.3448 0.3355 0.3431 0.3264 0.3283 0.3145]   Ljung-Box(12) p=1.929e-23
+
+==============================================================================
+T1.2  INTRADAY SEASONALITY
+==============================================================================
+Mean return (bp) and realized vol (bp) by 30-min block, with bootstrap 95% CI on mean.
+
+--- SPXL ---
+          mean_bp  vol_bp     n  ci_lo  ci_hi signif
+block                                               
+09:30:00    0.560  36.168  7530 -0.247  1.369       
+10:00:00   -0.235  37.854  9036 -0.989  0.507       
+10:30:00   -0.266  30.381  9036 -0.877  0.363       
+11:00:00    0.204  27.675  9036 -0.373  0.794       
+11:30:00    0.237  24.711  9036 -0.257  0.734       
+12:00:00   -0.035  22.998  9036 -0.515  0.433       
+12:30:00   -0.068  22.198  9036 -0.525  0.395       
+13:00:00    0.105  25.268  8964 -0.421  0.606       
+13:30:00    0.328  22.962  8964 -0.149  0.814       
+14:00:00   -0.073  26.209  8958 -0.607  0.463       
+14:30:00    0.403  26.730  8958 -0.142  0.922       
+15:00:00   -0.207  25.959  8958 -0.772  0.302       
+15:30:00   -0.420  31.839  8958 -1.092  0.240       
+
+--- FAS ---
+          mean_bp  vol_bp     n  ci_lo  ci_hi signif
+block                                               
+09:30:00    0.327  52.806  7530 -0.862  1.562       
+10:00:00   -0.237  45.034  9036 -1.136  0.702       
+10:30:00    0.011  35.063  9036 -0.694  0.733       
+11:00:00   -0.063  31.211  9036 -0.673  0.558       
+11:30:00    0.251  27.467  9036 -0.298  0.837       
+12:00:00   -0.038  25.379  9036 -0.559  0.506       
+12:30:00   -0.073  24.058  9036 -0.581  0.397       
+13:00:00   -0.148  27.164  8964 -0.696  0.427       
+13:30:00    0.274  24.464  8964 -0.247  0.777       
+14:00:00   -0.014  26.988  8964 -0.607  0.554       
+14:30:00    0.238  27.345  8964 -0.328  0.832       
+15:00:00    0.220  26.627  8964 -0.319  0.744       
+15:30:00   -1.107  32.697  8964 -1.808 -0.451    ***
+
+--- VXX ---
+          mean_bp  vol_bp     n  ci_lo  ci_hi signif
+block                                               
+09:30:00    0.450  49.980  7545 -0.650  1.582       
+10:00:00   -0.098  53.201  9054 -1.141  1.021       
+10:30:00   -0.211  44.132  9054 -1.079  0.739       
+11:00:00   -0.439  39.920  9054 -1.227  0.364       
+11:30:00   -0.682  35.475  9054 -1.411  0.050       
+12:00:00   -0.365  33.419  9054 -1.055  0.309       
+12:30:00    0.601  33.502  9054 -0.084  1.299       
+13:00:00   -0.062  34.979  8982 -0.818  0.686       
+13:30:00   -0.526  36.503  8982 -1.323  0.219       
+14:00:00   -0.086  35.661  8982 -0.825  0.615       
+14:30:00   -0.671  36.182  8982 -1.365  0.069       
+15:00:00    0.391  36.412  8982 -0.349  1.149       
+15:30:00   -0.255  44.146  8982 -1.204  0.598       
+
+
+==============================================================================
+T1.3  VARIANCE RATIO (Lo-MacKinlay) AND DFA HURST  [CENTRAL TEST]
+==============================================================================
+VR(q) on 5-MINUTE intra-session returns.  VR<1 mean-reverting, VR>1 trending.
+z is heteroskedasticity-robust; |z|>1.96 is significant at 5%.
+
+      VR_10min  z_10min  VR_15min  z_15min  VR_30min  z_30min  VR_1h   z_1h  VR_half-day  z_half-day
+sym                                                                                                 
+SPXL     0.988   -1.618     0.975   -1.911     0.975   -1.048  0.980 -0.576        1.007       0.134
+FAS      0.990   -1.369     0.978   -1.833     0.970   -1.392  0.970 -0.980        0.981      -0.394
+VXX      0.979   -2.548     0.966   -2.737     0.951   -2.315  0.938 -1.952        0.962      -0.730
+
+VR(q) on DAILY returns (close-to-close, includes overnight).
+      VR_2d   z_2d  VR_1w   z_1w  VR_2w   z_2w  VR_1m   z_1m  VR_1q   z_1q
+sym                                                                       
+SPXL  0.987 -0.323  0.934 -0.768  0.871 -0.987  0.822 -0.959  0.686 -1.055
+FAS   1.021  0.573  1.008  0.101  0.989 -0.093  0.898 -0.609  0.839 -0.600
+VXX   0.930 -1.220  0.803 -1.780  0.692 -2.038  0.552 -2.283  0.486 -1.797
+
+DFA Hurst exponent (0.5 = random walk, <0.5 mean-reverting, >0.5 persistent):
+  SPXL: 5-min H=0.4845   daily H=0.4472
+  FAS: 5-min H=0.4856   daily H=0.4413
+  VXX: 5-min H=0.4353   daily H=0.3704
+
+==============================================================================
+T1.4  OVERNIGHT vs INTRADAY DECOMPOSITION
+==============================================================================
+                cum_log  cum_x  ann_ret  ann_vol  sharpe  hit_rate  max_dd
+sym  leg                                                                  
+SPXL overnight   1.1899 3.2868   0.1992   0.3052  0.6528    0.5561 -0.5511
+     intraday    0.5486 1.7309   0.0919   0.4107  0.2237    0.5415 -0.4202
+     total       1.7385 5.6890   0.2911   0.4979  0.5847    0.5442 -0.6386
+FAS  overnight   1.2903 3.6340   0.2161   0.3381  0.6390    0.5488 -0.5236
+     intraday    0.2738 1.3149   0.0458   0.4556  0.1006    0.5282 -0.6309
+     total       1.5641 4.7785   0.2619   0.5636  0.4647    0.5322 -0.6775
+VXX  overnight  -2.2639 0.1039  -0.3783   0.4120 -0.9183    0.3926 -0.9062
+     intraday   -2.1982 0.1110  -0.3673   0.5417 -0.6781    0.4290 -0.9224
+     total      -4.4621 0.0115  -0.7457   0.6671 -1.1178    0.4038 -0.9897
+
+Year-by-year cumulative log return split (overnight | intraday):
+        overnight               intraday              
+sym           FAS   SPXL    VXX      FAS   SPXL    VXX
+session                                               
+2020        0.582  0.512 -0.355   -0.026 -0.097 -0.229
+2021        0.835  0.461 -0.785   -0.068  0.225 -0.502
+2022       -0.184 -0.545  0.318   -0.390 -0.292 -0.590
+2023       -0.178  0.021 -0.233    0.294  0.495 -1.057
+2024        0.519  0.514 -0.904    0.082 -0.030  0.596
+2025       -0.147  0.143 -0.278    0.257  0.126 -0.266
+2026       -0.136  0.085 -0.027    0.126  0.122 -0.151
+
+==============================================================================
+T1.5  VOLATILITY REGIMES
+==============================================================================
+  SPXL: GJR-GARCH(1,1,1) skew-t  alpha=0.0000 gamma=0.1990 beta=0.8693  persistence=0.9688  nu=nan lambda=-0.225
+        gamma>0 means negative shocks raise vol more (leverage effect)
+  FAS: GJR-GARCH(1,1,1) skew-t  alpha=0.0212 gamma=0.1657 beta=0.8381  persistence=0.9421  nu=nan lambda=-0.138
+        gamma>0 means negative shocks raise vol more (leverage effect)
+  VXX: GJR-GARCH(1,1,1) skew-t  alpha=0.4538 gamma=-0.4538 beta=0.7013  persistence=0.9282  nu=nan lambda=0.375
+        gamma>0 means negative shocks raise vol more (leverage effect)
+
+Realized-vol regimes (terciles of 21-day trailing realized vol, SPXL as reference):
+  SPXL 21d realized-vol terciles: low<34.4%  mid  high>48.9%
+
+  --- SPXL by SPXL vol regime ---
+         n  ann_ret  ann_vol  sharpe
+close                               
+low    495   0.5584   0.2870  1.9456
+mid    495   0.0148   0.4154  0.0355
+high   495   0.2432   0.7040  0.3454
+
+  --- FAS by SPXL vol regime ---
+         n  ann_ret  ann_vol  sharpe
+close                               
+low    495   0.2920   0.4197  0.6957
+mid    495   0.1139   0.5019  0.2269
+high   495   0.3654   0.7311  0.4997
+
+  --- VXX by SPXL vol regime ---
+         n  ann_ret  ann_vol  sharpe
+close                               
+low    495  -0.5230   0.4994 -1.0473
+mid    495  -0.4375   0.6790 -0.6443
+high   495  -1.2221   0.7993 -1.5290
+
+==============================================================================
+T1.6  LEVERAGE-DRAG DECOMPOSITION (SPXL, FAS)
+==============================================================================
+De-lever r_1x = r_3x / 3, recompound, and measure the path-dependency cost.
+Theory: drag rate = -0.5*L*(L-1)*sigma_1x^2 = -3*sigma_1x^2 for L=3.
+
+  SPXL:
+    reconstructed 1x  : CAGR  13.27%   ann vol 16.57%
+    actual 3x fund    : CAGR  33.79%   ann vol 49.71%
+    3x of 1x CAGR     :  39.80%  (naive linear expectation)
+    realized log drag :  -8.26% / yr
+    theoretical drag  :  -8.24% / yr   (-3*sigma_1x^2)
+    agreement         : 0.0225% absolute difference
+    hold-period decay vs 3x-of-1x, by horizon:
+          1d: median gap +0.000%  mean +0.000%
+          5d: median gap -0.021%  mean -0.011%
+         10d: median gap -0.061%  mean -0.041%
+         21d: median gap -0.173%  mean -0.113%
+         63d: median gap -0.670%  mean -0.516%
+        126d: median gap -1.135%  mean -0.554%
+        252d: median gap -3.494%  mean +0.384%
+
+  FAS:
+    reconstructed 1x  : CAGR  13.04%   ann vol 18.78%
+    actual 3x fund    : CAGR  29.94%   ann vol 56.34%
+    3x of 1x CAGR     :  39.12%  (naive linear expectation)
+    realized log drag : -10.58% / yr
+    theoretical drag  : -10.58% / yr   (-3*sigma_1x^2)
+    agreement         : 0.0023% absolute difference
+    hold-period decay vs 3x-of-1x, by horizon:
+          1d: median gap +0.000%  mean -0.000%
+          5d: median gap -0.025%  mean -0.001%
+         10d: median gap -0.085%  mean -0.008%
+         21d: median gap -0.204%  mean -0.084%
+         63d: median gap -1.022%  mean -0.321%
+        126d: median gap -2.078%  mean +0.645%
+        252d: median gap -6.613%  mean +2.742%
+
+
+==============================================================================
+T1.7  VXX DECAY AND PAYOFF ASYMMETRY
+==============================================================================
+VXX 2020-07-23 -> 2026-07-27: 1,925.76 -> 22.22  (-98.85% total, CAGR -52.56%)
+Implied half-life at the realized decay rate: 0.93 years
+
+Holding-period return distribution (overlapping windows):
+         n  median    mean  hit_rate     p05    p95    max   skew
+days                                                             
+1     1508 -0.0059 -0.0021    0.4038 -0.0585 0.0698 0.4177 1.5471
+2     1507 -0.0092 -0.0042    0.4001 -0.0819 0.0852 0.7566 2.3998
+3     1506 -0.0130 -0.0064    0.3911 -0.0991 0.1064 0.9169 2.4512
+5     1504 -0.0201 -0.0111    0.3597 -0.1251 0.1314 0.9198 1.9459
+10    1499 -0.0355 -0.0231    0.3389 -0.1701 0.1702 1.0326 1.8688
+15    1494 -0.0513 -0.0353    0.3106 -0.2044 0.1864 1.1447 1.6913
+20    1489 -0.0660 -0.0476    0.2982 -0.2403 0.2046 1.1531 1.4255
+40    1469 -0.1247 -0.0949    0.2253 -0.3305 0.2294 0.9746 1.5809
+60    1449 -0.1834 -0.1383    0.1953 -0.4008 0.2795 0.8112 1.2577
+
+VXX conditional payoff on SPXL down days (same-day, common sessions):
+  SPXL < -5%     n=  73  VXX mean  +9.35%  median  +7.70%  max +41.77%  beta -0.68
+  -5% to -3%     n= 117  VXX mean  +4.29%  median  +3.98%  max +14.31%  beta -2.61
+  -3% to -1%     n= 248  VXX mean  +1.57%  median  +1.46%  max +11.93%  beta -1.88
+  -1% to +1%     n= 504  VXX mean  -0.57%  median  -0.60%  max  +9.44%  beta -1.05
+  +1% to +3%     n= 348  VXX mean  -2.09%  median  -1.88%  max  +4.15%  beta -1.47
+  SPXL > +3%     n= 215  VXX mean  -4.05%  median  -3.58%  max  +2.76%  beta -0.49
+
+[saved] /home/user/TradingModel/ETFGroupAnalysis/out/p1_distributions.csv, p1_overnight_intraday.csv

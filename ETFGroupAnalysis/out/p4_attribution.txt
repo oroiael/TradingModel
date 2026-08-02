@@ -1,0 +1,96 @@
+Gate 'SPXL 21d realized vol < 45%' is ON for 58.5% of sessions.
+
+==============================================================================
+ATTRIBUTION -- is the edge the OVERNIGHT leg, or just VOL TIMING?
+==============================================================================
+                        ann_ret  ann_vol  sharpe  sr_train  sr_test  max_dd
+leg       sym  gate                                                        
+overnight SPXL ungated   0.1992   0.3052  0.6528    0.4246   0.9678 -0.5511
+               gated     0.1913   0.1679  1.1396    0.9341   1.3697 -0.2058
+          FAS  ungated   0.2161   0.3381  0.6390    0.8425   0.3112 -0.5236
+               gated     0.1322   0.1918  0.6893    0.9681   0.3693 -0.3466
+intraday  SPXL ungated   0.0919   0.4107  0.2237    0.2235   0.2246 -0.4202
+               gated    -0.0333   0.2342 -0.1423    0.0211  -0.3207 -0.4129
+          FAS  ungated   0.0458   0.4556  0.1006   -0.1147   0.4405 -0.6309
+               gated    -0.0322   0.2903 -0.1111   -0.2250   0.0280 -0.4444
+full-day  SPXL ungated   0.2911   0.4979  0.5847    0.4330   0.8212 -0.6386
+               gated     0.1580   0.2800  0.5643    0.5446   0.5930 -0.3028
+          FAS  ungated   0.2619   0.5636  0.4647    0.4141   0.5534 -0.6775
+               gated     0.1000   0.3497  0.2859    0.3340   0.2289 -0.4686
+
+Sharpe lift from the gate (gated minus ungated), by leg:
+gate             gated  ungated    lift
+leg       sym                          
+full-day  FAS  +0.2859  +0.4647 -0.1788
+          SPXL +0.5643  +0.5847 -0.0204
+intraday  FAS  -0.1111  +0.1006 -0.2117
+          SPXL -0.1423  +0.2237 -0.3659
+overnight FAS  +0.6893  +0.6390 +0.0503
+          SPXL +1.1396  +0.6528 +0.4868
+
+==============================================================================
+THRESHOLD SENSITIVITY -- is 45% a cliff or a plateau?
+==============================================================================
+       exposure             sharpe            sr_test             max_dd          
+leg    full-day overnight full-day overnight full-day overnight full-day overnight
+thr                                                                               
+0.300    0.2047    0.2047   0.0197    0.3286  -0.3086    0.0717  -0.2694   -0.1587
+0.350    0.3508    0.3508   0.1850    0.4566   0.1045    0.6697  -0.2469   -0.1930
+0.400    0.4664    0.4664   0.1632    0.6156  -0.0982    0.6767  -0.4079   -0.2422
+0.425    0.5435    0.5435   0.3549    0.8960   0.1856    0.7942  -0.4012   -0.2687
+0.450    0.5847    0.5847   0.4478    0.9647   0.4422    0.9279  -0.3388   -0.2687
+0.475    0.6339    0.6339   0.3354    0.9842   0.1882    0.9238  -0.4366   -0.2687
+0.500    0.6777    0.6777   0.3669    0.7677   0.2134    0.7438  -0.4248   -0.3072
+0.550    0.7442    0.7442   0.4717    1.0102   0.4716    1.0894  -0.4035   -0.3005
+0.600    0.8033    0.8033   0.5096    0.8113   0.5387    0.7244  -0.4135   -0.3285
+0.700    0.8764    0.8764   0.6210    1.0037   0.7060    0.7905  -0.4591   -0.3681
+99.000   0.9860    0.9860   0.5218    0.6709   0.7340    0.6723  -0.6370   -0.5310
+
+thr=99 is the ungated control. A plateau across 0.40-0.55 indicates a real
+effect; a spike only at 0.45 would indicate threshold mining.
+
+==============================================================================
+YEAR-BY-YEAR -- gated 50/50 overnight vs benchmarks
+==============================================================================
+Cumulative log return by year:
+         gated_overnight_5050  ungated_overnight_5050  gated_fullday_5050  buyhold_SPXL
+session                                                                                
+2020                  +0.1429                 +0.5468             +0.1452       +0.4147
+2021                  +0.3190                 +0.6479             +0.2304       +0.6861
+2022                  +0.0081                 -0.3646             -0.0682       -0.8366
+2023                  +0.0533                 -0.0786             +0.1164       +0.5154
+2024                  +0.4678                 +0.5165             +0.4830       +0.4836
+2025                  +0.1702                 -0.0020             +0.0732       +0.2688
+2026                  -0.1951                 -0.0258             -0.2096       +0.2065
+
+Sharpe by year:
+         gated_overnight_5050  ungated_overnight_5050  gated_fullday_5050  buyhold_SPXL
+session                                                                                
+2020                  +3.1834                 +3.3692             +1.5360       +1.8444
+2021                  +1.5179                 +2.6416             +0.6299       +1.7700
+2022                  +0.1134                 -0.8768             -0.7548       -1.1555
+2023                  +0.3417                 -0.3142             +0.3841       +1.3327
+2024                  +2.3906                 +2.2067             +1.5299       +1.2800
+2025                  +1.0957                 -0.0060             +0.2613       +0.4902
+2026                  -1.6222                 -0.1752             -1.1297       +0.9173
+
+==============================================================================
+CORRECTED SIGNIFICANCE TABLE
+==============================================================================
+PSR = P(true Sharpe > 0), skew/kurtosis-adjusted, single hypothesis.
+DSR = same but corrected for the number of variants tried.
+n_trials: 22 for anything selected from the gate grid, 3 for the pre-specified
+overnight sleeves, 32 for the intraday grid. Buy-and-hold was not selected.
+
+                                      sharpe  sr_test  PSR(SR>0)  PSR(SR>0.5)  n_trials    DSR
+strategy                                                                                      
+buyhold_SPXL                          0.5847   0.8212     0.9220       0.5814         1    NaN
+overnight_5050 (pre-specified)        0.6741   0.6723     0.9492       0.6638         3 0.7850
+gated_overnight_5050 (grid-selected)  0.9647   0.9279     0.9900       0.8689        22 0.6588
+gated_fullday_5050 (grid-selected)    0.4478   0.4422     0.8615       0.4495        22 0.1996
+
+DSR is NaN for buy-and-hold because a single hypothesis needs no deflation --
+the earlier DSR=1.000 for it was a degenerate artifact of norm.ppf(0) = -inf,
+not evidence of superiority.
+
+[saved] /home/user/TradingModel/ETFGroupAnalysis/out/p4_attribution.csv, p4_threshold_sensitivity.csv, p4_significance.csv
