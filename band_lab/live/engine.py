@@ -35,7 +35,9 @@ for _p in (_HERE, os.path.join(os.path.dirname(_HERE), "phase1")):
     if _p not in sys.path:
         sys.path.insert(0, _p)
 
-from broker import Broker, NotLiveDataError, SessionHours   # noqa: E402
+from broker import (                                        # noqa: E402
+    Broker, MarketClosedError, NotLiveDataError, SessionHours,
+)
 from orders import OrderManager                             # noqa: E402
 from sleeve import SleeveConfig, SleeveStateMachine         # noqa: E402
 from store import Store                                     # noqa: E402
@@ -118,7 +120,18 @@ class Engine:
             rt = SleeveRuntime(symbol=symbol, sm=sm, om=om, history=hist)
             self.sleeves[symbol] = rt
 
-            sh = (hours or {}).get(symbol) or self.broker.session_hours(symbol, day)
+            try:
+                sh = (hours or {}).get(symbol) or self.broker.session_hours(symbol, day)
+            except MarketClosedError as exc:
+                # Weekend or holiday. Expected, not a fault — an always-on
+                # service meets this every Saturday and Sunday.
+                rt.dormant, rt.dormant_reason = True, "market_closed"
+                self.on_event("info", f"{symbol} MARKET CLOSED: {exc}")
+                self.store.daily(self.session, symbol, gate_ok=0,
+                                 gate_reason="market_closed",
+                                 account_equity=equity,
+                                 sleeve_capital=self.sleeve_capital)
+                continue
             atr5 = hist.atr5()
             gate = sm.begin_session(day, atr5, sh.is_half_day, late_open=False)
             om.apply(sm.drain_intents())

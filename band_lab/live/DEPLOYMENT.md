@@ -305,6 +305,10 @@ market. Confirm four things:
 | the limit *would* arm at 11:00 at the price `replay.py` says | `decisions` table vs an EOD replay of the same bars |
 | **no `BAR GAP` errors all session** | console `[error]` lines, and `feed.missing_before()` |
 
+**Run it on a weekday.** On a Saturday or Sunday the runner reports
+`market closed, nothing to do` and exits 0 without connecting — correct
+behaviour, but it exercises none of the session path.
+
 The bar-gap check is the one to watch. A missed bar understates
 `session_high`, which is the anchor everything ratchets from, and the polled
 feed is the only place that can silently lose one.

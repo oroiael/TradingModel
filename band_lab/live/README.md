@@ -24,7 +24,7 @@ session with `--dry-run` (transmit off). See [DEPLOYMENT.md](DEPLOYMENT.md) §12
 | `replay.py` | offline driver + equivalence report + the S9/S10 diagnostics | 1 ✅ |
 | `intrabar.py` | 5-minute decisions, 1-minute fills — the S10 resolution study | 1 ✅ |
 | `fetch_1min.py` | IBKR 1-minute bar fetcher (resumable, paced) | 1 ✅ |
-| `tests/` | 130 tests: core arithmetic, state machine (§10.4–8, 14), equivalence, intrabar, fetcher | 1 ✅ |
+| `tests/` | 137 tests: core arithmetic, state machine (§10.4–8, 14), equivalence, intrabar, fetcher | 1 ✅ |
 | `broker.py` | ib_async adapter + `FakeIB` test double; live-data assertion, session hours, reconcile primitives | 2 ✅ |
 | `store.py` | SQLite (WAL): bars, decisions, orders, fills, quotes, counters, daily | 2 ✅ |
 | `orders.py` | OrderManager: deterministic refs, ratchet, OCA, partial fills, flatten, reconcile | 3 ✅ |
@@ -40,7 +40,7 @@ session with `--dry-run` (transmit off). See [DEPLOYMENT.md](DEPLOYMENT.md) §12
 
 ```bash
 python3 band_lab/live/replay.py           # equivalence vs phase1 — exit 0 == green
-python3 -m pytest band_lab/live -q        # 130 tests
+python3 -m pytest band_lab/live -q        # 137 tests
 python3 band_lab/live/run.py --dry-run     # Stage 4: a session with transmit OFF
 python3 band_lab/live/replay.py --sizing        # S9
 python3 band_lab/live/replay.py --fill-models   # S10
