@@ -1,4 +1,4 @@
-# Deployment — macOS, IBKR TWS paper
+# Deployment — IBKR TWS paper (macOS §§1–8, Windows §13)
 
 Setup and runbook for the Phase 2 engine. Build stages are in
 [PHASE2_PLAN.md](PHASE2_PLAN.md); Stage 1's result is in
@@ -140,7 +140,7 @@ still required alongside the 23:00 auto-restart, whether API orders and
 IB-held stops survive that restart, and the "auto-cancel orders on API
 disconnect" behaviour. These decide how much the watchdog has to do.
 
-## 7. Keeping the Mac awake
+## 7. Keeping the Mac awake (macOS; Windows is §13.5)
 
 macOS sleeping mid-session is the most likely cause of a missed bar or an
 unmanaged position.
@@ -367,3 +367,132 @@ capital that is not at risk, but **none of them is optional before Phase 3**:
   measures the condition today but nothing acts on it.
 - `watchdog.py` — separate process, heartbeat → `reqGlobalCancel` + flatten.
 - Alerting (email/push/desktop) and service supervision (launchd).
+
+---
+
+## 13. Windows 11
+
+The engine is platform-neutral — no signal handlers, no `fork`, no hardcoded
+POSIX paths, and every path built with `os.path.join`. Only the *host*
+instructions differ. §§1–8 above are macOS; this section is their Windows
+equivalent. §§9–12 apply unchanged.
+
+**The one that bites immediately:** on Windows `python3` usually does not
+exist. Every command in this document written as `python3 ...` becomes
+`python ...` (or `py -3 ...`). The engine itself does not care.
+
+### 13.1 Prerequisites
+
+```powershell
+winget install --id Git.Git -e
+winget install --id GitHub.GitLFS -e
+winget install --id Python.Python.3.12 -e
+git lfs install
+```
+
+Open a **new** PowerShell window afterwards so `PATH` picks them up. Verify:
+
+```powershell
+python --version      # 3.11 or newer
+git lfs version
+```
+
+### 13.2 Repository and data
+
+```powershell
+cd $HOME\TradingModel
+git checkout claude/band-lab-trading-strategy-plan-6zxt67
+git pull
+git lfs pull --include="SOXL_5min_6Years.csv,SOXS_5min_6Years.csv,SOXL_1min.csv,SOXS_1min.csv"
+
+# sizes must be ~7.7MB, ~8.7MB, ~42.9MB, ~48.2MB — not ~130 bytes
+Get-ChildItem SOXL_5min_6Years.csv,SOXS_5min_6Years.csv,SOXL_1min.csv,SOXS_1min.csv |
+  Select-Object Name,Length
+```
+
+The CSVs are marked `-text` in `.gitattributes`, so Git will not rewrite their
+line endings. If a size looks wrong, the pull did not complete — re-run it
+rather than proceeding.
+
+### 13.3 Python environment
+
+```powershell
+cd $HOME\TradingModel
+python -m venv .venv-live
+.\.venv-live\Scripts\Activate.ps1
+python -m pip install -U pip
+python -m pip install -r band_lab\live\requirements.txt
+```
+
+If activation is blocked by execution policy:
+
+```powershell
+Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass
+```
+
+(Scoped to the process — it does not change machine policy.)
+
+### 13.4 Verify the install — all offline, run these first
+
+```powershell
+python -m pytest band_lab\phase1 -q     # 59 passed
+python band_lab\phase1\parity.py        # exit 0
+python band_lab\live\replay.py          # STAGE 1 EQUIVALENCE: PASS
+python -m pytest band_lab\live -q       # all passed
+```
+
+Check exit codes with `$LASTEXITCODE` (the PowerShell equivalent of `echo $?`).
+None of these need TWS, a market, or a network — they are the right thing to
+run on a weekend.
+
+### 13.5 Keeping the machine awake
+
+macOS `pmset` becomes `powercfg`. Run in an **elevated** PowerShell:
+
+```powershell
+powercfg /change standby-timeout-ac 0     # never sleep on AC
+powercfg /change hibernate-timeout-ac 0
+powercfg /change disk-timeout-ac 0
+powercfg /change monitor-timeout-ac 15    # the display may sleep
+powercfg /query SCHEME_CURRENT            # verify
+```
+
+Also:
+
+- **Windows Update** is the biggest unattended-operation risk on this
+  platform: it reboots. Set *Active hours* to cover 09:00–17:00 ET at minimum
+  (Settings → Windows Update → Advanced options). Windows Pro can defer
+  updates further via Group Policy; Home cannot fully prevent them, so expect
+  an occasional forced restart and rely on the engine's reconcile-on-connect.
+- **Screen lock is fine** — TWS and the engine keep running. What matters is
+  that the machine comes *back* after a reboot.
+- If you want automatic login after a reboot, note the same trade-off as
+  FileVault on macOS: it is incompatible with full-disk encryption (BitLocker)
+  requiring a boot PIN. A machine holding broker credentials should probably
+  keep BitLocker and accept that a reboot needs a human.
+
+### 13.6 Service supervision (Stage 7, not yet)
+
+`launchd` becomes **Task Scheduler**. When Stage 7 lands, the task wants:
+trigger *At startup*, "Run whether user is logged on or not", "Run with
+highest privileges", and *Settings → If the task fails, restart every 1
+minute*. Not required for the paper run, which can be started by hand.
+
+### 13.7 Alerting
+
+**No notifier is implemented yet** — email/push/desktop is Stage 7 work, so
+nothing macOS-specific needs porting. When it lands, the Windows desktop
+channel is a PowerShell toast (the `BurntToast` module) rather than
+`osascript`; ntfy and SMTP are platform-neutral and unchanged.
+
+### 13.8 TWS
+
+Identical to §6 — same settings, same ports, same paper account. The
+installer puts it in `C:\Jts` by default; Global Configuration is in the same
+place in the UI. The 23:00 auto-restart setting is unchanged.
+
+> **Unverified on Windows.** These instructions were written without a
+> Windows machine to test them on. The PowerShell and `winget` invocations
+> follow documented syntax but have not been executed; the Python engine
+> itself is exercised by the full test suite on every platform it runs on.
+> Report anything that does not behave as written.
