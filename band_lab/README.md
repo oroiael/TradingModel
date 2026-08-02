@@ -10,6 +10,8 @@
 >
 > | where to look | for |
 > |---|---|
+> | [**`PROJECT_STATUS.md`**](PROJECT_STATUS.md) | **where the project is, what worked, and the next-steps checklist — start here** |
+> | [**`live/RUNBOOK.md`**](live/RUNBOOK.md) | **instructions only: how to launch and operate the paper run (Windows 11)** |
 > | [`STRATEGY_SPEC.md`](STRATEGY_SPEC.md) §0.2 | the locked rules + what the re-tests found |
 > | [`IMPLEMENTATION_SPEC.md`](IMPLEMENTATION_SPEC.md) §8 | the baselines the paper run is measured against |
 > | [`live/`](live/) | the Phase 2 engine (Stages 1–4, runnable) |

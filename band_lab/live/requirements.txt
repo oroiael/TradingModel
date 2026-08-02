@@ -10,3 +10,8 @@ pandas>=2.2
 numpy>=1.26
 pytest>=8.0
 ib_async>=2.0
+
+# Windows has no system IANA database, so `ZoneInfo("America/New_York")` — which
+# every timestamp in the engine depends on — raises unless this is installed.
+# It arrives transitively via ib_async today; named here so it cannot vanish.
+tzdata>=2024.1
