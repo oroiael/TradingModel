@@ -219,21 +219,33 @@ good test of the order path and a bad one for reading bp.
 Instructions for every item are in [`live/RUNBOOK.md`](live/RUNBOOK.md), section
 by section. This is the ledger; that is the manual.
 
-### A. Before Monday's open — Windows 11 machine (RUNBOOK §1–§4)
+### A. Before Monday's open — Windows 11 machine (RUNBOOK §0, §3, §4)
 
-- [ ] Install Python 3.11+, Git, Git LFS
-- [ ] Clone the repo and `git lfs pull` the two 5-minute CSVs (they arrive as
-      132-byte pointers otherwise and nothing works)
-- [ ] Create the venv and install `band_lab/live/requirements.txt`
+Confirmed 2026-08-02: Python, TWS and the repo are **already installed**, and
+the paper account will hold **$150,000** on port **7497**. RUNBOOK §1–§2 are
+therefore skippable; these are not.
+
+- [ ] 🔴 **`git pull` on the Windows box — commit `014e9b4` or later.** Without
+      it `--dry-run` transmits real orders (§4.1). Nothing else on this list
+      matters if this is missed
+- [ ] `git lfs pull` and confirm the CSVs are 7.4 MB / 8.3 MB, not 132 bytes
+- [ ] `pip install -r band_lab/live/requirements.txt` — the file changed
 - [ ] **Verify the install: 4 commands, all must pass** — 59 phase1 tests,
-      `parity.py` exit 0, `replay.py` exit 0, 144 live tests
-- [ ] Install and log into **TWS paper**; configure the API per RUNBOOK §3
-- [ ] **Confirm `NetLiquidation` on the paper account.** At SOXL ≈ $115/share,
-      a sleeve needs ≳ $250 to buy a single share, and the published cost model
-      assumes $75,000 per sleeve
-- [ ] **Confirm market data is live, not delayed** — the engine refuses to arm
-      on delayed data and will stand down at 11:00
-- [ ] Stop the machine sleeping (RUNBOOK §4)
+      `parity.py` exit 0, `replay.py` exit 0, **144** live tests (not 137)
+- [ ] Verify the TWS API settings: port **7497**, Read-Only API **off**,
+      trusted IP 127.0.0.1, download open orders **on**, auto-restart 23:00
+- [ ] **Confirm market data is live, not delayed.** This gates two things: the
+      engine refuses to arm at 11:00 on delayed data, *and* the historical
+      top-up in §B is a market-data request that fails without it
+- [ ] Note **Available Funds** and **Buying Power** in TWS. At $150K both
+      sleeves deploy 100% of equity, and 3x ETFs carry elevated margin
+      requirements — `PHASE2_PLAN.md` §4.3, still open and **not testable by
+      the dry run** since no orders are sent
+- [ ] Stop the machine sleeping (RUNBOOK §4.7)
+
+> **Historical data needs no manual step.** The engine tops up from the CSV
+> backbone (which ends 2026-07-21 / 2026-07-24) via one paced IBKR request per
+> symbol at pre-open, and polls today's bars live. RUNBOOK §4.6.
 
 ### B. Monday 2026-08-03 — the dry run (RUNBOOK §5)
 

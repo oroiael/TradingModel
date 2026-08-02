@@ -13,6 +13,63 @@ Two rules while working through this:
 
 Conventions: `C:\TradingModel` is used as the repo location — substitute yours.
 All times are **America/New_York (ET)**. Commands are PowerShell.
+**The paper port is 7497** — everywhere in this document, without exception.
+7496 and 4001 are live-money ports and the engine refuses to start on them.
+
+---
+
+# §0 · If the machine is already set up — the short path
+
+Python, TWS and the repo are already installed: **skip §1 and §2.** Four things
+still have to happen before Monday.
+
+### 0.1 🔴 `git pull` — this one is mandatory
+
+```powershell
+cd C:\TradingModel
+git checkout main
+git pull
+git log --oneline -1
+```
+
+You need commit **`014e9b4`** or later.
+
+**Without it, `--dry-run` places real orders.** The safety guard that makes a
+dry run actually dry did not exist until 2026-08-02 — `readonly` in `ib_async`
+never stopped `placeOrder`. An older checkout will transmit on Monday. This is
+the single most important step on the page.
+
+### 0.2 Confirm the price files are real, not LFS pointers
+
+Even on a working clone these arrive as 132-byte pointers unless someone ran
+`git lfs pull`:
+
+```powershell
+cd C:\TradingModel
+git lfs pull --include="SOXL_5min_6Years.csv,SOXS_5min_6Years.csv"
+Get-ChildItem SOXL_5min_6Years.csv, SOXS_5min_6Years.csv |
+    Select-Object Name, @{n='MB';e={[math]::Round($_.Length/1MB,1)}}
+```
+
+Must read **7.4 MB** and **8.3 MB**. If either says `0`, stop and fix it.
+
+### 0.3 Reinstall requirements — the file changed
+
+```powershell
+.\.venv-live\Scripts\Activate.ps1
+pip install -r band_lab\live\requirements.txt
+```
+
+`tzdata` is now pinned explicitly. Windows ships no IANA time-zone database, and
+every timestamp in the engine goes through `ZoneInfo("America/New_York")`.
+
+### 0.4 Run §3's four verification commands
+
+Not optional, and not a formality — they are what proves the pull landed
+cleanly. Expect **`144 passed`** on the live suite, not 137.
+
+Then go to **§4** (verify the TWS settings even if you believe they are done —
+in particular §4.4 market data and §4.5 the account) and **§5** for Monday.
 
 ---
 
@@ -183,19 +240,78 @@ In TWS: **Account → Account Window**. Note **NetLiquidation**.
 The engine computes `sleeve_capital = 0.50 × min(NetLiquidation, 150,000)` and
 `shares = floor(sleeve_capital / price)`.
 
+**At the planned $150,000 paper balance:**
+
+| | |
+|---|---|
+| `capital_basis` | `min(150,000, 150,000)` = **$150,000** |
+| `sleeve_capital` | 0.50 × 150,000 = **$75,000 per sleeve** |
+| shares at SOXL ≈ $115 | **652** |
+| both sleeves in a position at once | **$150,000 of stock on $150,000 equity** |
+
+That is exactly the size the published cost rows assume, so the §8 baselines
+apply unmodified. It also puts the account at **100% deployed** when both
+sleeves are long simultaneously — which is `PHASE2_PLAN.md` §4.3, still open:
+
+- **PDT is satisfied.** $150,000 ≫ the $25,000 floor, and the sleeve is a
+  pattern day trader by construction (up to 5 round trips per sleeve per day).
+- **Reg T initial margin** is 50% on ordinary stock, so 1.0× would clear easily.
+  **But 3x ETFs carry elevated requirements** — `V11_SIZING_TESTS.md` notes
+  brokers cap day-trading buying power on them near 1.33× because of 75%
+  maintenance. 1.0× should fit inside even that, with little room to spare.
+- **The dry run cannot test this.** No orders are sent, so no buying-power check
+  is exercised. It is first tested on the first transmit-ON session.
+
+**Check now, in TWS:** Account Window → **Available Funds** and **Buying Power**.
+Note both numbers before Monday so a rejection on the first live day is
+diagnosable rather than a surprise.
+
+For reference, if the balance ever ends up wrong:
+
 | NetLiquidation | Per sleeve | Shares at SOXL ≈ $115 |
 |---|---:|---:|
-| $1,000,000 (IBKR paper default) | $75,000 | 652 |
-| $150,000 | $75,000 | 652 |
+| $150,000 (planned) | $75,000 | 652 |
 | $50,000 | $25,000 | 217 |
 | $1,000 | $500 | 4 |
-| $250 | $125 | **1** |
 | under $230 | under $115 | **0 — the sleeve never trades** |
 
-If NetLiquidation is small, reset the paper account's balance in Client Portal
-before Monday. The published cost figures assume $75,000 per sleeve.
+### 4.6 Historical data — you do not need to update anything by hand
 
-### 4.6 Stop the machine sleeping
+**The engine fetches it itself, every morning, as part of the run.** There is no
+manual data step before Monday.
+
+How it works:
+
+| | |
+|---|---|
+| **Backbone** | The repo's 5-minute CSVs. They stop at **2026-07-21** (SOXL) and **2026-07-24** (SOXS) and are never rewritten |
+| **Top-up** | At pre-open the engine measures the gap to today and makes **one** paced `reqHistoricalData` call per symbol for the missing 5-minute bars, appending any session after the CSV's last |
+| **Today's bars** | Polled live from IBKR every 20 seconds through the session — nothing to do with the CSVs |
+
+So on Monday the engine will ask IBKR for roughly two weeks of 5-minute bars per
+symbol and expect to add **8 sessions for SOXL** (Jul 22, 23, 24, 27, 28, 29, 30,
+31) and **5 for SOXS** (Jul 27–31). That is Check 1 in §5.3, and it is the check
+to actually watch.
+
+Three things follow, and they are the reason this matters:
+
+1. **It needs TWS connected and market-data permissions working.** A historical
+   request is a market-data request. If the paper account cannot see live US
+   equity data (§4.4), the top-up fails.
+2. **A failed top-up used to be silent.** The engine would compute ATR5 and
+   thr80 from history ending 2026-07-21 and trade on it without complaint. As of
+   2026-08-02 it prints an explicit `[error]` instead — which is why §0.1's
+   `git pull` matters here too.
+3. **The dry run is a real test of this.** The feature bootstrap runs
+   identically whether transmit is on or off, so Monday genuinely proves the
+   data path.
+
+> If you ever want to refresh the CSV backbone itself, `band_lab/live/fetch_1min.py`
+> is the fetcher for the 1-minute study, not for this. Don't. The backbone is
+> deliberately frozen — it is the exact series every published number came from,
+> which is what makes the daily shadow-parity comparison meaningful.
+
+### 4.7 Stop the machine sleeping
 
 PowerShell **as Administrator**:
 
@@ -220,13 +336,16 @@ and it must be clean before any order is ever sent.
 
 ```powershell
 cd C:\TradingModel
-.\.venv-live\Scripts\Activate.ps1
 git pull
+.\.venv-live\Scripts\Activate.ps1
+git log --oneline -1        # must be 014e9b4 or later — see §0.1
 ```
 
-Run the four verification commands from **§3**. All four must pass.
+Run the four verification commands from **§3**. All four must pass, and the live
+suite must say **`144 passed`**.
 
-Start TWS and log in to the paper account. Leave it running and logged in.
+Start TWS and log in to the **paper** account — the login screen's Live/Paper
+selector must say Paper, and the API port must be **7497**. Leave it running.
 
 ## 5.2 — by 09:25 ET, start the engine
 
@@ -280,14 +399,22 @@ the gate is being computed from week-old data. **Stop the run and investigate.**
 > whole file — they are not meant to sum. Only `from broker` and `last session`
 > matter here.
 
-### ✅ Check 2 — equity and sleeve capital
+### ✅ Check 2 — equity, sleeve capital, and the right port
 
 ```
-09:24:20 [info    ] equity=1,000,000 basis=150,000 sleeve_capital=75,000
+09:24:03 [info    ] pre-open 20260803 | SOXL,SOXS @ 127.0.0.1:7497 clientId=11 | f=1.0 w=0.5 cap=150,000 | transmit OFF (dry run)
+09:24:20 [info    ] equity=150,000 basis=150,000 sleeve_capital=75,000
 ```
 
-**Pass:** `sleeve_capital` matches §4.5 for your account. **Fail:** a
-sleeve_capital under a few hundred dollars — the sleeve will size to 0 shares.
+**Pass:** all four of —
+
+- the address ends **`:7497`** (paper). If it says 7496 or 4001, kill it now
+- **`transmit OFF (dry run)`**, not `TRANSMIT ON`
+- `equity=150,000` — the paper balance you set
+- `sleeve_capital=75,000`
+
+**Fail:** a sleeve_capital under a few hundred dollars means the sleeve sizes to
+0 shares and silently never trades.
 
 ### ✅ Check 3 — the gate is ON for both sleeves
 
