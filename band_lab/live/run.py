@@ -84,8 +84,21 @@ class Runner:
             b = features.build(symbol, self.root, broker=self.broker,
                                today=day, store=self.store)
             boots[symbol] = b
-            self._event("info", f"{symbol}: {b.sessions} sessions "
-                                f"({b.from_csv} csv + {b.from_broker} broker)")
+            # `sessions` is the trimmed thr80 window and `from_csv` is the whole
+            # file, so these never summed and the line read as a typo. The
+            # operator's real question at 06:00 is "did the top-up reach the
+            # broker" — a stale CSV computes ATR5 from week-old data and says
+            # nothing, so it is called out rather than left to arithmetic.
+            last = f"{b.last_session:%Y-%m-%d}" if b.last_session else "none"
+            self._event("info",
+                        f"{symbol}: {b.sessions} sessions in window | "
+                        f"+{b.from_broker} from broker | "
+                        f"csv holds {b.from_csv} | last session {last}")
+            if b.from_broker == 0:
+                self._event("error",
+                            f"{symbol}: the broker top-up added no sessions — "
+                            f"ATR5 and thr80 are being computed from history "
+                            f"ending {last}. Verify before trusting the gate.")
         if not features.check(boots, self._event):
             self._event("critical", "insufficient history — every sleeve would "
                                     "stand down; refusing to start")

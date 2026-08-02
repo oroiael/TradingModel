@@ -8,7 +8,7 @@ price, exit price, quantity and outcome on all 5,118 trades.
 
 ```bash
 python3 band_lab/live/replay.py          # equivalence report, exit 0 == green
-python3 -m pytest band_lab/live -v       # 58 tests
+python3 -m pytest band_lab/live -v       # 144 tests (58 when this was written)
 ```
 
 | sleeve | ON days | max abs daily P&L diff | trades | outcome diffs | max abs price diff | gross bp/ON-day |

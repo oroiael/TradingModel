@@ -1,12 +1,26 @@
 # Deployment — macOS, IBKR TWS paper
 
+> ## ⚠️ The paper run is on **Windows 11**. Use [RUNBOOK.md](RUNBOOK.md).
+>
+> This file is macOS-specific (Homebrew, `pmset`, `launchd`, `osascript`) and is
+> **superseded for operations** by [RUNBOOK.md](RUNBOOK.md), which is the
+> step-by-step launch and daily procedure for the machine actually being used.
+> Keep this one for the TWS background in §6 and the reasoning in §12.3–12.5.
+> Project status and the next-steps checklist are in
+> [`../PROJECT_STATUS.md`](../PROJECT_STATUS.md).
+>
+> **Corrected 2026-08-02** — three things in this file were wrong and are fixed
+> below: the test counts (§4, §12.1), the branch name (§2), and the claim that
+> `--dry-run` cannot reach the market (§12.1, which was true of the *intent* and
+> false of the *code* until the guard added on 2026-08-02).
+
 Setup and runbook for the Phase 2 engine. Build stages are in
 [PHASE2_PLAN.md](PHASE2_PLAN.md); Stage 1's result is in
 [PHASE2_PARITY.md](PHASE2_PARITY.md).
 
 > **What exists today: Stages 1–4, runnable.** Strategy core, sleeve state
 > machine, broker adapter, SQLite store, OrderManager, the §5 timetable, and
-> `run.py` — the service entrypoint that drives a whole day end to end. 130
+> `run.py` — the service entrypoint that drives a whole day end to end. 144
 > tests, all green against a `FakeIB` double. **No code here has ever
 > connected to IBKR.** Stage 5 is a launch, not a code drop: §12 is the
 > go-live procedure, and §12.1 is the next action.
@@ -40,7 +54,8 @@ clone. Everything in Stage 1 needs the real files.
 
 ```bash
 cd ~/TradingModel                 # wherever the repo lives
-git checkout claude/band-lab-trading-strategy-plan-6zxt67
+git checkout main                 # corrected 2026-08-02: the old branch name
+git pull                          # here was merged and deleted
 git lfs pull --include="SOXL_5min_6Years.csv,SOXS_5min_6Years.csv"
 
 # sanity: these must be ~7.7MB and ~8.7MB, not 132 bytes
@@ -72,7 +87,7 @@ source .venv-live/bin/activate
 python3 -m pytest band_lab/phase1 -q      # expect: 59 passed
 python3 band_lab/phase1/parity.py         # expect: exit 0, all sections green
 python3 band_lab/live/replay.py           # expect: STAGE 1 EQUIVALENCE: PASS
-python3 -m pytest band_lab/live -q        # expect: 58 passed
+python3 -m pytest band_lab/live -q        # expect: 144 passed
 ```
 
 `echo $?` after `parity.py` and `replay.py` — both return 0 when green and
@@ -195,52 +210,61 @@ Alert channels for Phase 2 (email + push + desktop, per your decision):
 | email | SMTP — credentials needed (app password if Gmail) | 4 |
 | desktop | macOS notification via `osascript`/`terminal-notifier` | 4 |
 
-## 9. Configuration file (Stage 2)
+## 9. Configuration file
 
-The engine will read `band_lab/live/config.local.toml`, which is gitignored
-and never committed:
+> **Corrected 2026-08-02.** This section previously described a
+> `config.local.toml` with capital, sleeve and alerting blocks. No code reads
+> that file, TOML is not parsed anywhere, and the alerting keys configure
+> nothing that exists. What `EngineConfig.load()` actually reads is **JSON**,
+> and only the deployment fields below are honoured.
 
-```toml
-[broker]
-host = "127.0.0.1"
-port = 7497                # TWS paper
-client_id = 11             # engine; the watchdog uses its own
-account = "DU1234567"
+`run.py --config <path>` loads JSON. Anything omitted keeps the default in
+`config.py`. Put it in `band_lab/live/config.local.json`.
 
-[capital]
-notional_cap = 150000.0    # capital_basis = min(NetLiquidation, this)
-w_per_sleeve = 0.50        # -> $75,000 per sleeve
-f = 1.00
-
-[sleeves]
-symbols = ["SOXL", "SOXS"]
-
-[alerts]
-ntfy_topic = "bandlab-xxxxxxxxxxxxxxxx"
-email_to = "you@example.com"
-smtp_host = "smtp.gmail.com"
-desktop = true
-
-[paths]
-db = "band_lab/live/state/engine.db"
-logs = "band_lab/live/state/logs"
+```json
+{
+  "transmit": true,
+  "host": "127.0.0.1",
+  "port": 7497,
+  "client_id": 11,
+  "db_path": "band_lab/live/out/live.db",
+  "bar_poll_seconds": 20.0,
+  "symbols": ["SOXL", "SOXS"]
+}
 ```
+
+| field | default | note |
+|---|---|---|
+| `transmit` | `false` | `--dry-run` forces it false regardless of the file |
+| `port` | `7497` | 7496/4001 are live-money ports and are refused |
+| `db_path` | `band_lab/live/out/live.db` | gitignored |
+| `capital_cap` | `150000.0` | `capital_basis = min(NetLiquidation, this)` |
 
 Every strategy parameter is deliberately **absent** — those live in
 `phase1/spec_constants.py` and `validate_config` rejects any attempt to
-override them (§6.8, §12).
+override them (§6.8, §12). There is no alerting configuration because there is
+no alerting; see §12.5.
 
 ## 10. Daily runbook (Stage 5 onward)
 
-| Time (ET) | What happens |
-|---|---|
-| 06:00 | pre-open job: refresh daily bars, ATR5, thr80, gate, sleeve capital |
-| 09:30 | begin recording bars — no orders |
-| 10:00 | morning filter; push alert with the ON/STAND-DOWN decision |
-| 11:00 | activate: resting buy limit goes live |
-| 15:55 | flatten; push alert confirming flat |
-| 16:10 | reconcile against IBKR executions; daily shadow-parity report |
-| 23:00 | TWS auto-restart; engine reconnects and reconciles |
+> **Corrected 2026-08-02.** The "push alert" rows below described Stage 7 work
+> that does not exist. There is no alerting of any kind — the console window is
+> the only monitoring today. The 16:10 shadow-parity report is Stage 6 and is
+> also not built. Both are tracked in `../PROJECT_STATUS.md` §5. The operational
+> procedure for the Windows machine is [RUNBOOK.md](RUNBOOK.md) §8.
+
+| Time (ET) | What happens | built? |
+|---|---|---|
+| 06:00 | pre-open job: refresh daily bars, ATR5, thr80, gate, sleeve capital | ✅ |
+| 09:30 | begin recording bars — no orders | ✅ |
+| 10:00 | morning filter; ON/STAND-DOWN decision printed and persisted | ✅ |
+| 10:00 | *push alert with that decision* | ⬜ Stage 7 |
+| 11:00 | activate: resting buy limit goes live | ✅ |
+| 15:55 | flatten; `all sleeves flat` printed and persisted | ✅ |
+| 15:55 | *push alert confirming flat* | ⬜ Stage 7 |
+| 16:10 | reconcile against IBKR executions | ✅ |
+| 16:10 | *daily shadow-parity report* | ⬜ Stage 6 |
+| 23:00 | TWS auto-restart; engine reconnects and reconciles | ✅ (untested against IBKR) |
 
 ## 11. Troubleshooting
 
@@ -283,7 +307,7 @@ bars.
 
 ```bash
 source .venv-live/bin/activate
-python3 -m pytest band_lab/live -q          # 115 tests, all must pass
+python3 -m pytest band_lab/live -q          # 144 tests, all must pass
 python3 band_lab/live/replay.py             # exit 0
 python3 band_lab/phase1/parity.py           # exit 0
 ```
@@ -296,7 +320,18 @@ python3 band_lab/live/run.py --dry-run
 
 `--dry-run` forces `transmit=False`, which puts the adapter in `readonly` mode
 — decisions are computed, logged to SQLite and printed; nothing reaches the
-market. Confirm four things:
+market.
+
+> **This was not true until 2026-08-02.** `readonly` in `ib_async` is a
+> client-side flag that skips two startup requests; it never stopped
+> `placeOrder`, and `OrderManager` always called the broker with the default
+> `transmit=True`. A dry run following this document would have placed real
+> paper orders. `IBBroker` now refuses to transmit while `readonly` is set —
+> every order is logged as `DRY RUN — not sent: …` instead. Guaranteed by
+> `tests/test_live_broker_guards.py`. **Confirm the prefix is present on the
+> first arming; if an order appears in TWS during a dry run, stop the session.**
+
+Confirm four things:
 
 | check | where |
 |---|---|

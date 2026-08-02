@@ -195,6 +195,7 @@ class IBBroker(Broker):
         self._on_event = on_event or (lambda level, msg: None)
         self._ib = None
         self._contracts: dict[str, Any] = {}
+        self._dry_seq = 0
 
     # ---------------------------------------------------------- lifecycle
     def connect(self) -> None:
@@ -343,7 +344,21 @@ class IBBroker(Broker):
         return out
 
     def historical_bars(self, symbol, end, duration, bar_size="5 mins") -> list[Bar]:
-        return [b for _, b in self._dated_bars(symbol, end, duration, bar_size)]
+        """Bars for **one** calendar session — the day `end` falls on.
+
+        `Bar.idx` is a clock offset from 09:30 and carries no date, so a window
+        spanning two sessions collapses into one after `sorted(key=idx)`: the
+        prior session's 11:00-16:00 bars would arrive as *today's* afternoon.
+        IBKR's duration semantics for a request made inside RTH are §6.4 — an
+        open question — so the date is filtered here rather than assumed away.
+        Before the open this correctly yields nothing: no session, no bars.
+        """
+        dated = self._dated_bars(symbol, end, duration, bar_size)
+        if not dated:
+            return []
+        when = end or datetime.now(NY)
+        want = (when.astimezone(NY) if when.tzinfo else when).date()
+        return [b for d, b in dated if d == want]
 
     def historical_sessions(self, symbol, end, duration,
                             bar_size="5 mins") -> list[tuple]:
@@ -355,6 +370,20 @@ class IBBroker(Broker):
         return [(d, sorted(v, key=lambda b: b.idx)) for d, v in sorted(grouped.items())]
 
     # ------------------------------------------------------------ commands
+    def _dry(self, what: str) -> int:
+        """Dry run: log the order that *would* have been sent, send nothing.
+
+        `readonly` in ib_async is a client-side flag only — it skips two
+        startup requests and does **not** stop `placeOrder`. Stage 4's
+        acceptance ("one live session with orders not transmitted") therefore
+        has to be enforced here, in the adapter, or `--dry-run` places real
+        orders. Synthetic ids are negative so a stray modify/cancel against one
+        is unmistakable and cannot collide with a real IBKR orderId.
+        """
+        self._dry_seq -= 1
+        self._on_event("info", f"DRY RUN — not sent: {what}")
+        return self._dry_seq
+
     def _order(self, action, qty, order_ref, oca_group, transmit):
         from ib_async import Order
         o = Order()
@@ -373,29 +402,40 @@ class IBBroker(Broker):
     def place_limit(self, symbol, action, qty, limit_px, order_ref,
                     oca_group="", transmit=True) -> int:
         ib = self._require()
+        px = round(float(limit_px), 2)
+        if self.readonly:
+            return self._dry(f"{action} LMT {qty} {symbol} @ {px} ({order_ref})")
         o = self._order(action, qty, order_ref, oca_group, transmit)
         o.orderType = "LMT"
-        o.lmtPrice = round(float(limit_px), 2)
+        o.lmtPrice = px
         return ib.placeOrder(self.contract(symbol), o).order.orderId
 
     def place_stop(self, symbol, action, qty, stop_px, order_ref,
                    oca_group="", transmit=True) -> int:
         ib = self._require()
+        px = round(float(stop_px), 2)
+        if self.readonly:
+            return self._dry(f"{action} STP {qty} {symbol} @ {px} ({order_ref})")
         o = self._order(action, qty, order_ref, oca_group, transmit)
         o.orderType = "STP"
         # ASSUMPTION §6.1: a broker-side STP that survives an API disconnect.
         # §6.1 requires this; it is the most safety-critical unverified item.
-        o.auxPrice = round(float(stop_px), 2)
+        o.auxPrice = px
         return ib.placeOrder(self.contract(symbol), o).order.orderId
 
     def place_market(self, symbol, action, qty, order_ref) -> int:
         ib = self._require()
+        if self.readonly:
+            return self._dry(f"{action} MKT {qty} {symbol} ({order_ref})")
         o = self._order(action, qty, order_ref, "", True)
         o.orderType = "MKT"          # §4.7 — MKT, not MOC
         return ib.placeOrder(self.contract(symbol), o).order.orderId
 
     def modify_limit(self, order_id: int, limit_px: float, qty: float) -> None:
         ib = self._require()
+        if self.readonly or order_id < 0:
+            self._dry(f"modify {order_id} -> {qty} @ {round(float(limit_px), 2)}")
+            return
         for t in ib.openTrades():
             if t.order.orderId == order_id:
                 t.order.lmtPrice = round(float(limit_px), 2)
@@ -406,12 +446,17 @@ class IBBroker(Broker):
 
     def cancel(self, order_id: int) -> None:
         ib = self._require()
+        if self.readonly or order_id < 0:
+            return
         for t in ib.openTrades():
             if t.order.orderId == order_id:
                 ib.cancelOrder(t.order)
                 return
 
     def cancel_all(self) -> None:
+        if self.readonly:
+            self._dry("reqGlobalCancel")
+            return
         self._require().reqGlobalCancel()
 
 
