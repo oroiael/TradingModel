@@ -31,7 +31,9 @@ for _p in (_HERE, os.path.join(os.path.dirname(_HERE), "phase1")):
         sys.path.insert(0, _p)
 
 import features                                            # noqa: E402
-from broker import Broker, BrokerError, IBBroker, NotLiveDataError  # noqa: E402
+from broker import (                                        # noqa: E402
+    Broker, BrokerError, IBBroker, MarketClosedError, NotLiveDataError,
+)
 from config import EngineConfig                            # noqa: E402
 from engine import Engine, FLATTEN_IDX, START_IDX          # noqa: E402
 from feed import BarFeed                                   # noqa: E402
@@ -142,8 +144,18 @@ class Runner:
 
     def day(self, day: Optional[datetime] = None, sleep: float = None) -> dict:
         day = day or datetime.now(NY)
+        if day.weekday() >= 5:
+            # Cheap and local; the broker is still authoritative for holidays,
+            # but there is no reason to open a connection on a Sunday.
+            self._event("info", f"{day:%Y-%m-%d} is a {day:%A} — market closed, "
+                                "nothing to do")
+            return {}
         if not self.pre_open(day):
-            self._event("info", "all sleeves dormant — no session to run")
+            reasons = {s: rt.dormant_reason for s, rt in self.engine.sleeves.items()}
+            if all(r == "market_closed" for r in reasons.values()):
+                self._event("info", "market closed today — nothing to do")
+            else:
+                self._event("info", f"all sleeves dormant — no session to run: {reasons}")
             return self.engine.reconcile()
         self.run_session(day, sleep=sleep)
         return self.close_out()
@@ -174,7 +186,10 @@ def main() -> int:
         summary = runner.day(sleep=args.poll)
     finally:
         runner.broker.disconnect()
-    ok = all(s.get("agrees", False) for s in summary.values()) if summary else False
+    if not summary:
+        print("\nNo session today (weekend or holiday). Nothing to reconcile.")
+        return 0
+    ok = all(s.get("agrees", False) for s in summary.values())
     print(f"\nEOD reconcile: {'AGREES' if ok else 'MISMATCH — investigate'}")
     return 0 if ok else 1
 

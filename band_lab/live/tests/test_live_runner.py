@@ -171,3 +171,60 @@ def test_events_are_persisted(tmp_path):
     r._event("info", "hello")
     rows = store.rows("SELECT * FROM events WHERE message='hello'")
     assert len(rows) == 1
+
+
+# ------------------------------------------------- market closed (weekends)
+def test_parse_liquid_hours_modern_format():
+    from broker import parse_liquid_hours
+    h = "20260803:0930-20260803:1600;20260804:0930-20260804:1600"
+    o, c = parse_liquid_hours(h, "20260803")
+    assert (o.hour, o.minute) == (9, 30)
+    assert (c.hour, c.minute) == (16, 0)
+
+
+def test_parse_liquid_hours_half_day():
+    from broker import parse_liquid_hours
+    o, c = parse_liquid_hours("20261127:0930-20261127:1300", "20261127")
+    assert (c - o).total_seconds() / 3600 == pytest.approx(3.5)
+
+
+def test_parse_liquid_hours_older_close_only_form():
+    from broker import parse_liquid_hours
+    o, c = parse_liquid_hours("20260803:0930-1600", "20260803")
+    assert (c.hour, c.minute) == (16, 0) and c.date() == o.date()
+
+
+def test_parse_liquid_hours_closed_day_returns_none():
+    """A Sunday. This is the case that crashed the first real dry run."""
+    from broker import parse_liquid_hours
+    assert parse_liquid_hours("20260802:CLOSED;20260803:0930-20260803:1600",
+                              "20260802") is None
+
+
+def test_parse_liquid_hours_absent_day_returns_none():
+    from broker import parse_liquid_hours
+    assert parse_liquid_hours("20260803:0930-20260803:1600", "20260802") is None
+
+
+def test_market_closed_stands_the_sleeve_down_instead_of_crashing(tmp_path):
+    """An always-on service meets a closed market every Saturday and Sunday."""
+    from broker import MarketClosedError
+    r, ib, store = _runner(tmp_path)
+
+    def closed(symbol, day):
+        raise MarketClosedError(f"{symbol}: no regular session (Sunday)")
+    ib.session_hours = closed
+
+    r.pre_open(DAY)                       # must not raise
+    rt = r.engine.sleeves["SOXL"]
+    assert rt.dormant and rt.dormant_reason == "market_closed"
+    row = store.rows("SELECT * FROM daily WHERE symbol='SOXL'")[0]
+    assert row["gate_ok"] == 0 and row["gate_reason"] == "market_closed"
+
+
+def test_runner_day_skips_weekends_without_connecting(tmp_path):
+    r, ib, store = _runner(tmp_path)
+    sunday = datetime(2026, 8, 2, tzinfo=NY)
+    assert sunday.weekday() == 6
+    assert r.day(sunday) == {}
+    assert ib.connect_count == 0, "no reason to open a connection on a Sunday"

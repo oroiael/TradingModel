@@ -45,6 +45,53 @@ class NotLiveDataError(BrokerError):
     """Raised when the feed is not real-time. Never trade through this."""
 
 
+class MarketClosedError(BrokerError):
+    """No regular session today — weekend or holiday.
+
+    This is an *expected* daily condition, not a fault. It gets its own type
+    so the engine can stand the sleeves down and exit cleanly, while a genuine
+    failure to read contract details still fails loudly. An always-on service
+    meets this every Saturday and Sunday.
+    """
+
+
+def parse_liquid_hours(hours: str, target: str):
+    """IBKR `liquidHours` -> (open, close) for `target` (YYYYMMDD), or None.
+
+    Format is `20260803:0930-20260803:1600;20260804:CLOSED`, with an older
+    variant that omits the date on the close side. Both are handled. A day
+    marked CLOSED and a day that is simply absent both return None — for the
+    caller they mean the same thing.
+
+    Split out as a plain function because the version inside `session_hours`
+    could only be exercised against a live TWS, which is how it shipped with
+    an unhandled weekend.
+    """
+    for chunk in (hours or "").split(";"):
+        chunk = chunk.strip()
+        if not chunk or not chunk.startswith(target):
+            continue
+        if "CLOSED" in chunk.upper():
+            return None
+        if "-" not in chunk:
+            continue
+        a, b = chunk.split("-", 1)
+        try:
+            o = datetime.strptime(a, "%Y%m%d:%H%M").replace(tzinfo=NY)
+        except ValueError:
+            continue
+        try:
+            c = datetime.strptime(b, "%Y%m%d:%H%M").replace(tzinfo=NY)
+        except ValueError:
+            try:                       # older form: close time only
+                t = datetime.strptime(b, "%H%M")
+            except ValueError:
+                continue
+            c = o.replace(hour=t.hour, minute=t.minute)
+        return o, c
+    return None
+
+
 @dataclass(frozen=True)
 class Quote:
     bid: float
@@ -205,26 +252,26 @@ class IBBroker(Broker):
             raise NotLiveDataError(f"marketDataType={mdt}, refusing to trade")
 
     def session_hours(self, symbol: str, day: datetime) -> SessionHours:
-        """Today's RTH from contract details. ASSUMPTION §6: half days are
-        expressed as a shortened liquidHours range, not a separate flag."""
+        """Today's RTH from contract details.
+
+        ASSUMPTION §6: half days are expressed as a shortened liquidHours
+        range, not a separate flag. Raises `MarketClosedError` on a weekend or
+        holiday — the caller stands down rather than treating it as a fault.
+        """
         ib = self._require()
         det = ib.reqContractDetails(self.contract(symbol))
         if not det:
             raise BrokerError(f"no contract details for {symbol}")
         hours = det[0].liquidHours or det[0].tradingHours or ""
         target = day.astimezone(NY).strftime("%Y%m%d")
-        for chunk in hours.split(";"):
-            if not chunk or "CLOSED" in chunk or not chunk.startswith(target):
-                continue
-            a, b = chunk.split("-")
-            o = datetime.strptime(a, "%Y%m%d:%H%M").replace(tzinfo=NY)
-            c = datetime.strptime(b.split(":")[0] + ":" + b.split(":")[1],
-                                  "%Y%m%d:%H%M").replace(tzinfo=NY) \
-                if ":" in b and len(b.split(":")) > 1 else \
-                datetime.strptime(b, "%H%M").replace(
-                    year=o.year, month=o.month, day=o.day, tzinfo=NY)
-            return SessionHours(o, c, is_half_day=(c - o) < timedelta(hours=6, minutes=15))
-        raise BrokerError(f"{symbol}: no liquid hours for {target} (holiday?)")
+        parsed = parse_liquid_hours(hours, target)
+        if parsed is None:
+            weekday = day.astimezone(NY).strftime("%A")
+            raise MarketClosedError(
+                f"{symbol}: no regular session on {target} ({weekday})")
+        o, c = parsed
+        return SessionHours(o, c,
+                            is_half_day=(c - o) < timedelta(hours=6, minutes=15))
 
     # -------------------------------------------------------------- state
     def net_liquidation(self) -> float:
