@@ -334,10 +334,14 @@ class IBBroker(Broker):
         while not ticker.marketDataType and time.time() < deadline:
             ib.sleep(0.1)
         mdt = int(ticker.marketDataType or 0)
-        try:
-            ib.cancelMktData(contract)
-        except Exception:                         # noqa: BLE001
-            pass                                  # tidying up must not refuse
+        if symbol not in self._no_live_data:
+            # A rejected subscription has no ticker to cancel, and asking makes
+            # TWS answer 300 "Can't find EId" — a confusing error attributed to
+            # whatever step happens to be running when it arrives.
+            try:
+                ib.cancelMktData(contract)
+            except Exception:                     # noqa: BLE001
+                pass                              # tidying up must not refuse
         if symbol in self._no_live_data:
             _refuse("IBKR reported no live market-data subscription")
         if mdt == 0:

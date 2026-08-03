@@ -58,7 +58,10 @@ class Diagnosis:
             return
         sym = getattr(contract, "symbol", "") or ""
         self.errors.append((self.step, code, sym, msg))
-        print(f"         · IBKR {code} during {self.step} {sym}: {msg[:110]}")
+        # `step` is best-effort: IBKR errors arrive asynchronously, so one
+        # raised by the previous step can surface while the next is running.
+        where = self.step if sym and sym in self.step else f"{self.step} {sym}".strip()
+        print(f"         · IBKR {code} during {where}: {msg[:110]}")
 
     # ------------------------------------------------------------------ run
     def run(self) -> int:

@@ -22,7 +22,7 @@ executed, not a claim carried forward from an earlier document.
 | Phase 1 | Clean-room backtest parity harness | ✅ **complete and PASSING** |
 | Phase 2 · Stage 1 | Live state machine proven equal to the backtest | ✅ **complete and PASSING** |
 | Phase 2 · Stages 2–4 | Broker adapter, store, orders, timetable, entrypoint | ✅ **code complete, 144 tests green** — but **has never connected to IBKR** |
-| Phase 2 · Stage 4 acceptance | One live session, transmit OFF | ⬜ **NOT DONE — this is the next action** |
+| Phase 2 · Stage 4 acceptance | One live session, transmit OFF | 🟡 **attempted 2026-08-03 — found four defects, blocked on market data.** See §4.6 |
 | Phase 2 · Stage 5 | Go live on paper, ≥4 weeks | ⬜ not started |
 | Phase 2 · Stage 6 | `report.py` — daily shadow parity | ⬜ **not built** |
 | Phase 2 · Stage 7 | `risk.py`, `watchdog.py`, alerting, service supervision | ⬜ **not built** |
@@ -178,6 +178,48 @@ Three new tests.
    position simultaneously deploy the full capital basis, and 3x ETFs carry
    elevated margin requirements.
 
+### 4.6 The 2026-08-03 dry run — what the first contact with IBKR found
+
+Three sessions were attempted against TWS paper. **No order was ever
+transmitted** and no capital was at risk. The engine never reached the 11:00
+arming, so Stage 4's acceptance is *not* met — but the day did the job a dry run
+exists to do.
+
+**Two further defects, on top of §4.1 and §4.2, neither catchable by the suite:**
+
+| | Defect | Consequence |
+|---|---|---|
+| §4.1 | `--dry-run` transmitted | would have placed real orders |
+| §4.2 | feed was date-blind | would have armed off yesterday's session high |
+| **new** | **`assert_live_data` was a no-op** | read `ib._ccr_probe_ticker`, an attribute nothing ever set, so the `is None` branch returned on every real connection. §4's "refuse to trade on delayed data" **was not implemented**. The account was in fact on delayed data |
+| **new** | **bar timestamps were not zone-normalised** | **TWS on this machine is configured for `America/Los_Angeles`.** The 09:30 ET bar arrived as `06:30`, giving `Bar.idx` = **−36**. Bar 5 (the 10:00 filter) and bar 18 (the 11:00 arming) never came up. The engine consumed every bar of the session and decided nothing, raising no error |
+
+The second is the one to remember. A whole session ran, every bar was ingested,
+and the output was **silence** — no exception, no warning, nothing in the logs to
+distinguish it from a working feed. `IMPLEMENTATION_SPEC.md` §1's fifth design
+priority is observability, and this is the gap it was written about.
+
+**Confirmed fixed** by `live/diagnose.py` on the same machine: both sleeves now
+report `bar 0 is the 09:30 bar`, 54 bars, idx 0..53.
+
+**Two operational findings, not defects:**
+
+1. **IBKR error 162** — "Trading TWS session is connected from a different IP
+   address" killed every historical request in the first attempt. Cause: a
+   second session was logged into the same IBKR user. IBKR serves market data to
+   one location at a time. Resolved by logging out elsewhere.
+2. **The blocker: IBKR error 10089 on both sleeves** — the account has **no live
+   L1 entitlement for API use**; TWS offers delayed data instead. §4 makes that
+   a refusal-to-trade condition, so the sleeves correctly stand down. **Phase 2
+   cannot start until this is subscribed and shared to the paper account.**
+
+**What this says about the test suite.** All four defects were invisible to 157
+green tests, because every one of them lives in `IBBroker` — the single class a
+`FakeIB` suite by construction cannot exercise. That is not an argument against
+the suite (it caught the strategy logic, which is what it was for); it is an
+argument that `diagnose.py` and the dry-run gate are load-bearing, and that
+**Stage 4's acceptance must not be waived.**
+
 ### 4.5 On the strategy itself — no errors found, one observation
 
 I did not re-test anything, as instructed. Reading for high-level and
@@ -246,6 +288,25 @@ therefore skippable; these are not.
 > **Historical data needs no manual step.** The engine tops up from the CSV
 > backbone (which ends 2026-07-21 / 2026-07-24) via one paced IBKR request per
 > symbol at pre-open, and polls today's bars live. RUNBOOK §4.6.
+
+### A2. 🔴 THE BLOCKER — market data (nothing else can proceed)
+
+Confirmed 2026-08-03 by `diagnose.py`: IBKR error **10089** on both SOXL and
+SOXS. The account is entitled to delayed data only, and §4 forbids trading on it.
+
+- [ ] Subscribe to **live US equity L1 covering NYSE Arca** (the error names
+      `ARCA/TOP/ALL`; both ETFs are Arca-listed). Client Portal → Settings →
+      User Settings → **Market Data Subscriptions**. Take non-professional
+      status if eligible — it is materially cheaper
+- [ ] **Share it to the paper account** — a separate toggle under Settings →
+      Account Settings → Paper Trading Account. Subscribing alone is not enough
+- [ ] **Check the live account can pay the fee.** It held **$86.78** on
+      2026-08-03. Market data is billed monthly to the live account, and an
+      unfundable subscription does not activate
+- [ ] Re-run `python band_lab/live/diagnose.py` until it says **`VERDICT: READY`**
+
+Do not schedule another session until that verdict is green. The engine will
+stand down at 11:00 regardless, and the day will teach nothing.
 
 ### B. Monday 2026-08-03 — the dry run (RUNBOOK §5)
 
