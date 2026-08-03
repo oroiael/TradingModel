@@ -15,22 +15,46 @@ from zoneinfo import ZoneInfo
 
 import pytest
 
-from broker import IBBroker
+from broker import IBBroker, NotLiveDataError
 
 NY = ZoneInfo("America/New_York")
+
+
+class _StubTicker:
+    def __init__(self, mdt_after_probe=1):
+        self.marketDataType = 1
+        self._answer = mdt_after_probe
 
 
 class _StubIB:
     """Just enough of ib_async.IB to reach the guard under test."""
 
-    def __init__(self, bars=()):
+    def __init__(self, bars=(), mdt=1):
         self.placed = []
         self.cancelled = []
         self.global_cancels = 0
         self._bars = list(bars)
+        self._mdt = mdt
+        self.market_data_type_requested = None
+        self.mkt_data_cancelled = []
 
     def isConnected(self):
         return True
+
+    def reqMarketDataType(self, n):
+        self.market_data_type_requested = n
+
+    def reqMktData(self, contract, *a, **kw):
+        self._ticker = _StubTicker()
+        return self._ticker
+
+    def cancelMktData(self, contract):
+        self.mkt_data_cancelled.append(contract)
+
+    def sleep(self, _s):
+        # Stand in for TWS answering the marketDataType callback.
+        if self._mdt is not None:
+            self._ticker.marketDataType = self._mdt
 
     def placeOrder(self, contract, order):
         self.placed.append(order)
@@ -49,11 +73,72 @@ class _StubIB:
         return self._bars
 
 
-def _broker(readonly, bars=()):
+def _broker(readonly, bars=(), mdt=1):
     b = IBBroker(readonly=readonly)
-    b._ib = _StubIB(bars)
+    b._ib = _StubIB(bars, mdt)
     b._contracts["SOXL"] = object()          # skip qualifyContracts
+    b._contracts["SOXS"] = object()
     return b
+
+
+# ------------------------------------------------------- delayed data refusal
+def test_live_data_assertion_passes_on_live():
+    b = _broker(readonly=True, mdt=1)
+    b.assert_live_data("SOXL")               # must not raise
+    assert b._ib.market_data_type_requested == 1
+    assert b._ib.mkt_data_cancelled, "the probe subscription is released again"
+
+
+@pytest.mark.parametrize("mdt", [2, 3, 4])
+def test_live_data_assertion_refuses_a_downgrade(mdt):
+    """3 = delayed. Arming a limit off 15-minute-old prices is the failure."""
+    b = _broker(readonly=True, mdt=mdt)
+    with pytest.raises(NotLiveDataError):
+        b.assert_live_data("SOXL")
+
+
+def test_live_data_assertion_refuses_on_a_subscription_error():
+    """The signal that actually fired in the field, 2026-08-03.
+
+    TWS emitted 10089 ("requires additional subscription... Delayed market data
+    is available") four times while the engine armed regardless, because the
+    old guard read an attribute nothing ever set.
+    """
+    b = _broker(readonly=True, mdt=1)
+    contract = SimpleNamespace(symbol="SOXL")
+    b._on_ib_error(10, 10089, "Requested market data requires additional "
+                              "subscription for API.", contract)
+    with pytest.raises(NotLiveDataError):
+        b.assert_live_data("SOXL")
+
+
+def test_a_subscription_error_on_one_sleeve_does_not_condemn_the_other():
+    """Entitlements are per contract."""
+    b = _broker(readonly=True, mdt=1)
+    b._on_ib_error(10, 10089, "no subscription", SimpleNamespace(symbol="SOXL"))
+    with pytest.raises(NotLiveDataError):
+        b.assert_live_data("SOXL")
+    b.assert_live_data("SOXS")               # must not raise
+
+
+def test_silence_is_not_taken_for_live():
+    """ib_async defaults `marketDataType` to 1, so no callback reads as live.
+
+    Unknown has to refuse, or the guard is decorative on exactly the path it
+    exists to catch.
+    """
+    b = _broker(readonly=True, mdt=None)     # TWS never answers
+    b._ib._ticker = _StubTicker()
+    with pytest.raises(NotLiveDataError):
+        b.assert_live_data("SOXL")
+
+
+def test_unrelated_errors_are_ignored():
+    """162 is the session/IP conflict — a different fault, not a data downgrade."""
+    b = _broker(readonly=True, mdt=1)
+    b._on_ib_error(21, 162, "Trading TWS session is connected from a different "
+                            "IP address", SimpleNamespace(symbol="SOXL"))
+    b.assert_live_data("SOXL")               # must not raise
 
 
 # ------------------------------------------------------- dry run == no orders

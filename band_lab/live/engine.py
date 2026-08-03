@@ -185,7 +185,9 @@ class Engine:
             return
 
         if bar.idx >= START_IDX and not rt.activated:
-            self.broker.assert_live_data()      # never arm on delayed data
+            # Per symbol: entitlements are per contract, and one sleeve being
+            # unsubscribed says nothing about the other.
+            self.broker.assert_live_data(symbol)   # never arm on delayed data
             rt.activated = True
         rt.sm.on_bar_open(bar.idx)
         rt.om.apply(rt.sm.drain_intents())
