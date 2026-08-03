@@ -20,10 +20,14 @@ Setup and runbook for the Phase 2 engine. Build stages are in
 
 > **What exists today: Stages 1–4, runnable.** Strategy core, sleeve state
 > machine, broker adapter, SQLite store, OrderManager, the §5 timetable, and
-> `run.py` — the service entrypoint that drives a whole day end to end. 144
-> tests, all green against a `FakeIB` double. **No code here has ever
-> connected to IBKR.** Stage 5 is a launch, not a code drop: §12 is the
-> go-live procedure, and §12.1 is the next action.
+> `run.py` — the service entrypoint that drives a whole day end to end, with the
+> full suite green against a `FakeIB` double.
+>
+> **Updated 2026-08-03: the engine has now connected to IBKR** and passes
+> `diagnose.py`'s pre-flight on both sleeves. It has **never reached the 11:00
+> arming**, so no order path has run against a broker and Stage 4 is still
+> unmet. §12 is the go-live procedure; [RUNBOOK.md](RUNBOOK.md) §7 supersedes it
+> for the machine in use.
 > Stages 6 (reporting) and 7 (watchdog, day-loss breaker) are built *during*
 > the paper run, per PHASE2_PLAN.md §5 — they protect capital that is not at
 > risk on paper, but they are prerequisites for Phase 3.
@@ -87,7 +91,7 @@ source .venv-live/bin/activate
 python3 -m pytest band_lab/phase1 -q      # expect: 59 passed
 python3 band_lab/phase1/parity.py         # expect: exit 0, all sections green
 python3 band_lab/live/replay.py           # expect: STAGE 1 EQUIVALENCE: PASS
-python3 -m pytest band_lab/live -q        # expect: 144 passed
+python3 -m pytest band_lab/live -q        # expect: all pass, 0 failures
 ```
 
 `echo $?` after `parity.py` and `replay.py` — both return 0 when green and
@@ -307,7 +311,7 @@ bars.
 
 ```bash
 source .venv-live/bin/activate
-python3 -m pytest band_lab/live -q          # 144 tests, all must pass
+python3 -m pytest band_lab/live -q          # all must pass
 python3 band_lab/live/replay.py             # exit 0
 python3 band_lab/phase1/parity.py           # exit 0
 ```

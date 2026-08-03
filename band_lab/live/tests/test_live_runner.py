@@ -281,3 +281,42 @@ def test_freshness_is_skipped_when_no_date_is_supplied():
     import features
     b = SimpleNamespace(sessions=600, sufficient=True, last_session=date(2020, 1, 2))
     assert features.check({"SOXL": b}, None)
+
+
+# ------------------------------------------------------------ transmit flag
+def _main(argv):
+    """Run run.main() with argv, returning (exit_code, stdout)."""
+    import io, contextlib, sys as _sys
+    import run as run_mod
+    buf = io.StringIO()
+    old = _sys.argv
+    _sys.argv = ["run.py"] + argv
+    try:
+        with contextlib.redirect_stdout(buf):
+            rc = run_mod.main()
+    finally:
+        _sys.argv = old
+    return rc, buf.getvalue()
+
+
+def test_dry_run_and_transmit_together_are_refused():
+    """Contradictory intent must fail loudly, never be resolved by precedence."""
+    rc, out = _main(["--dry-run", "--transmit"])
+    assert rc == 2
+    assert "contradictory" in out.lower()
+
+
+def test_transmit_flag_turns_the_order_path_on():
+    from config import EngineConfig
+    cfg = EngineConfig()
+    assert cfg.transmit is False, "the default must stay OFF"
+    cfg.transmit = True
+    cfg.validate()                       # paper port 7497 — must not raise
+
+
+def test_transmit_is_still_refused_on_a_live_money_port():
+    """--transmit must not become a route around the Phase 2 paper-only rule."""
+    from config import EngineConfig
+    for port in (7496, 4001):
+        with pytest.raises(ConfigError):
+            EngineConfig(port=port, transmit=True).validate()

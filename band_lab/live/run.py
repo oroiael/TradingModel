@@ -179,19 +179,41 @@ def main() -> int:
     ap.add_argument("--config", default=None, help="JSON config; defaults are §12")
     ap.add_argument("--dry-run", action="store_true",
                     help="transmit OFF — Stage 4 acceptance mode")
+    ap.add_argument("--transmit", action="store_true",
+                    help="ARM THE ORDER PATH — orders reach the market. Paper only; "
+                         "the live-money ports are refused by config validation.")
     ap.add_argument("--root", default=ROOT)
     ap.add_argument("--poll", type=float, default=None)
     args = ap.parse_args()
 
+    if args.dry_run and args.transmit:
+        print("--dry-run and --transmit are contradictory; refusing to guess.")
+        return 2
+
     cfg = EngineConfig.load(args.config)
+    if args.transmit:
+        cfg.transmit = True
     if args.dry_run:
         cfg.transmit = False
-    cfg.validate()
+    cfg.validate()                       # §6.8; also refuses live-money ports
 
     if not cfg.transmit:
         print("=" * 72)
         print("DRY RUN — transmit is OFF. Decisions are computed and logged;")
         print("the broker adapter is read-only. Nothing reaches the market.")
+        print("=" * 72)
+    else:
+        # Loud, and in the log: which account, which port, how big. The failure
+        # this guards against is not a wrong click, it is a session that was
+        # believed to be a dry run.
+        print("=" * 72)
+        print("*** TRANSMIT ON — ORDERS WILL REACH THE MARKET ***")
+        print(f"    port {cfg.port} "
+              f"({'PAPER' if cfg.port in (7497, 4002) else 'CHECK THIS PORT'})"
+              f"   clientId={cfg.client_id}")
+        print(f"    {','.join(cfg.symbols)} at f={cfg.f} w={cfg.w} "
+              f"cap=${cfg.capital_cap:,.0f}")
+        print("    First order is possible only after the 11:00 bar (§2.3).")
         print("=" * 72)
 
     runner = Runner(cfg, root=args.root)

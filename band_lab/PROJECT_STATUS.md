@@ -21,15 +21,22 @@ claim carried forward from an earlier document.
 | Re-tests (V16–V18) | Re-sweep the churn parameters on 1-minute data | ✅ **complete** — nothing adopted, strategy unchanged |
 | Phase 1 | Clean-room backtest parity harness | ✅ **complete and PASSING** |
 | Phase 2 · Stage 1 | Live state machine proven equal to the backtest | ✅ **complete and PASSING** |
-| Phase 2 · Stages 2–4 | Broker adapter, store, orders, timetable, entrypoint | ✅ **code complete, 220 tests green**, and connected to IBKR on 2026-08-03 |
-| Phase 2 · Stage 4 acceptance | One live session, transmit OFF | 🟡 **attempted 2026-08-03 — found five defects, all fixed. Pre-flight now READY.** Awaiting one clean session. See §4.6 |
-| Phase 2 · Stage 5 | Go live on paper, ≥4 weeks | ⬜ not started |
+| Phase 2 · Stages 2–4 | Broker adapter, store, orders, timetable, entrypoint | ✅ **code complete, 223 tests green**, and connected to IBKR on 2026-08-03 |
+| Phase 2 · Stage 4 acceptance | One live session, transmit OFF | 🟡 **superseded** — three dry runs on 2026-08-03 found five defects and cleared both blockers, but never reached 11:00. `diagnose.py` now covers what they checked. See §4.6 |
+| Phase 2 · Stage 5 | Go live on paper, ≥4 weeks | 🟡 **first transmit-ON session 2026-08-04**, attended. First ~3 sessions are shakedown |
 | Phase 2 · Stage 6 | `report.py` — daily shadow parity | ⬜ **not built** |
 | Phase 2 · Stage 7 | `risk.py`, `watchdog.py`, alerting, service supervision | ⬜ **not built** |
 | Phase 3 | Live money at reduced size | ⬜ not started |
 
-**The step we are on: Phase 2, Stage 4 acceptance — one dry run.** Everything
-needed for it exists and is tested. It is a launch, not a code change.
+**The step we are on: the first transmit-ON paper session, 2026-08-04.**
+
+The dry-run gate was deliberately stood down. It had two jobs — prove the
+pre-open half, and de-risk the first order — and `diagnose.py` now does the
+first cleanly. The second is worth less than it looks on a paper account: the
+financial risk is nil, while the three `PHASE2_PLAN.md` §6 assumptions (§6.1 the
+stop outliving the engine, §6.3 OCA, §6.2 the 23:00 restart) and the S10/S11
+fill question **can only be answered by transmitting**. Attended, per §7 of the
+spec. Procedure: `live/RUNBOOK.md` §7.
 
 **The single most important sentence in this document:** the engine has now
 connected to IBKR, but **it has never reached the 11:00 arming** — so no order
@@ -56,7 +63,7 @@ either exits 0 or it does not.
 | 2 | Phase 1 clean-room rebuild | ✅ **PASS** | `pytest band_lab/phase1` → **59 passed** |
 | 3 | Phase 1 parity vs research engine | ✅ **PASS** | `band_lab/phase1/parity.py` → **exit 0**; all **16** published §8 numbers reproduce exactly |
 | 4 | Live state machine equivalence | ✅ **PASS** | `band_lab/live/replay.py` → **exit 0**; SOXL 779=779 ON-days, SOXS 793=793, max daily P&L difference **0.0**, 5,118 trades with 0 outcome differences |
-| 5 | Live engine unit + integration tests | ✅ **PASS** | `pytest band_lab/live` → **161 passed** (137 before this review; +24 added by §4's fixes) |
+| 5 | Live engine unit + integration tests | ✅ **PASS** | `pytest band_lab/live` → **164 passed** (137 before this review; +27 added by §4's fixes) |
 | 6 | 1-minute fill-resolution study | ✅ complete | `live/PHASE2_PARITY.md` S10–S12 — **the most consequential finding in the project**, see §3 |
 | 7 | V16 / V17 / V18 re-tests | ✅ complete, **nothing adopted** | `v2_dev/` — ~1,040 parameter cells across V1, V3, V7, V10 |
 | 8 | IBKR pre-flight, both sleeves | ✅ **READY** (2026-08-03 17:19 ET) | `band_lab/live/diagnose.py` — connection, capital, contracts, hours, 78 bars at idx 0..77, live data confirmed |
