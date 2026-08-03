@@ -10,6 +10,9 @@ whether they can be traded together as an actively managed basket.
   recorded in advance.
 - [`docs/FINDINGS.md`](docs/FINDINGS.md) — results, including the prediction scorecard and
   the five methodological errors found and corrected along the way.
+- [`docs/OVERNIGHT_SPXL_FAS.md`](docs/OVERNIGHT_SPXL_FAS.md) — follow-up drilling into the
+  one effect that survived: optimal entry/exit timing for SPXL and FAS overnight trades,
+  and whether any indicator improves them (it does not).
 
 ## Headline
 
@@ -52,6 +55,10 @@ python3 p4_attribution.py     # attribution + corrected significance
 python3 p5_final_costs.py     # corrected cost accounting + capacity
 python3 p7_clean_oos.py       # clean out-of-sample selection protocol
 python3 p6_charts.py          # summary figure
+
+python3 p8_overnight_timing.py     # entry/exit grid + bar-level profile
+python3 p9_overnight_indicators.py # 13 indicators, univariate + multivariate + rules
+python3 p10_timing_robustness.py   # entry gradient in train/test, net-of-cost table
 ```
 
 Set `ETF_DATA_DIR` to read the CSVs from somewhere other than the repo root. Nothing here
@@ -70,4 +77,9 @@ walk, with known expected answers for each.
   reported as *break-even cost* rather than net return. The overnight sleeve breaks even
   at 8.24 bp per round trip — real fill data is needed to know whether that clears.
 - **Nothing tested clears a Deflated Sharpe of 0.95.** Six years is not enough to
-  establish a 0.67 Sharpe.
+  establish a 0.67 Sharpe; the overnight effect itself sits at t ≈ 1.6.
+- **Indicators do not improve the overnight trade.** Thirteen tested on SPXL and FAS:
+  none significant at 5%, out-of-sample R² negative for both, and for SPXL only 14% of
+  indicator rules beat simply holding every night. The one robust timing result is to
+  enter at the last bar (15:55) — monotone in both symbols, both sub-periods, and 6 of
+  7 years each.

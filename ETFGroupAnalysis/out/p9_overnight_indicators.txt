@@ -1,0 +1,175 @@
+Rows after feature construction: SPXL=1431, FAS=1431
+Train through 2023-12-31, test after.
+
+
+==============================================================================
+A.  UNIVARIATE PREDICTIVE REGRESSIONS (HAC standard errors)
+==============================================================================
+target ~ a + b * z(indicator).  b is in bp of overnight return per 1 sd.
+With 13 indicators x 2 symbols = 26 tests, expect ~1.3 false positives at 5%.
+
+===== SPXL =====
+                 beta_bp       t      p  R2_pct  beta_train_bp  beta_test_bp sign_stable
+indicator                                                                               
+rsi14            -7.7793 -1.5370 0.1243  0.1640        -8.1864       -8.1654         yes
+close_in_range   -6.3952 -1.2840 0.1991  0.1108        -7.1312       -5.4220         yes
+vxx_chg         -10.1723 -1.2272 0.2197  0.2804         0.2362      -20.4117          NO
+dist_sma20       -5.8386 -1.0178 0.3088  0.0924        -8.0283       -3.6076         yes
+rv21             -5.4604 -0.8521 0.3942  0.0808        -8.0657       -1.1110         yes
+dow              -4.4543 -0.8138 0.4158  0.0538        -8.7214        0.9182          NO
+volume_ratio     -4.7298 -0.6291 0.5293  0.0606        -0.0489       -8.5255         yes
+prior_overnight   3.9495  0.5537 0.5798  0.0423        -6.4608       17.1894          NO
+last30_ret       -4.0632 -0.4836 0.6286  0.0447        -6.4634        0.0549          NO
+rv5_over_rv21     1.5424  0.3012 0.7633  0.0064         3.0415       -0.0635          NO
+ret5d            -1.2068 -0.1735 0.8623  0.0039         0.6364       -4.8379          NO
+vxx_level_z       1.0295  0.1267 0.8992  0.0029        11.6376       -9.1705          NO
+intraday_ret     -0.2597 -0.0406 0.9676  0.0002        -0.1804       -0.3169         yes
+  significant at 5%: []
+  ...of which sign-stable across train/test: []
+
+===== FAS =====
+                 beta_bp       t      p  R2_pct  beta_train_bp  beta_test_bp sign_stable
+indicator                                                                               
+vxx_chg         -14.6993 -1.6853 0.0919  0.4728        -6.5287      -22.3269         yes
+intraday_ret     11.4468  1.4962 0.1346  0.2867         9.3656       15.0906         yes
+volume_ratio     -9.5988 -1.1935 0.2327  0.2016         1.0021      -23.2684          NO
+ret5d             7.8687  1.1272 0.2597  0.1355         7.5620        8.5735         yes
+rsi14            -5.3602 -0.9976 0.3185  0.0629        -3.7249       -7.6998         yes
+dow              -5.0638 -0.8478 0.3965  0.0561        -4.4987       -5.8253         yes
+rv5_over_rv21    -4.5121 -0.6921 0.4889  0.0446        -0.7075       -8.3815         yes
+rv21              3.9603  0.6448 0.5190  0.0343        13.5278       -7.4664          NO
+close_in_range    3.1213  0.5565 0.5779  0.0213         4.3287        1.4892         yes
+dist_sma20        2.0600  0.3716 0.7102  0.0093         2.8102        1.2273         yes
+last30_ret       -2.0750 -0.2389 0.8112  0.0094        -5.2297        5.0134          NO
+prior_overnight   1.2748  0.1362 0.8917  0.0036       -11.5255       24.9847          NO
+vxx_level_z       0.0458  0.0051 0.9959  0.0000         8.6048       -5.4161          NO
+  significant at 5%: []
+  ...of which sign-stable across train/test: []
+
+
+==============================================================================
+B.  QUINTILE MONOTONICITY
+==============================================================================
+Mean overnight return (bp) by indicator quintile. A monotone gradient is far
+more credible than one bucket standing out. Quintile edges from TRAIN only.
+
+===== SPXL =====
+                   Q1    Q2     Q3    Q4     Q5  spread_Q5_Q1  monotonicity
+indicator                                                                  
+intraday_ret     6.90 10.92   9.58 -2.43  11.23          4.34          0.30
+close_in_range   9.28 25.93   2.94 -3.47  -1.06        -10.34         -0.80
+rv21             6.91 11.93   9.38 10.27  -9.42        -16.33         -0.30
+rv5_over_rv21   10.79 -3.67   8.01 13.03   8.07         -2.72          0.20
+rsi14           26.30  6.01   3.57  7.60  -4.97        -31.26         -0.70
+dist_sma20      13.22  8.44  15.62  2.71  -4.16        -17.38         -0.70
+prior_overnight  1.21  0.37  14.02  6.57  11.56         10.36          0.60
+dow             13.54  5.91  -0.18  2.59    NaN        -10.95         -0.80
+volume_ratio     7.31 15.76 -13.59 26.63   2.25         -5.06         -0.10
+vxx_chg         13.52 11.47   3.87  2.57   5.39         -8.13         -0.70
+vxx_level_z      7.36 -2.25   6.44  2.43  17.88         10.52          0.30
+last30_ret       7.71 23.74   8.38  4.80 -10.94        -18.66         -0.70
+ret5d           18.67 -1.59   7.73  8.74   2.52        -16.15         -0.30
+
+===== FAS =====
+                   Q1    Q2    Q3    Q4    Q5  spread_Q5_Q1  monotonicity
+indicator                                                                
+intraday_ret    -5.38  4.80  8.58  4.28 27.12         32.50          0.70
+close_in_range   6.37 -4.17 19.86  6.86  8.97          2.60          0.60
+rv21             6.10  7.17 -1.76 19.79 10.30          4.20          0.60
+rv5_over_rv21   10.91  1.17 12.89 18.66 -3.51        -14.41         -0.10
+rsi14           17.06  4.75 14.27  7.11 -2.71        -19.76         -0.70
+dist_sma20      -2.09 15.84  4.41 16.41  3.59          5.68          0.30
+prior_overnight -2.12  2.13  5.40 15.72 19.88         21.99          1.00
+dow             15.79 -2.78  5.54  5.09   NaN        -10.70         -0.40
+volume_ratio    21.27 11.17  9.31 -6.78  4.45        -16.82         -0.90
+vxx_chg         18.55 29.00  9.36 -9.32 -4.92        -23.47         -0.80
+vxx_level_z     28.37 -1.54 -2.17 -1.04 17.82        -10.55         -0.10
+last30_ret       4.20  8.81 19.93  8.13 -5.68         -9.87         -0.30
+ret5d           -3.98  8.59  6.12  8.37 20.76         24.74          0.70
+
+
+==============================================================================
+C.  RULE BACKTESTS -- clean train-select / test-evaluate protocol
+==============================================================================
+Each rule: go long overnight only when the indicator is in the top or bottom
+half / tercile, using the TRAIN-period breakpoint. 78 rules per symbol.
+
+===== SPXL =====
+Top 8 rules by TRAIN Sharpe:
+                rule  exposure  sr_train  sr_test  sr_full  ann_full   maxdd
+          rv21:bot50    0.6268    0.8736   1.6429   1.2593    0.2209 -0.2058
+           dow:bot33    0.3962    0.7660   0.7756   0.7697    0.1352 -0.2022
+           dow:bot25    0.3962    0.7660   0.7756   0.7697    0.1352 -0.2022
+close_in_range:bot50    0.5052    0.7564   0.9888   0.8619    0.2020 -0.2724
+         rsi14:bot50    0.4801    0.7507   0.9698   0.8474    0.2122 -0.3718
+   vxx_level_z:top33    0.4158    0.7169   0.6376   0.6705    0.1584 -0.3911
+       vxx_chg:top25    0.2446    0.6582   0.1685   0.4253    0.0743 -0.3135
+  volume_ratio:bot33    0.3606    0.6572   0.2994   0.4860    0.0778 -0.2380
+
+  UNGATED overnight baseline: full 0.5830  train 0.2193  TEST 1.0486
+  Train-selected winner: rv21:bot50  train 0.8736  -> TEST 1.6429
+  Beat the ungated baseline out-of-sample? YES
+  Spearman corr(train SR, test SR) across 78 rules: +0.1233
+  Rules beating baseline in TEST: 11 of 78 (14%) -- expected ~50% by chance if indicators are useless
+  Winner's TEST rank: 2 of 78
+
+===== FAS =====
+Top 8 rules by TRAIN Sharpe:
+              rule  exposure  sr_train  sr_test  sr_full  ann_full   maxdd
+     vxx_chg:bot33    0.3005    1.3493   0.5780   1.0464    0.2042 -0.2803
+volume_ratio:bot25    0.2467    1.1097   1.4406   1.2588    0.1875 -0.1524
+  dist_sma20:top50    0.5052    1.0947   0.4700   0.8524    0.1709 -0.2881
+intraday_ret:top50    0.4983    0.9990   0.4553   0.7614    0.1688 -0.3327
+       ret5d:top50    0.5003    0.9911  -0.2393   0.5463    0.1103 -0.3877
+     vxx_chg:bot50    0.4591    0.9866   0.6814   0.8649    0.1996 -0.4015
+       ret5d:top33    0.2977    0.9646   1.3235   1.0385    0.1629 -0.1789
+ vxx_level_z:bot25    0.1845    0.9578   1.2961   0.8827    0.1107 -0.2271
+
+  UNGATED overnight baseline: full 0.5788  train 0.7198  TEST 0.3680
+  Train-selected winner: vxx_chg:bot33  train 1.3493  -> TEST 0.5780
+  Beat the ungated baseline out-of-sample? YES
+  Spearman corr(train SR, test SR) across 78 rules: +0.2239
+  Rules beating baseline in TEST: 34 of 78 (44%) -- expected ~50% by chance if indicators are useless
+  Winner's TEST rank: 25 of 78
+
+
+==============================================================================
+D.  MULTIVARIATE -- is there JOINT predictability?
+==============================================================================
+All 13 indicators together. Fit on train, predict test. If overnight return
+is unpredictable, out-of-sample R2 will be <= 0.
+
+===== SPXL =====
+  in-sample R2 (train) : 1.841%   F-test p = 0.1130
+  OUT-OF-SAMPLE R2     : -1.530%   (negative = worse than the train mean)
+  forecast-sign hit rate on test: 0.532
+  trading the sign  : test SR +0.0532
+  long-when-positive: test SR +0.6443   (ungated test SR +1.0486)
+
+===== FAS =====
+  in-sample R2 (train) : 1.813%   F-test p = 0.3015
+  OUT-OF-SAMPLE R2     : -3.267%   (negative = worse than the train mean)
+  forecast-sign hit rate on test: 0.469
+  trading the sign  : test SR -0.3025
+  long-when-positive: test SR +0.0369   (ungated test SR +0.3680)
+
+
+==============================================================================
+E.  DAY OF WEEK  (reported separately -- it is the one calendar effect)
+==============================================================================
+--- SPXL (night FOLLOWING the named day) ---
+       n  mean_bp  t_stat  hit  mean_train_bp  mean_test_bp
+Mon  268     9.37    0.85 0.51          22.23         -6.02
+Tue  299    17.27    1.74 0.57           7.03         30.05
+Wed  295     5.91    0.49 0.58          -9.63         26.18
+Thu  287    -0.18   -0.02 0.55           3.50         -4.94
+Fri  282     2.59    0.19 0.55          -7.90         15.76
+
+--- FAS (night FOLLOWING the named day) ---
+       n  mean_bp  t_stat  hit  mean_train_bp  mean_test_bp
+Mon  268    20.49    1.65 0.51          38.25         -0.77
+Tue  299    11.57    0.99 0.55          -0.60         26.77
+Wed  295    -2.78   -0.22 0.55          -8.05          4.08
+Thu  287     5.54    0.49 0.56          13.47         -4.73
+Fri  282     5.09    0.34 0.56          13.10         -4.99
+
