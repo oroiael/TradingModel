@@ -327,6 +327,32 @@ cover 09:00–17:00 so it does not reboot mid-session.
 
 ---
 
+# §4.8 · Pre-flight — run this before every session
+
+```powershell
+cd C:\TradingModel
+.\.venv-live\Scripts\Activate.ps1
+python band_lab\live\diagnose.py
+```
+
+Read-only: connects on its own client id, performs each call the engine
+performs, prints what came back, places no orders. It ends in
+`VERDICT: READY` or `VERDICT: NOT READY` with the specific failures named.
+
+It exists because `run.py` is deliberately quiet — it prints decisions, not
+plumbing — so **a silent feed and a working feed look identical**. The two
+things it answers that nothing else does:
+
+| Question | Why it matters |
+|---|---|
+| Does `reqHistoricalData` return bars, and is **bar 0 the 09:30 bar**? | `Bar.idx` is minutes since 09:30 ET. A timezone mismatch shifts the whole grid, so bar 5 (the 10:00 filter) and bar 18 (the 11:00 arming) never come up. The engine consumes every bar and decides nothing, with no error |
+| Is the feed **live**, per contract? | §4 forbids trading on delayed data |
+
+If it says NOT READY, do not start `run.py` — you will learn nothing from the
+session that this did not just tell you faster.
+
+---
+
 # §5 · Monday 2026-08-03 — the dry run
 
 **Transmit is OFF. Nothing reaches the market.** This is Stage 4's acceptance
@@ -653,6 +679,8 @@ Orders**. Do this in TWS, not through the engine.
 
 | Symptom | Cause / fix |
 |---|---|
+| **Error 10089** "requires additional subscription for API… Delayed market data is available" | The account has **no live L1 entitlement for API use**. §4 makes delayed data a refusal-to-trade condition, so the sleeve stands down at 11:00. Subscribe in Client Portal → Settings → Market Data Subscriptions, then share to paper (§4.4). **This blocks the paper run, not just the dry run** |
+| **Error 162** "Trading TWS session is connected from a **different IP address**" | The same IBKR login is active somewhere else — Client Portal in a browser, the mobile app, a second TWS, or an API connector. IBKR serves market data to one location at a time and rejects historical requests here. **Log out everywhere else, then restart the engine.** Not an entitlement problem |
 | `replay.py` fails loading CSVs | LFS files are still pointers — re-run §2's `git lfs pull` |
 | `pytest band_lab\live` collects nothing | Run from `C:\TradingModel`; `conftest.py` sets `sys.path` |
 | `ZoneInfoNotFoundError` | `pip install tzdata` — Windows ships no IANA database |

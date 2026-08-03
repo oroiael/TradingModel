@@ -397,9 +397,21 @@ git lfs pull --include="SOXL_1min.csv,SOXS_1min.csv,SOXL_5min_6Years.csv,SOXS_5m
 
 for S in SOXL SOXS; do
   python3 band_lab/live/intrabar.py --symbol $S --check --start 2022-01-01
-  python3 band_lab/live/intrabar.py --symbol $S --start 2022-01-01   # the 9-row table
+  python3 band_lab/live/intrabar.py --symbol $S --start 2022-01-01 --force  # 9-row table
 done
 ```
+
+> **`--start 2022-01-01` is not optional, and `--force` is needed for the table.**
+> Run with no arguments and the window spans 2020–21, which this section
+> documents as a dirty source/vintage boundary: expect a worst case near 90 bp
+> and **~160 of 1,510 SOXL sessions** over 1 bp (118 from 2020 + 40 from 2021 +
+> the 2 disputed prints). That is the known result reproducing itself, not a new
+> fault. On the 2022+ window the gate still exits non-zero on those two prints —
+> deliberately, per S12 — so the study refuses to run without `--force`.
+>
+> `--force` was referenced at the refusal site but never defined as an argument
+> until 2026-08-03, so that path raised `AttributeError` rather than printing the
+> refusal it describes. Fixed.
 
 `--check` aggregates the 1-minute bars back to 5 minutes and diffs them
 against the file every validated number came from. If that does not pass,
