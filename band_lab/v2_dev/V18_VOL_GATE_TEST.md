@@ -387,3 +387,92 @@ is, and `band_lab/live` Stages 2–4 are now built for it. V18 is cheap (64
 runs, ~2 minutes) and answerable offline, so it is worth running in parallel —
 but the S11 residual that gates every figure in this project is settled by
 real fills, not by a fourth sweep.
+
+---
+
+## Addendum (2026-08) — the ON-day question, measured end to end
+
+Asked what has been done to *increase* the number of ON days, since ~52% of
+sessions feels infrequent. Recorded here because V18 is the program that owns
+day selection. Diagnostic only — no prespecified bar, nothing adoptable.
+
+### The funnel: where the days actually go (2022-01-03+, 1,140 sessions)
+
+| | SOXL | SOXS |
+|---|---:|---:|
+| ATR5 below the V10 gate | 297 (26.1%) | 281 (24.6%) |
+| scheduled half day | 7 (0.6%) | 7 (0.6%) |
+| V9 morning filter stand-down | 157 (13.8%) | 164 (14.3%) |
+| **ON** | **679 (59.6%)** | **691 (60.5%)** |
+
+Two gates account for essentially all of it: **V10 removes ~26%, V9 ~14%.**
+
+### The portfolio is already far more active than a single sleeve
+
+| | days |
+|---|---:|
+| SOXL ON | 679 |
+| SOXS ON | 691 |
+| both ON | 552 |
+| **at least one ON** | **818 of 1,140 = 72%** |
+| neither | 322 (28%) |
+
+The §8 "52.1% ON-day rate" is a *per-sleeve* figure over the full 2020–26
+history. In the 2022+ window each sleeve is ON ~60% of sessions and **the
+pair as deployed is active on 72%**. The two-sleeve adoption (V12/V14) is
+itself the successful answer to this question, and it is already in place.
+
+### Both remaining levers are measured, and both are negative
+
+**V10 — loosen the gate** (measured in V18's own grid, at the locked 5-day
+lookback):
+
+| cutoff | SOXL ON days | SOXL bp/cal | SOXL Calmar | SOXS ON days | SOXS bp/cal | SOXS Calmar |
+|---|---:|---:|---:|---:|---:|---:|
+| 4.0% | 931 (+252) | 20.8 (**−2.7**) | 1.29 | 938 (+247) | 16.6 (**−1.8**) | **0.69** |
+| 5.0% | 863 (+184) | 20.4 (**−3.1**) | 1.42 | 869 (+178) | 17.6 (−0.7) | 0.84 |
+| **6.0% (locked)** | **679** | **23.4** | **1.66** | **691** | **18.3** | **1.29** |
+
+Loosening to 4% buys ~250 extra ON days per sleeve — a 37% increase — and
+**costs return per calendar day in both sleeves**, roughly halving SOXS's
+Calmar (1.29 → 0.69).
+
+**V9 — remove the morning filter** (measured here for the first time on
+1-minute data; V18 §4 had excluded V9 to keep attribution clean):
+
+| | SOXL | SOXS |
+|---|---|---|
+| locked (filter ON) | 679 days, 23.43 bp/cal, MaxDD −40.6%, **935%** total | 691 days, 18.31 bp/cal, −36.5%, **478%** |
+| filter OFF | 836 days, 21.08 bp/cal, −41.5%, **590%** | 855 days, 17.33 bp/cal, **−44.7%**, **352%** |
+| **the removed days, traded** | 157 days at **−17.1 bp/day** | 164 days at **−6.8 bp/day** |
+
+**The days V9 removes lose money.** Trading them adds ~157 sessions and cuts
+total return from 935% to 590% on SOXL, with a worse drawdown in both sleeves.
+V9 is doing real work.
+
+### What that leaves
+
+Every measured route to more ON days reduces return per calendar day. That is
+not a claim that the gates are optimal — V18 found no better cutoff, and this
+addendum finds no case for removing the filter — it is the stronger statement
+that **the days being skipped are, on the evidence, worth skipping**.
+
+Prior work on the same question, for the record:
+
+- **V9's direction rule was an adoption that *added* days** — "skip OR30 above
+  the trailing 80th percentile **unless** the 10:00 print is in the top third
+  of the opening range", worth **+4.6 bp/day, walk-forward 5/5**
+  (`STRATEGY_SPEC.md` §0.1, `V9_FILTER_TESTS.md`). Violent *up*-mornings were
+  being discarded and are now traded. This question has been asked before and
+  answered productively once.
+- **More instruments rather than more days**: SPXL, FAS and TQQQ were
+  evaluated as additional sleeves; **none adopted** (`IMPLEMENTATION_SPEC.md`
+  §11, `MASTER_STRATEGY_DOCUMENT.md` §9.1–9.4).
+- **The pair itself** (V12/V14) is the adopted answer, and it is what takes
+  coverage from ~60% to 72%.
+
+**Recommendation: no program.** The frequency constraint is not a gate that is
+set too tight; it is that ~28% of sessions are genuinely low-volatility and
+the strategy has no edge on them. V17 R5 is the same finding from the other
+direction — even *within* ON days, the edge is concentrated in the ~30% that
+reach the trade cap.

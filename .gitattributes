@@ -19,3 +19,4 @@ cycle_lab/out/*.csv -filter -diff -merge text
 band_lab/out/*.csv -filter -diff -merge text
 band_lab/phase1/out/*.csv -filter -diff -merge text
 band_lab/v2_dev/out/*.csv -filter -diff -merge text
+vix_lab/out/*.csv -filter -diff -merge text

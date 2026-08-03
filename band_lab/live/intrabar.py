@@ -291,7 +291,7 @@ def resolution_report(symbol: str, root: str = ROOT,
     """
     from replay import load_sessions, replay_symbol
 
-    fine = dict(load_1min_sessions(symbol, root, path, split_adjust))
+    fine = dict(load_1min_sessions(symbol, root, path))
     every = load_sessions(symbol, root)          # the full 5-minute record
     dates = set(fine) & {d for d, _ in every}
     if start is not None:
@@ -365,7 +365,7 @@ def parity_check(symbol: str, root: str = ROOT, path: Optional[str] = None,
     """
     from replay import load_sessions
 
-    fine = dict(load_1min_sessions(symbol, root, path, split_adjust))
+    fine = dict(load_1min_sessions(symbol, root, path))
     coarse = dict(load_sessions(symbol, root))
     shared = sorted(set(fine) & set(coarse))
     if start is not None:
@@ -376,11 +376,18 @@ def parity_check(symbol: str, root: str = ROOT, path: Optional[str] = None,
         print("  no overlap — cannot validate the fetch")
         return 1
 
+    # A split-adjustment mismatch damages exactly one side of the split date,
+    # so the eras are reported separately: a large `pre` beside a clean `post`
+    # is a scale error, while both sides alike is ordinary vendor disagreement.
+    cuts = SPLIT_ADJUSTMENTS.get(symbol, [])
+    cut = cuts[0][0] if cuts else None
+    worst_by_era = {"pre": 0.0, "post": 0.0}
+
     worst_px, worst_bp, worst_date, missing = 0.0, 0.0, None, 0
     bad_sessions, bad_bars, total_bars = set(), 0, 0
     for d in shared:
         agg = {b.idx: b for b in aggregate(fine[d], 5)}
-        era = "pre" if d < cut else "post"
+        era = "pre" if cut is not None and d < cut else "post"
         for cb in coarse[d]:
             ab = agg.get(cb.idx)
             if ab is None:
@@ -395,6 +402,7 @@ def parity_check(symbol: str, root: str = ROOT, path: Optional[str] = None,
                 bad_sessions.add(d)
                 bad_bars += 1
             worst_px = max(worst_px, diff)
+            worst_by_era[era] = max(worst_by_era[era], rel)
             if rel > worst_bp:
                 worst_bp, worst_date = rel, d
     print(f"  sessions {shared[0].date()} → {shared[-1].date()}")
@@ -402,8 +410,8 @@ def parity_check(symbol: str, root: str = ROOT, path: Optional[str] = None,
           f" (absolute {worst_px:.4f})"
           f"{'' if worst_date is None else f' on {worst_date.date()}'}")
     if cuts:
-        print(f"    pre-split {worst_by_era['pre']:.4f} | "
-              f"post-split {worst_by_era['post']:.4f}")
+        print(f"    pre-split {worst_by_era['pre']:.4f} bp | "
+              f"post-split {worst_by_era['post']:.4f} bp")
     print(f"  5-minute bars with no 1-minute coverage: {missing}")
     print(f"  bars over {tol_bp:g} bp: {bad_bars} of {total_bars} "
           f"({bad_bars / max(total_bars, 1):.4%}) "
