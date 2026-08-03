@@ -9,15 +9,35 @@ runbook calls a dry run, the second by trading yesterday's bars as today's.
 
 from __future__ import annotations
 
-from datetime import date, datetime
+from datetime import date, datetime, timezone
 from types import SimpleNamespace
 from zoneinfo import ZoneInfo
 
 import pytest
 
-from broker import IBBroker, NotLiveDataError
+from broker import IBBroker, NotLiveDataError, bar_time_et
 
 NY = ZoneInfo("America/New_York")
+
+
+# ------------------------------------------------------- bar timestamps -> ET
+@pytest.mark.parametrize("raw", [
+    datetime(2026, 8, 3, 9, 30),                                    # naive
+    datetime(2026, 8, 3, 9, 30, tzinfo=NY),                         # aware, ET
+    datetime(2026, 8, 3, 13, 30, tzinfo=timezone.utc),              # aware, UTC
+    datetime(2026, 8, 3, 15, 30, tzinfo=ZoneInfo("Europe/Amsterdam")),
+    "20260803  09:30:00",                                           # string form
+])
+def test_every_ibkr_timestamp_form_lands_on_bar_zero(raw):
+    """`Bar.idx` is minutes since 09:30 ET, so the zone is load-bearing.
+
+    `ib_async.util.parseIBDatetime` returns any of these depending on the TWS
+    version and its configured timezone. Read naively, the UTC form puts the
+    09:30 bar at index 48 and the session decides nothing all day, silently.
+    """
+    et = bar_time_et(raw)
+    assert (et.hour * 60 + et.minute - 570) // 5 == 0
+    assert et.tzinfo is None, "compared against naive CSV timestamps downstream"
 
 
 class _StubTicker:

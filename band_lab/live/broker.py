@@ -62,6 +62,30 @@ class MarketClosedError(BrokerError):
     """
 
 
+def bar_time_et(raw) -> datetime:
+    """An IBKR bar timestamp as **exchange wall-clock**, whatever form it takes.
+
+    `Bar.idx` is minutes since 09:30 ET, so this conversion is load-bearing: an
+    hour of error is twelve bars of error, and a bar index outside 0-77 quietly
+    matches neither the 10:00 filter (bar 5) nor the 11:00 activation (bar 18) —
+    the engine then runs a whole session without deciding anything.
+
+    `ib_async.util.parseIBDatetime` can hand back any of three things depending
+    on the TWS version and its configured timezone: a tz-aware datetime carrying
+    an IANA zone, a tz-aware UTC datetime decoded from an epoch, or a naive one
+    with no zone at all. Only the last is safe to read hour-of-day from
+    directly, and only because a zone-less TWS timestamp is already exchange
+    time — the same convention the repository's CSVs use.
+    """
+    if not isinstance(raw, datetime):
+        try:
+            return datetime.strptime(str(raw), "%Y%m%d  %H:%M:%S")
+        except ValueError:
+            return datetime.strptime(str(raw)[:19].replace("-", "").replace(" ", ""),
+                                     "%Y%m%d%H:%M:%S")
+    return raw.astimezone(NY).replace(tzinfo=None) if raw.tzinfo else raw
+
+
 def parse_liquid_hours(hours: str, target: str):
     """IBKR `liquidHours` -> (open, close) for `target` (YYYYMMDD), or None.
 
@@ -408,8 +432,7 @@ class IBBroker(Broker):
         step = 5 if bar_size.startswith("5") else 1
         out = []
         for b in bars:
-            dt = b.date if isinstance(b.date, datetime) else datetime.strptime(
-                str(b.date), "%Y%m%d  %H:%M:%S")
+            dt = bar_time_et(b.date)
             mins = dt.hour * 60 + dt.minute - (9 * 60 + 30)
             out.append((dt.date(), Bar(mins // step, float(b.open), float(b.high),
                                        float(b.low), float(b.close), float(b.volume))))
