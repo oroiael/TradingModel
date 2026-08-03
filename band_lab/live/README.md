@@ -3,11 +3,16 @@
 Phase 2 of `band_lab/IMPLEMENTATION_SPEC.md` §9: the always-on service that
 trades the SOXL and SOXS sleeves on IBKR, against a paper account first.
 
-**Status: Stages 1-4 complete and runnable; not yet connected to a broker.**
-`run.py` drives a whole trading day end to end — pre-open, bar feed, orders,
-flatten, reconcile — and is proven against a `FakeIB` double. **No code here
-has ever talked to IBKR.** The next step is Stage 4's acceptance: one real
-session with `--dry-run` (transmit off). Step-by-step: [RUNBOOK.md](RUNBOOK.md) §5.
+**Status: Stages 1-4 complete; connected to IBKR, but no order has ever been
+placed.** `run.py` drives a whole trading day end to end — pre-open, bar feed,
+orders, flatten, reconcile — and is proven against a `FakeIB` double.
+
+On 2026-08-03 it connected to TWS paper and `diagnose.py` returned
+`VERDICT: READY` on both sleeves: contracts, session hours, 78 bars at idx
+0..77, live market data. **It has never reached the 11:00 arming**, so the
+order path, bracket, ratchet and flatten remain untested against a broker, and
+every `PHASE2_PLAN.md` §6 assumption is still open. Step-by-step:
+[RUNBOOK.md](RUNBOOK.md) §7.
 
 | document | what it is |
 |---|---|
@@ -26,7 +31,7 @@ session with `--dry-run` (transmit off). Step-by-step: [RUNBOOK.md](RUNBOOK.md) 
 | `replay.py` | offline driver + equivalence report + the S9/S10 diagnostics | 1 ✅ |
 | `intrabar.py` | 5-minute decisions, 1-minute fills — the S10 resolution study | 1 ✅ |
 | `fetch_1min.py` | IBKR 1-minute bar fetcher (resumable, paced) | 1 ✅ |
-| `tests/` | 144 tests: core arithmetic, state machine (§10.4–8, 14), equivalence, intrabar, fetcher, adapter guards | 1 ✅ |
+| `tests/` | core arithmetic, state machine (§10.4–8, 14), equivalence, intrabar, fetcher, adapter guards | 1 ✅ |
 | `broker.py` | ib_async adapter + `FakeIB` test double; live-data assertion, session hours, reconcile primitives | 2 ✅ |
 | `store.py` | SQLite (WAL): bars, decisions, orders, fills, quotes, counters, daily | 2 ✅ |
 | `orders.py` | OrderManager: deterministic refs, ratchet, OCA, partial fills, flatten, reconcile | 3 ✅ |
@@ -42,7 +47,7 @@ session with `--dry-run` (transmit off). Step-by-step: [RUNBOOK.md](RUNBOOK.md) 
 
 ```bash
 python3 band_lab/live/replay.py           # equivalence vs phase1 — exit 0 == green
-python3 -m pytest band_lab/live -q        # 144 tests
+python3 -m pytest band_lab/live -q        # all must pass
 python3 band_lab/live/run.py --dry-run     # Stage 4: a session with transmit OFF
 python3 band_lab/live/replay.py --sizing        # S9
 python3 band_lab/live/replay.py --fill-models   # S10

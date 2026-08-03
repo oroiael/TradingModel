@@ -66,7 +66,8 @@ every timestamp in the engine goes through `ZoneInfo("America/New_York")`.
 ### 0.4 Run §3's four verification commands
 
 Not optional, and not a formality — they are what proves the pull landed
-cleanly. Expect **`144 passed`** on the live suite, not 137.
+cleanly. The live suite must report **0 failures**; its total grows with each
+fix, so check the commit hash in §0.1 rather than memorising a number.
 
 Then go to **§4** (verify the TWS settings even if you believe they are done —
 in particular §4.4 market data and §4.5 the account) and **§5** for Monday.
@@ -175,10 +176,10 @@ Expected, exactly:
 
 | Command | Must show |
 |---|---|
-| `pytest band_lab\phase1` | `59 passed` |
+| `pytest band_lab\phase1` | `59 passed` — this one is a fixed invariant |
 | `parity.py` | a table ending in the §8 numbers, then `exit=0` |
 | `replay.py` | `STAGE 1 EQUIVALENCE: PASS`, then `exit=0` |
-| `pytest band_lab\live` | `144 passed` |
+| `pytest band_lab\live` | all pass, **0 failures** (the count grows; the commit hash above is the real check) |
 
 `parity.py` takes ~2 minutes and `replay.py` ~1 minute. Anything other than the
 above — a failure, a different count, a non-zero exit — is a stop.
@@ -353,10 +354,19 @@ session that this did not just tell you faster.
 
 ---
 
-# §5 · Monday 2026-08-03 — the dry run
+# §5 · The dry run — transmit OFF
 
-**Transmit is OFF. Nothing reaches the market.** This is Stage 4's acceptance
-and it must be clean before any order is ever sent.
+> **Not the current path.** The 2026-08-03 dry runs found five defects and
+> cleared both operational blockers, but never reached the 11:00 arming.
+> `diagnose.py` now covers the pre-open half a dry run was checking, and the
+> three `PHASE2_PLAN.md` §6 assumptions can only be tested with live orders —
+> so **2026-08-04 goes straight to transmit ON: [§7](#7--the-first-transmit-on-session)**.
+>
+> Keep this section for a first session on any *new* machine, after a change to
+> the order path, or whenever you want a no-consequence rehearsal. The seven
+> checks in §5.3 apply to a transmit-ON session too — read them either way.
+
+**Transmit is OFF. Nothing reaches the market.**
 
 ## 5.1 — 08:30 ET, before the open
 
@@ -367,8 +377,8 @@ git pull
 git log --oneline -1        # must be 014e9b4 or later — see §0.1
 ```
 
-Run the four verification commands from **§3**. All four must pass, and the live
-suite must say **`144 passed`**.
+Run the four verification commands from **§3**. All four must pass with **0
+failures**.
 
 Start TWS and log in to the **paper** account — the login screen's Live/Paper
 selector must say Paper, and the API port must be **7497**. Leave it running.
@@ -526,9 +536,9 @@ Copy-Item band_lab\live\out\live.db "$env:USERPROFILE\Desktop\live-20260803-dryr
 
 ---
 
-# §6 · Monday evening — the go/no-go
+# §6 · After a dry run — the go/no-go
 
-Answer these six. **Any "no" is a no-go for transmitting on Tuesday.**
+Answer these six. **Any "no" is a no-go for transmitting.**
 
 - [ ] Did all four §3 verification commands pass in the morning?
 - [ ] Did the feature top-up show `+N broker` with N > 0 (Check 1)?
@@ -551,46 +561,92 @@ Inspect what the engine actually decided:
 python -c "import sqlite3; c=sqlite3.connect(r'band_lab\live\out\live.db'); [print(dict(r)) for r in c.execute('SELECT * FROM daily WHERE session=\"20260803\"').fetchall()]"
 ```
 
-If everything is clean, Tuesday is the first transmit-ON session (**§7**).
-If anything is unexplained, repeat the dry run on Tuesday. Calendar time is
-cheap here; a wrong first order is not.
+If everything is clean, the next session can transmit (**§7**). If anything is
+unexplained, repeat the dry run. Calendar time is cheap; a wrong first order is
+not.
 
 ---
 
 # §7 · The first transmit-ON session
 
-Only after §6 is all "yes".
+**Orders reach the market. Paper account only.** The live-money ports (7496,
+4001) are refused by config validation and there is no flag that overrides that
+in Phase 2.
+
+## 7.0 — the timeline, and why an 08:00 start is safe
+
+**No order can exist before the 11:00 bar.** §2.3: *"No orders may be placed
+before 11:00 under any circumstance."* It is enforced in three places — the
+state machine only activates at `bar_idx >= 18`, the engine only calls
+`assert_live_data` at that same point, and no intent is emitted before it. It
+is covered by `test_no_orders_before_1100_then_armed_at_1100`.
+
+| Time (ET) | What the engine does | Needs you? |
+|---|---|---|
+| 08:00 | start; pre-open: connect, features, gate, capital | ✅ watch this |
+| 08:00–09:30 | polls; the feed correctly returns **nothing** before the open | no |
+| 09:30–10:00 | records bars 0–5 | no |
+| 10:00 | morning filter fires on bar 5 | no |
+| 10:00–11:00 | observes; tracks `session_high`. **Still cannot order** | no |
+| **~11:05** | **first arming** — see 7.0.1 | ✅ **be back** |
+| 11:05–15:55 | ratchet, fills, brackets, re-arm | ✅ |
+| 15:55 | flatten | ✅ verify in TWS |
+
+**So an 08:00 start with an absence from 09:00 to 11:00 is safe**, and safe
+structurally rather than by luck: the window you miss is the one in which the
+engine is forbidden from acting. If it dies while you are away, it dies flat —
+there is nothing to leave open.
+
+### 7.0.1 Why "~11:05" and not 11:00
+
+Bar 18 covers 11:00–11:05 and is only delivered once it *closes*. The engine
+arms on receipt, so the limit goes live around 11:05–11:06, priced off bars
+0–17 — the same anchor the backtest uses at 11:00 — and is then immediately
+ratcheted if bar 18 printed a new high.
+
+The backtest's limit rests from 11:00 and can therefore fill during bar 18;
+live, you are not in the market for those five minutes. **The gap runs one
+direction only: live will miss fills the backtest books, never the reverse.**
+Expect a small systematic shortfall against the shadow-parity comparison from
+this alone, before any of the S10/S11 fill effects.
+
+## 7.1 — launch
 
 ```powershell
 cd C:\TradingModel
+git pull
 .\.venv-live\Scripts\Activate.ps1
 ```
 
-Create `band_lab\live\config.local.json` — **JSON, not TOML**, despite what
-`DEPLOYMENT.md` §9 says:
-
-```json
-{
-  "transmit": true,
-  "port": 7497,
-  "client_id": 11,
-  "db_path": "band_lab/live/out/live.db"
-}
-```
-
-> Strategy numbers are deliberately absent. `validate_config` rejects any
-> attempt to put one here — that is §6.8 of the spec in executable form.
-
-Run the §3 verification block, then:
+Run **§4.8's pre-flight** and the **§3** verification block. `diagnose.py` must
+say `VERDICT: READY`; the four commands must pass with 0 failures. Then:
 
 ```powershell
-python band_lab\live\run.py --config band_lab\live\config.local.json
+mkdir logs -Force
+python -u band_lab\live\run.py --transmit 2>&1 |
+    Tee-Object -FilePath "logs\$(Get-Date -f yyyyMMdd)-live.log"
 ```
 
-The banner must now read `TRANSMIT ON` and the DRY RUN block must **not**
-appear.
+The banner must read:
 
-## 7.1 — three things to check deliberately on the first session
+```
+========================================================================
+*** TRANSMIT ON — ORDERS WILL REACH THE MARKET ***
+    port 7497 (PAPER)   clientId=11
+    SOXL,SOXS at f=1.0 w=0.5 cap=$150,000
+    First order is possible only after the 11:00 bar (§2.3).
+========================================================================
+```
+
+**If it says `DRY RUN` instead, `--transmit` did not take.** If the port is not
+7497, stop immediately.
+
+> `--transmit` and `--dry-run` together are refused rather than resolved by
+> precedence. A config file still works — `--config path.json` with
+> `"transmit": true` — but the flag is preferred because the intent is visible
+> in the command line and in the log.
+
+## 7.2 — three things to check deliberately on the first session
 
 These are `PHASE2_PLAN.md` §6 assumptions that no amount of offline work can
 settle. Check them on purpose; do not wait to notice them.
@@ -627,7 +683,7 @@ absolutely.
 Leave everything running overnight. On Tuesday morning check the engine
 reconnected and that `fills` and `stop_outs` for Monday did not double-count.
 
-## 7.2 — what a normal result looks like
+## 7.3 — what a normal result looks like
 
 **Plan on ~40 bp/ON-day for SOXL and ~30 for SOXS.** A run at 20–40 bp is
 consistent with the evidence and is **not** a sign the engine is broken.
