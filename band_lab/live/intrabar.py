@@ -466,6 +466,11 @@ def main() -> int:
                     help="earliest session to trade/validate, YYYY-MM-DD "
                          "(features always use the full 5-minute history)")
     ap.add_argument("--root", default=ROOT)
+    ap.add_argument("--force", action="store_true",
+                    help="run the study even though the parity check failed. "
+                         "S12: the 2022+ gate fails on two disputed prints in "
+                         "~88,600 bars and was deliberately not loosened, so "
+                         "this is how the published S11 table is reproduced")
     args = ap.parse_args()
 
     start = pd.Timestamp(args.start) if args.start else None
