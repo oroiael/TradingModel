@@ -99,9 +99,9 @@ class Runner:
                             f"{symbol}: the broker top-up added no sessions — "
                             f"ATR5 and thr80 are being computed from history "
                             f"ending {last}. Verify before trusting the gate.")
-        if not features.check(boots, self._event):
-            self._event("critical", "insufficient history — every sleeve would "
-                                    "stand down; refusing to start")
+        if not features.check(boots, self._event, today=day):
+            self._event("critical", "feature history is insufficient or stale — "
+                                    "refusing to start. Nothing was traded.")
             return False
 
         for f in self.feeds.values():

@@ -680,7 +680,8 @@ Orders**. Do this in TWS, not through the engine.
 | Symptom | Cause / fix |
 |---|---|
 | **Error 10089** "requires additional subscription for API… Delayed market data is available" | The account has **no live L1 entitlement for API use**. §4 makes delayed data a refusal-to-trade condition, so the sleeve stands down at 11:00. Subscribe in Client Portal → Settings → Market Data Subscriptions, then share to paper (§4.4). **This blocks the paper run, not just the dry run** |
-| **Error 162** "Trading TWS session is connected from a **different IP address**" | The same IBKR login is active somewhere else — Client Portal in a browser, the mobile app, a second TWS, or an API connector. IBKR serves market data to one location at a time and rejects historical requests here. **Log out everywhere else, then restart the engine.** Not an entitlement problem |
+| **Error 162** "Trading TWS session is connected from a **different IP address**" | The same IBKR login is active somewhere else — Client Portal in a browser, the mobile app, a second TWS, or an API connector. IBKR serves market data to one location at a time and rejects historical requests here. **Log out everywhere else, then restart the engine.** Not an entitlement problem. **This includes the Client Portal tab you used to buy the market-data subscription** — it recurred that way on 2026-08-03 |
+| `feature history is insufficient or stale — refusing to start` | The broker top-up returned nothing (usually error 162 above), so ATR5/thr80 would come from the CSV's last session. §2.2 forbids trading on stale data, so the run is refused outright. Fix the top-up and re-run — do **not** work around it |
 | `replay.py` fails loading CSVs | LFS files are still pointers — re-run §2's `git lfs pull` |
 | `pytest band_lab\live` collects nothing | Run from `C:\TradingModel`; `conftest.py` sets `sys.path` |
 | `ZoneInfoNotFoundError` | `pip install tzdata` — Windows ships no IANA database |
