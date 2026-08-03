@@ -15,3 +15,7 @@ band_lab/live/state/
 band_lab/live/out/
 band_lab/live/config.local.toml
 band_lab/live/config.local.json
+
+# vix_lab: bulky regenerable logs (summary tables ARE committed)
+vix_lab/out/trades_*.csv
+vix_lab/out/*.txt
