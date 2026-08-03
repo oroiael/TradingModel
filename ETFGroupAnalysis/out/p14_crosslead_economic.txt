@@ -1,0 +1,67 @@
+
+==============================================================================
+A. VOLATILITY TARGETING -- SPXL
+==============================================================================
+972 out-of-sample days, 2022-08-23 -> 2026-07-22. Target 20% annualized, leverage capped at 3x.
+
+                   ann_ret  ann_vol  sharpe  max_dd  avg_lev  turnover  realized_vs_target
+sizing                                                                                    
+constant (1x)       0.3212   0.4781  0.6718 -0.4924   1.0000    0.0000              2.3905
+vol-target off M0   0.1571   0.2874  0.5466 -0.3420   0.7273   25.8316              1.4370
+vol-target off M1   0.1501   0.2876  0.5222 -0.3514   0.7292   27.0068              1.4378
+vol-target off M2   0.1526   0.2889  0.5283 -0.3486   0.7366   28.5661              1.4445
+
+  'realized_vs_target' near 1.00 means the sizing rule actually delivered
+  the risk it aimed at -- that is the real test of a volatility forecast.
+
+  M2 minus M1 daily return difference: mean +0.247%/yr, t = +0.371, p = 0.7104
+  Sharpe: M1 0.5222 -> M2 0.5283 (+0.0061)
+
+==============================================================================
+B. BIG-MOVE-DAY CLASSIFICATION -- SPXL
+==============================================================================
+  --- top decile threshold (10.1% of 972 OOS days are events) ---
+    M0: AUC = 0.7770   precision in flagged bucket = 0.378   lift = 3.74x
+    M1: AUC = 0.7746   precision in flagged bucket = 0.367   lift = 3.64x
+    M2: AUC = 0.7730   precision in flagged bucket = 0.367   lift = 3.64x
+    AUC(M2) - AUC(M1) = -0.0016   bootstrap 95% CI [-0.0092, +0.0062]   P(M2>M1) = 0.367
+  --- top 5% threshold (5.0% of 972 OOS days are events) ---
+    M0: AUC = 0.7748   precision in flagged bucket = 0.327   lift = 6.48x
+    M1: AUC = 0.7751   precision in flagged bucket = 0.347   lift = 6.88x
+    M2: AUC = 0.7757   precision in flagged bucket = 0.388   lift = 7.69x
+    AUC(M2) - AUC(M1) = +0.0006   bootstrap 95% CI [-0.0049, +0.0069]   P(M2>M1) = 0.544
+
+
+==============================================================================
+A. VOLATILITY TARGETING -- FAS
+==============================================================================
+972 out-of-sample days, 2022-08-23 -> 2026-07-22. Target 20% annualized, leverage capped at 3x.
+
+                   ann_ret  ann_vol  sharpe  max_dd  avg_lev  turnover  realized_vs_target
+sizing                                                                                    
+constant (1x)       0.2342   0.5228  0.4480 -0.4576   1.0000    0.0000              2.6140
+vol-target off M0   0.1354   0.2665  0.5079 -0.2853   0.5808   15.2648              1.3326
+vol-target off M1   0.1415   0.2661  0.5318 -0.2739   0.5817   15.7735              1.3306
+vol-target off M2   0.1398   0.2664  0.5250 -0.2889   0.5852   17.7287              1.3319
+
+  'realized_vs_target' near 1.00 means the sizing rule actually delivered
+  the risk it aimed at -- that is the real test of a volatility forecast.
+
+  M2 minus M1 daily return difference: mean -0.169%/yr, t = -0.217, p = 0.8285
+  Sharpe: M1 0.5318 -> M2 0.5250 (-0.0068)
+
+==============================================================================
+B. BIG-MOVE-DAY CLASSIFICATION -- FAS
+==============================================================================
+  --- top decile threshold (10.1% of 972 OOS days are events) ---
+    M0: AUC = 0.7414   precision in flagged bucket = 0.327   lift = 3.24x
+    M1: AUC = 0.7397   precision in flagged bucket = 0.337   lift = 3.34x
+    M2: AUC = 0.7202   precision in flagged bucket = 0.296   lift = 2.94x
+    AUC(M2) - AUC(M1) = -0.0196   bootstrap 95% CI [-0.0381, -0.0028]   P(M2>M1) = 0.008
+  --- top 5% threshold (5.0% of 972 OOS days are events) ---
+    M0: AUC = 0.7697   precision in flagged bucket = 0.224   lift = 4.45x
+    M1: AUC = 0.7738   precision in flagged bucket = 0.204   lift = 4.05x
+    M2: AUC = 0.7676   precision in flagged bucket = 0.204   lift = 4.05x
+    AUC(M2) - AUC(M1) = -0.0063   bootstrap 95% CI [-0.0271, +0.0149]   P(M2>M1) = 0.285
+
+[saved] /home/user/TradingModel/ETFGroupAnalysis/out/p14_voltarget.csv, p14_classification.csv

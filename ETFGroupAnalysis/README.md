@@ -13,6 +13,11 @@ whether they can be traded together as an actively managed basket.
 - [`docs/OVERNIGHT_SPXL_FAS.md`](docs/OVERNIGHT_SPXL_FAS.md) — follow-up drilling into the
   one effect that survived: optimal entry/exit timing for SPXL and FAS overnight trades,
   and whether any indicator improves them (it does not).
+- [`docs/CROSS_LEAD_INDICATORS.md`](docs/CROSS_LEAD_INDICATORS.md) — an 816-specification
+  scan for cross-instrument leading indicators across aggregations from 5 minutes to 5
+  days. Finds a real, family-wise-significant, out-of-sample-validated volatility signal
+  (VXX last-hour RV leads SPXL/FAS next-day RV) that is nonetheless worth nothing in the
+  two economic applications tested.
 
 ## Headline
 
@@ -59,6 +64,12 @@ python3 p6_charts.py          # summary figure
 python3 p8_overnight_timing.py     # entry/exit grid + bar-level profile
 python3 p9_overnight_indicators.py # 13 indicators, univariate + multivariate + rules
 python3 p10_timing_robustness.py   # entry gradient in train/test, net-of-cost table
+
+python3 p11_crosslead_panel.py     # aggregated multi-window feature panel
+python3 p12_crosslead_scan.py      # 816-spec scan + family-wise bootstrap (~4 min)
+python3 p13_crosslead_validate.py  # leverage-effect control + OOS forecast evaluation
+python3 p14_crosslead_economic.py  # vol targeting + big-move classification
+python3 p15_crosslead_chart.py     # cross-lead summary figure
 ```
 
 Set `ETF_DATA_DIR` to read the CSVs from somewhere other than the repo root. Nothing here
@@ -83,3 +94,8 @@ walk, with known expected answers for each.
   indicator rules beat simply holding every night. The one robust timing result is to
   enter at the last bar (15:55) — monotone in both symbols, both sub-periods, and 6 of
   7 years each.
+- **A real cross-asset signal exists but does not pay.** VXX's last-hour realized
+  volatility leads next-day realized volatility in SPXL and FAS (family-wise p = 0.0000,
+  OOS R² +1.4/+1.9 pp, Diebold-Mariano p = 0.002/0.004), and information flows SPXL → FAS
+  but not FAS → SPXL. It produced no gain in vol-targeted sizing or tail-day
+  classification. Direction remains unpredictable at every aggregation tested.

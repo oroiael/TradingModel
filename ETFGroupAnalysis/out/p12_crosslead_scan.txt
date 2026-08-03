@@ -1,0 +1,108 @@
+
+==============================================================================
+SCAN: 816 specifications
+==============================================================================
+6 ordered pairs x 4 targets x 2 lags x 17 features
+Direction targets control for own lag; magnitude targets control for HAR-RV (daily/5d/22d).
+
+Nominal p<0.05 : 186 of 816 (expected by chance ~41)
+Nominal p<0.01 : 117 (expected ~8)
+BH-FDR q<0.10  : 133
+BH-FDR q<0.05  : 106
+
+==============================================================================
+FAMILY-WISE NULL: circular-rotation bootstrap on the cross predictor
+==============================================================================
+Rotating the predictor destroys cross-alignment but preserves its own
+autocorrelation exactly. 400 replications; the statistic is max|t| over all
+816 specifications simultaneously.
+
+  100/400 replications done
+  200/400 replications done
+  300/400 replications done
+  400/400 replications done
+
+  observed max|t| across all specs : 8.671
+  null distribution of max|t|      : median 3.535  95th pct 4.420  max 6.147
+  FAMILY-WISE p-value for the single best finding: 0.0000
+  -> SURVIVES family-wise correction at 5%
+  specifications exceeding the family-wise 95% critical value (4.420): 34
+
+==============================================================================
+TOP 25 BY |HAC t|
+==============================================================================
+ src  tgt         feature  lag    target      kind    beta   t_hac  p_hac   p_bh  partial_R2_pct  beta_train  beta_test  sign_stable  passes_fwer    n
+ VXX SPXL         day_cir    1 day_logrv magnitude  0.1489  8.8468 0.0000 0.0000          2.1674      0.1440     0.1537         True         True 1484
+ VXX  FAS         day_cir    1 day_logrv magnitude  0.1359  7.7109 0.0000 0.0000          1.7991      0.1431     0.1274         True         True 1484
+ VXX SPXL         day_ret    1 day_logrv magnitude  0.1255  7.1563 0.0000 0.0000          1.4850      0.1270     0.1259         True         True 1484
+SPXL  FAS    lasthr_logrv    1 day_logrv magnitude  0.1700  6.9039 0.0000 0.0000          1.3424      0.1983     0.1395         True         True 1472
+ VXX SPXL          d5_ret    1 day_logrv magnitude  0.1267  6.6900 0.0000 0.0000          1.2954      0.1142     0.1461         True         True 1484
+ VXX SPXL    lasthr_logrv    1 day_logrv magnitude  0.1552  6.6584 0.0000 0.0000          1.3241      0.1122     0.2333         True         True 1472
+ VXX  FAS          d5_ret    1 day_logrv magnitude  0.1202  6.6111 0.0000 0.0000          1.1712      0.1285     0.1147         True         True 1484
+ VXX  FAS    lasthr_logrv    1 day_logrv magnitude  0.1459  6.4310 0.0000 0.0000          1.2741      0.1410     0.1535         True         True 1472
+ VXX  FAS         day_ret    1 day_logrv magnitude  0.1209  6.0784 0.0000 0.0000          1.3748      0.1211     0.1219         True         True 1484
+ VXX  FAS         day_ofi    1 day_logrv magnitude  0.1005  5.9234 0.0000 0.0000          0.9687      0.1082     0.0925         True         True 1484
+ VXX SPXL      lasthr_ret    1 day_logrv magnitude  0.1034  5.8026 0.0000 0.0000          1.0585      0.1061     0.0974         True         True 1472
+ VXX SPXL      lasthr_ofi    1 day_logrv magnitude  0.0963  5.7696 0.0000 0.0000          0.9257      0.1029     0.0859         True         True 1472
+ VXX SPXL         day_ofi    1 day_logrv magnitude  0.0975  5.7678 0.0000 0.0000          0.9166      0.1092     0.0859         True         True 1484
+ VXX SPXL    lasthr_share    1 day_logrv magnitude  0.0941  5.7598 0.0000 0.0000          0.8844      0.0681     0.1209         True         True 1472
+ VXX SPXL      lasthr_cir    1 day_logrv magnitude  0.0968  5.6899 0.0000 0.0000          0.9349      0.0980     0.0913         True         True 1472
+ VXX SPXL lasthr_volratio    1 day_logrv magnitude  0.1205  5.5889 0.0000 0.0000          1.0632      0.1529     0.0941         True         True 1472
+ VXX  FAS      lasthr_ret    1 day_logrv magnitude  0.0977  5.0546 0.0000 0.0000          0.9459      0.1058     0.0865         True         True 1472
+ VXX  FAS      lasthr_cir    1 day_logrv magnitude  0.0852  5.0545 0.0000 0.0000          0.7230      0.1013     0.0601         True         True 1472
+ VXX  FAS      lasthr_ofi    1 day_logrv magnitude  0.0837  5.0167 0.0000 0.0000          0.6991      0.1088     0.0557         True         True 1472
+ VXX  FAS lasthr_volratio    1 day_logrv magnitude  0.1234  4.8175 0.0000 0.0001          1.1206      0.1643     0.0931         True         True 1472
+SPXL  VXX    lasthr_share    1 day_logrv magnitude  0.1015  4.7116 0.0000 0.0001          1.0285      0.0677     0.1423         True         True 1472
+ VXX SPXL         day_cir    2 day_logrv magnitude  0.0919  4.7078 0.0000 0.0001          0.8263      0.0824     0.1027         True         True 1483
+ VXX  FAS         day_ret    2 day_logrv magnitude  0.0884  4.6621 0.0000 0.0001          0.7348      0.0925     0.0848         True         True 1483
+SPXL  FAS    lasthr_share    1 day_logrv magnitude  0.0806  4.6455 0.0000 0.0001          0.6489      0.0833     0.0698         True         True 1472
+SPXL  FAS          d5_ret    1 day_logrv magnitude -0.0885 -4.6285 0.0000 0.0001          0.6509     -0.0813    -0.0990         True         True 1484
+
+==============================================================================
+BEST FINDING PER TARGET TYPE
+==============================================================================
+
+--- direction targets (408 specs) ---
+ src tgt  feature  lag    target      kind    beta   t_hac  p_hac   p_bh  partial_R2_pct  beta_train  beta_test  sign_stable  passes_fwer    n
+SPXL VXX   d5_ret    1    cc_ret direction  0.0944  3.3601 0.0008 0.0104          0.8617      0.0850     0.1129         True        False 1501
+SPXL VXX d5_logrv    1    cc_ret direction -0.0831 -3.2288 0.0012 0.0149          0.6907     -0.0632    -0.1096         True        False 1501
+SPXL VXX d5_logrv    2    cc_ret direction -0.0727 -3.2206 0.0013 0.0151          0.5290     -0.0522    -0.0990         True        False 1500
+ FAS VXX d5_logrv    2    cc_ret direction -0.0704 -3.1235 0.0018 0.0187          0.4950     -0.0684    -0.0697         True        False 1500
+SPXL VXX  day_cir    2    cc_ret direction  0.0830  3.0058 0.0026 0.0261          0.5527      0.1026     0.0481         True        False 1503
+ FAS VXX d5_logrv    1    cc_ret direction -0.0746 -2.8743 0.0040 0.0363          0.5559     -0.0801    -0.0625         True        False 1501
+ VXX FAS d5_logrv    2 overnight direction  0.0689  2.8705 0.0041 0.0364          0.4740      0.0897     0.0442         True        False 1500
+SPXL FAS   d5_ret    1    cc_ret direction -0.0837 -2.7778 0.0055 0.0447          0.6637     -0.0587    -0.1338         True        False 1501
+  nominal p<0.05: 40 of 408 (chance ~20)   BH q<0.10: 17   FWER survivors: 0
+
+--- magnitude targets (408 specs) ---
+ src  tgt      feature  lag    target      kind   beta  t_hac  p_hac   p_bh  partial_R2_pct  beta_train  beta_test  sign_stable  passes_fwer    n
+ VXX SPXL      day_cir    1 day_logrv magnitude 0.1489 8.8468 0.0000 0.0000          2.1674      0.1440     0.1537         True         True 1484
+ VXX  FAS      day_cir    1 day_logrv magnitude 0.1359 7.7109 0.0000 0.0000          1.7991      0.1431     0.1274         True         True 1484
+ VXX SPXL      day_ret    1 day_logrv magnitude 0.1255 7.1563 0.0000 0.0000          1.4850      0.1270     0.1259         True         True 1484
+SPXL  FAS lasthr_logrv    1 day_logrv magnitude 0.1700 6.9039 0.0000 0.0000          1.3424      0.1983     0.1395         True         True 1472
+ VXX SPXL       d5_ret    1 day_logrv magnitude 0.1267 6.6900 0.0000 0.0000          1.2954      0.1142     0.1461         True         True 1484
+ VXX SPXL lasthr_logrv    1 day_logrv magnitude 0.1552 6.6584 0.0000 0.0000          1.3241      0.1122     0.2333         True         True 1472
+ VXX  FAS       d5_ret    1 day_logrv magnitude 0.1202 6.6111 0.0000 0.0000          1.1712      0.1285     0.1147         True         True 1484
+ VXX  FAS lasthr_logrv    1 day_logrv magnitude 0.1459 6.4310 0.0000 0.0000          1.2741      0.1410     0.1535         True         True 1472
+  nominal p<0.05: 146 of 408 (chance ~20)   BH q<0.10: 116   FWER survivors: 34
+
+==============================================================================
+WHICH SOURCE -> TARGET DIRECTIONS CARRY ANYTHING?
+==============================================================================
+ src  tgt      kind  n_specs  max_abs_t  mean_abs_t  n_p05  n_fwer
+ FAS SPXL direction       68      2.594       0.726      1       0
+ FAS SPXL magnitude       68      4.253       1.608     21       1
+ FAS  VXX direction       68      3.124       0.983     11       0
+ FAS  VXX magnitude       68      3.557       1.319     17       0
+SPXL  FAS direction       68      2.778       0.918      6       0
+SPXL  FAS magnitude       68      6.904       1.646     20       6
+SPXL  VXX direction       68      3.360       1.246     13       0
+SPXL  VXX magnitude       68      4.712       1.420     18       1
+ VXX  FAS direction       68      2.870       0.850      5       0
+ VXX  FAS magnitude       68      7.711       2.340     34      13
+ VXX SPXL direction       68      2.406       0.803      4       0
+ VXX SPXL magnitude       68      8.847       2.572     36      13
+
+Under the null, mean|t| ~ 0.8 and n_p05 ~ 5% of n_specs.
+
+[saved] /home/user/TradingModel/ETFGroupAnalysis/out/p12_scan_results.csv, p12_boot_maxt.npy
