@@ -653,6 +653,48 @@ The first ~3 sessions are shakedown and are excluded from the evidence set.
 | 16:10 | Confirm `EOD reconcile: AGREES`; save the day's notes |
 | 23:00 | TWS auto-restarts; engine reconnects by itself |
 
+## 8.1 Can it be left unattended?
+
+**Dry run (`--dry-run`): yes.** `IBBroker` refuses to transmit at the adapter, so
+nothing can reach the market. The worst outcome is losing a day's observations.
+Start it any time before 09:30 — before the open the feed correctly returns
+nothing rather than consuming the prior session — and read the log afterwards.
+
+**Transmit ON: no, not yet.** Not caution; four specific things are missing:
+
+| Missing | Consequence unattended |
+|---|---|
+| Alerting | None exists — no push, email or desktop. The console is the only monitor |
+| `watchdog.py` | Engine hangs holding a position → nothing independently flattens it |
+| Service supervision | Process dies → the day ends silently, possibly with a position open |
+| §6.1 unverified | Whether the protective stop survives the engine dying is *still an open question*. Until confirmed, an unattended crash mid-position has no proven protection |
+
+`IMPLEMENTATION_SPEC.md` §7 requires attended operation for the first 3–6 months
+regardless. Unattended becomes reasonable after Stage 7 — see
+`PROJECT_STATUS.md` §5F. Until then, be at the machine from 11:00 to 16:00, and
+confirm flat with your own eyes in TWS at 15:55.
+
+## 8.2 Keeping the process alive on Windows
+
+- **`Win+L` (lock) is fine — the engine keeps running. Signing out kills it.**
+- Closing the PowerShell window kills it. Leave it open.
+- Sleep kills it; §4.7's `powercfg` settings prevent that.
+
+**Log to a file** so nothing is lost to scrollback:
+
+```powershell
+mkdir logs -Force
+python -u band_lab\live\run.py --dry-run 2>&1 |
+    Tee-Object -FilePath "logs\$(Get-Date -f yyyyMMdd)-dryrun.log"
+```
+
+`-u` forces unbuffered output so the file stays current while the session runs.
+
+**If it crashes, just restart it.** State is established by reconciling with the
+broker, never from memory, so starting at 13:00 after a crash produces the same
+state as having run since 09:30 (§5 restart safety). Check TWS for orphaned
+orders first.
+
 > There is **no alerting** — no push, no email, no desktop notification, in any
 > form. Watching the console window is the only monitoring that exists today.
 > That is Stage 7 work and it is listed in `PROJECT_STATUS.md` §5F.
