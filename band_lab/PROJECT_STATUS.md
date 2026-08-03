@@ -7,9 +7,9 @@ it worked*; it contains no instructions.
 The instructions live in exactly one place: **[`live/RUNBOOK.md`](live/RUNBOOK.md)**
 — what to type, in what order, on the Windows 11 machine.
 
-Last reviewed: **2026-08-02** (QA/QC pass, §4). Everything below was re-run from
-a clean checkout during that review; every PASS in §2 is a command that was
-executed, not a claim carried forward from an earlier document.
+Last reviewed: **2026-08-03** — QA/QC pass (§4.1–4.5) plus the first three live
+IBKR sessions (§4.6). Every PASS in §2 is a command that was executed, not a
+claim carried forward from an earlier document.
 
 ---
 
@@ -21,8 +21,8 @@ executed, not a claim carried forward from an earlier document.
 | Re-tests (V16–V18) | Re-sweep the churn parameters on 1-minute data | ✅ **complete** — nothing adopted, strategy unchanged |
 | Phase 1 | Clean-room backtest parity harness | ✅ **complete and PASSING** |
 | Phase 2 · Stage 1 | Live state machine proven equal to the backtest | ✅ **complete and PASSING** |
-| Phase 2 · Stages 2–4 | Broker adapter, store, orders, timetable, entrypoint | ✅ **code complete, 144 tests green** — but **has never connected to IBKR** |
-| Phase 2 · Stage 4 acceptance | One live session, transmit OFF | 🟡 **attempted 2026-08-03 — found four defects, blocked on market data.** See §4.6 |
+| Phase 2 · Stages 2–4 | Broker adapter, store, orders, timetable, entrypoint | ✅ **code complete, 220 tests green**, and connected to IBKR on 2026-08-03 |
+| Phase 2 · Stage 4 acceptance | One live session, transmit OFF | 🟡 **attempted 2026-08-03 — found five defects, all fixed. Pre-flight now READY.** Awaiting one clean session. See §4.6 |
 | Phase 2 · Stage 5 | Go live on paper, ≥4 weeks | ⬜ not started |
 | Phase 2 · Stage 6 | `report.py` — daily shadow parity | ⬜ **not built** |
 | Phase 2 · Stage 7 | `risk.py`, `watchdog.py`, alerting, service supervision | ⬜ **not built** |
@@ -31,11 +31,17 @@ executed, not a claim carried forward from an earlier document.
 **The step we are on: Phase 2, Stage 4 acceptance — one dry run.** Everything
 needed for it exists and is tested. It is a launch, not a code change.
 
-**The single most important sentence in this document:** no line of code in
-`band_lab/live/` has ever exchanged a packet with IBKR. Every green test in §2
-is green against `FakeIB`, an in-memory double. That is a real and useful
-result — it eliminates coding error as an explanation for a live shortfall —
-but it is not evidence that the engine works against a broker.
+**The single most important sentence in this document:** the engine has now
+connected to IBKR, but **it has never reached the 11:00 arming** — so no order
+path, no bracket, no ratchet and no flatten has ever run against a broker. What
+2026-08-03 proved is the pre-open half: connection, capital, contracts, session
+hours, the bar feed and the live-data guard. What it did *not* prove is
+everything §4.6 lists as still untested, and every §6 assumption in
+`PHASE2_PLAN.md` remains open.
+
+The corollary is §4.6's finding and it is the load-bearing one: **five defects
+turned up in the first three sessions, and 220 green tests had caught none of
+them**, because all five lived in the code a `FakeIB` suite cannot reach.
 
 ---
 
@@ -50,10 +56,11 @@ either exits 0 or it does not.
 | 2 | Phase 1 clean-room rebuild | ✅ **PASS** | `pytest band_lab/phase1` → **59 passed** |
 | 3 | Phase 1 parity vs research engine | ✅ **PASS** | `band_lab/phase1/parity.py` → **exit 0**; all **16** published §8 numbers reproduce exactly |
 | 4 | Live state machine equivalence | ✅ **PASS** | `band_lab/live/replay.py` → **exit 0**; SOXL 779=779 ON-days, SOXS 793=793, max daily P&L difference **0.0**, 5,118 trades with 0 outcome differences |
-| 5 | Live engine unit + integration tests | ✅ **PASS** | `pytest band_lab/live` → **144 passed** (137 before this review, +7 added in §4) |
+| 5 | Live engine unit + integration tests | ✅ **PASS** | `pytest band_lab/live` → **161 passed** (137 before this review; +24 added by §4's fixes) |
 | 6 | 1-minute fill-resolution study | ✅ complete | `live/PHASE2_PARITY.md` S10–S12 — **the most consequential finding in the project**, see §3 |
 | 7 | V16 / V17 / V18 re-tests | ✅ complete, **nothing adopted** | `v2_dev/` — ~1,040 parameter cells across V1, V3, V7, V10 |
-| 8 | Stage 4 acceptance (transmit-OFF session) | ⬜ **NOT DONE** | — |
+| 8 | IBKR pre-flight, both sleeves | ✅ **READY** (2026-08-03 17:19 ET) | `band_lab/live/diagnose.py` — connection, capital, contracts, hours, 78 bars at idx 0..77, live data confirmed |
+| 9 | Stage 4 acceptance (transmit-OFF session) | ⬜ **NOT DONE** — never reached 11:00 | — |
 
 ### What #6 changed, because it governs how the paper run is read
 
@@ -77,13 +84,13 @@ No §12 constant changed. Three re-test programmes tried and adopted nothing.
 
 | Gap | Consequence | When it must exist |
 |---|---|---|
-| **Nothing has talked to IBKR** | Every §6 assumption in `PHASE2_PLAN.md` is unverified — most importantly §6.1, that a `STP` order is broker-side and survives the engine dying | Stage 4 dry run |
+| **No order path has ever run against IBKR** | The engine connects and reads bars, but has never armed. Every §6 assumption in `PHASE2_PLAN.md` is still unverified — most importantly §6.1, that a `STP` order is broker-side and survives the engine dying | Stage 4 dry run |
 | **`report.py` does not exist** (Stage 6) | There is no instrument to answer the S10/S11 question. Without it the paper run produces fills nobody diffs against the backtest, which is the *entire reason to launch* | Week 1 of the paper run |
 | **`risk.py` does not exist** (Stage 7) | `Engine.day_loss_breached()` measures the −8.5% condition and `run.py` breaks the session loop on it, but nothing enforces a dormant-until-cleared state | Before Phase 3 |
 | **`watchdog.py` does not exist** (Stage 7) | If the engine hangs while holding a position, nothing independent flattens it. On paper this risks no money; on real money it is the difference between −4% and unbounded | Before Phase 3 |
 | **No alerting** | `run.py` prints to the console and writes SQLite. There is no push, email or desktop notification of any kind, despite three documents describing them | Before unattended operation |
 | **No service supervision** | The engine is a foreground process started by hand. A reboot or a crash ends the trading day silently | Before unattended operation |
-| **Paper account not confirmed** | `sleeve_capital = 0.50 × min(NetLiquidation, 150_000)`. If the paper account's NetLiquidation is small, `floor(f × sleeve_capital / price)` rounds to **0 shares** and the sleeve silently never trades | Before Monday |
+| ~~Paper account not confirmed~~ | ✅ Resolved: NetLiquidation **$155,803** → `sleeve_capital` **$75,000**, the size the published cost rows assume | done 2026-08-03 |
 
 ### Acceptance tests (`IMPLEMENTATION_SPEC.md` §10), actual state
 
@@ -100,10 +107,11 @@ understated. It remains true that none of 9–12 has run against a real broker.
 
 ---
 
-## 4. QA/QC findings from the 2026-08-02 review
+## 4. QA/QC findings — 2026-08-02 review and 2026-08-03 first contact
 
-Two defects, both in code, both fixed here. Neither touches a §12 constant, and
-`replay.py` still reports exact equivalence after both.
+Five defects, all in code, all fixed. §4.1–4.2 came from reading; §4.6's three
+came from actually connecting. **None touches a §12 constant**, and `replay.py`
+reports exact equivalence after all five.
 
 ### 4.1 🔴 `--dry-run` would have placed real orders — **fixed**
 
@@ -213,9 +221,37 @@ report `bar 0 is the 09:30 bar`, 54 bars, idx 0..53.
    a refusal-to-trade condition, so the sleeves correctly stand down. **Phase 2
    cannot start until this is subscribed and shared to the paper account.**
 
-**What this says about the test suite.** All four defects were invisible to 157
-green tests, because every one of them lives in `IBBroker` — the single class a
-`FakeIB` suite by construction cannot exercise. That is not an argument against
+**A fifth, found the same evening.** With error 162 back (the Client Portal tab
+used to *buy* the market-data subscription was itself the competing session), the
+top-up returned nothing and the engine **logged the problem and carried on**,
+computing ATR5 and thr80 from a CSV ending 2026-07-21. §2.2 forbids trading on
+stale data and §4 requires checking the last daily bar is the prior session;
+only the "unavailable" half was implemented. `features.check` now refuses the
+run outright at more than 5 days of age.
+
+The three runner tests that broke when that guard went in were the same bug in
+miniature — every one drove `FakeIB` with no broker sessions against a fixture
+dated 2026-08-03, so all of them had been silently two weeks stale.
+
+**Resolved 2026-08-03 17:19 ET — `diagnose.py` returns `VERDICT: READY`:**
+
+```
+[ ok ] connected on port 7497 — PAPER
+[ ok ] NetLiquidation $155,803 -> sleeve_capital $75,000
+[ ok ] SOXL / SOXS qualified, session 09:30-16:00
+[ ok ] bar 0 is the 09:30 bar — indices are aligned
+[ ok ] engine would consume 78 bars (idx 0..77)
+[ ok ] live market data confirmed
+```
+
+Both operational blockers cleared: the L1 subscription is live and shared to
+paper, and no competing IBKR session holds the market-data connection. **Stage 4
+is not yet met — the engine has still never reached the 11:00 arming** — but
+nothing known now stands between it and a clean session.
+
+**What this says about the test suite.** All five defects were invisible to a
+green suite, because every one lived in `IBBroker` or the feature bootstrap —
+the parts a `FakeIB` suite by construction cannot exercise. That is not an argument against
 the suite (it caught the strategy logic, which is what it was for); it is an
 argument that `diagnose.py` and the dry-run gate are load-bearing, and that
 **Stage 4's acceptance must not be waived.**
@@ -289,24 +325,23 @@ therefore skippable; these are not.
 > backbone (which ends 2026-07-21 / 2026-07-24) via one paced IBKR request per
 > symbol at pre-open, and polls today's bars live. RUNBOOK §4.6.
 
-### A2. 🔴 THE BLOCKER — market data (nothing else can proceed)
+### A2. ✅ RESOLVED 2026-08-03 — market data
 
-Confirmed 2026-08-03 by `diagnose.py`: IBKR error **10089** on both SOXL and
-SOXS. The account is entitled to delayed data only, and §4 forbids trading on it.
+Was: IBKR error **10089** on both sleeves, delayed data only. Subscribed and
+shared to paper the same evening; `diagnose.py` returns `VERDICT: READY`.
 
-- [ ] Subscribe to **live US equity L1 covering NYSE Arca** (the error names
+- [x] Subscribe to **live US equity L1 covering NYSE Arca** (the error names
       `ARCA/TOP/ALL`; both ETFs are Arca-listed). Client Portal → Settings →
       User Settings → **Market Data Subscriptions**. Take non-professional
       status if eligible — it is materially cheaper
-- [ ] **Share it to the paper account** — a separate toggle under Settings →
+- [x] **Share it to the paper account** — a separate toggle under Settings →
       Account Settings → Paper Trading Account. Subscribing alone is not enough
-- [ ] **Check the live account can pay the fee.** It held **$86.78** on
-      2026-08-03. Market data is billed monthly to the live account, and an
-      unfundable subscription does not activate
-- [ ] Re-run `python band_lab/live/diagnose.py` until it says **`VERDICT: READY`**
+- [x] Re-run `python band_lab/live/diagnose.py` until it says **`VERDICT: READY`**
 
-Do not schedule another session until that verdict is green. The engine will
-stand down at 11:00 regardless, and the day will teach nothing.
+**Run `diagnose.py` before every session anyway.** Error 162 recurred twice on
+2026-08-03 — the second time because the Client Portal tab used to buy the
+subscription was itself a competing session. It costs 20 seconds and it is the
+difference between finding that at 08:30 and finding it at 11:00.
 
 ### B. Monday 2026-08-03 — the dry run (RUNBOOK §5)
 
