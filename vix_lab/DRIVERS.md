@@ -55,6 +55,15 @@ shows a monotone pattern.
 
 ### 1.1 But volatility mean-reverts violently
 
+> **Corrected 2026-08 — see [`OPTIONS.md`](OPTIONS.md) §3.** The measurement
+> below is right; the gloss I put on it ("vol is barely forecastable") was
+> wrong. corr 0.152 is close-to-close vol at a 20-day horizon — the noisiest
+> estimator at the hardest horizon. Measured from 1-minute realised variance
+> with a HAR-RV model, volatility is forecastable **out of sample** at
+> **R² 0.46 (1 day)** and **0.35 (5 days)**, beating a random walk. It is the
+> most forecastable thing about UVXY. Only the 22-day horizon collapses, which
+> is what the 0.152 below is showing.
+
 This is the real effect, and it is not the same claim:
 
 | trailing 20d vol | → next 20d vol | ratio |
@@ -226,8 +235,12 @@ vol-of-vol channel — and neither is in a price file.
 
 ## 5. So what is worth acting on
 
-1. **Nothing here is a tradeable UVXY signal**, which is consistent with
-   `UVXY_EVALUATION.md`: the instrument was already rejected on edge and cost.
+1. **Nothing here is a tradeable *directional* UVXY signal**, which is
+   consistent with `UVXY_EVALUATION.md`: the instrument was already rejected
+   on edge and cost. **This claim is narrower than the one I first wrote** —
+   every test in this document is long-only and delta-one, so it says nothing
+   about structures that trade magnitude, carry or skew. See
+   [`OPTIONS.md`](OPTIONS.md), which measures what these tests skipped.
 2. **The FOMC calendar is the one real finding**, and it is about SOXL/SOXS.
    Eight days a year, known years in advance, where the sleeves' tradeable
    window is half-dead until 13:55 and then triples.
