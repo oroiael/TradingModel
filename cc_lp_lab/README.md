@@ -144,6 +144,91 @@ of keeping it sticky is **far worse** (−25.7% CAGR, 95 assignments) — the st
 is the only thing standing between this structure and being called out every week of
 the 2026 melt-up. Writing further out (6 strikes, sticky) gives +17.6% CAGR.
 
+## Follow-up: three proposed fixes, each alone and in every combination
+
+`factors.py` (single path) · `factor_robust.py` (14 start weeks) · `benchmarks.py`
+
+| | fix | canonical setting |
+|---|---|---|
+| **F1** | early assignment on the sticky strikes | short call taken away once time value < 0.3% of spot |
+| **F2** | scale-invariant strike instead of "two strikes" | fresh write at 0.20 delta |
+| **F3** | ratio put instead of 1:1 | 0.5 puts per lot |
+
+### All 8 combinations, median over 14 start weeks (realistic costs)
+
+| config | CAGR min | **median** | max | median max DD | vs buy & hold | beat B&H | spread |
+|---|---:|---:|---:|---:|---:|:--:|---:|
+| baseline | +1.8% | **+5.0%** | +20.0% | −61.7% | −35.5% | **0/14** | 2.0× |
+| F1 | +2.5% | **+5.6%** | +20.8% | −61.8% | −34.8% | **0/14** | 2.0× |
+| F2 | +12.4% | **+16.4%** | +26.5% | −58.0% | −24.9% | **0/14** | 1.6× |
+| F3 | +9.7% | **+16.2%** | +34.2% | −70.3% | −24.0% | **0/14** | 2.3× |
+| F1+F2 | +12.4% | **+16.4%** | +26.5% | −58.0% | −24.9% | **0/14** | 1.6× |
+| F1+F3 | +10.3% | **+17.1%** | +34.8% | −70.3% | −23.0% | **0/14** | 2.3× |
+| F2+F3 | +21.7% | **+27.5%** | +40.1% | −66.4% | −14.1% | **0/14** | 1.7× |
+| F1+F2+F3 | +21.7% | **+27.5%** | +40.1% | −66.4% | −14.1% | **0/14** | 1.7× |
+| *buy & hold* | *+22.8%* | ***+41.2%*** | *+57.6%* | *−88.0%* | — | — | *2.7×* |
+
+**Every combination lost to buy & hold in 0 of 14 start weeks.** F2+F3 more than
+quintuples the baseline (+5.0% → +27.5%) and is still 14 points behind.
+
+### F1 — early assignment is close to a non-event, contrary to the caveat above
+
+The 0.1% and 0.3% threshold paths differ on **7 of 1,128 days** (max $235) and
+reconverge to **exactly $0.00**. The reason is structural: **shares + a deep-ITM
+short call are already locked at the strike**, so early exercise realises value
+you already had. It reallocates P&L between legs (shares +145,340 / calls −77,472
+becomes +154,232 / −86,364) with the sum unchanged to the cent. It only costs you
+when the stock falls back below the strike afterwards — 3 of 13 cases here, never
+enough to change the integer lot count. Median effect: **+0.6pp of CAGR.**
+
+### F2 — it works mechanically, but delta is not the reason it helps
+
+Delta targeting hits its mark: realised delta **median 0.196, 100% of writes in
+0.12–0.30**, holding **8–14% OTM every year** where "two strikes" drifts from 4.7%
+OTM (2022) to 1.5% (2026). But isolating the strike rule shows delta is *not* the
+best choice — **distance is the only dial that matters**:
+
+| fresh-strike rule | CAGR median | median max DD | return / DD |
+|---|---:|---:|---:|
+| 2 strikes (as specified) | +5.0% | −61.7% | 0.08 |
+| 0.20 delta | +16.4% | −58.0% | 0.28 |
+| 6 listed strikes | +23.7% | −72.0% | 0.33 |
+| 10% fixed OTM | **+27.9%** | −59.6% | 0.47 |
+| *buy & hold* | *+41.2%* | *−88.0%* | *0.47* |
+
+Delta *tightens in calm markets*, which cost it 2023. Every one of these rules is
+just a different amount of upside surrendered; the limit of the dial is writing no
+calls at all.
+
+### The benchmark that settles it — could you just hold less?
+
+A covered call trades upside for a smaller drawdown. So can a static allocation,
+with no options at all (w × SOXL + cash, rebalanced weekly, same 14 windows):
+
+| w | CAGR median | median max DD | return / DD |
+|---|---:|---:|---:|
+| 0.25 | +21.9% | −34.1% | **0.64** |
+| 0.35 | +29.2% | −45.3% | **0.64** |
+| **0.45** | **+35.3%** | **−55.1%** | **0.64** |
+| 0.55 | +40.1% | −63.6% | 0.63 |
+| 0.65 | +43.4% | −70.8% | 0.61 |
+| 1.00 | +41.2% | −88.0% | 0.47 |
+
+**Static 45% SOXL / 55% cash returns +35.3% at −55.1% drawdown — more return AND
+less drawdown than the best call-writing variant (+27.9% at −59.6%), and than the
+best full combination F2+F3 (+27.5% at −66.4%).** The option overlay is dominated
+on both axes by a position you can hold with no options, no assignments and no
+spread. Every static weight from 0.25 to 0.65 scores 0.61–0.64 on return-per-
+drawdown; no call-writing variant tested exceeds 0.47.
+
+### Verdict
+
+The fixes work in the direction predicted — F2 and F3 are each worth ~11pp of CAGR
+and are close to additive — but they improve a structure that should not be run on
+this instrument over this window. F1 is a non-event and can be dropped from the
+risk list. The honest summary: **on 2022–2026 SOXL, selling calls against the
+position never paid, at any strike rule, any put ratio, or any start week.**
+
 ## Caveats
 
 - **Assignment is modelled at expiry only.** American calls can be assigned early,
@@ -155,3 +240,12 @@ the 2026 melt-up. Writing further out (6 strikes, sticky) gives +17.6% CAGR.
   size. The measured-half-spread column is the honest read.
 - The window contains one −87% year and one +330% half-year. Four and a half years
   of a 3× ETF is a small sample of regimes, whatever the number of weekly cycles.
+  **This is the binding limitation on the follow-up too**: SOXL rose ~2.6× over the
+  window, so any rule that caps upside loses, and "write further out" wins by
+  construction. A flat or choppy regime would rank these differently.
+- The static-allocation ladder holds cash at 0%, matching the backtest. At 4% it
+  would look better still, not worse.
+- Early assignment is modelled as a threshold on time value, not from an actual
+  SOXL dividend calendar (not present in the repo). The threshold was swept from
+  0.1% to 1.0% of spot; the conclusion is stable below ~0.5%, above which the rule
+  stops modelling assignment risk and becomes an early-exit tactic.
