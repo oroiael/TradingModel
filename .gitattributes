@@ -20,3 +20,4 @@ band_lab/out/*.csv -filter -diff -merge text
 band_lab/phase1/out/*.csv -filter -diff -merge text
 band_lab/v2_dev/out/*.csv -filter -diff -merge text
 vix_lab/out/*.csv -filter -diff -merge text
+cc_lp_lab/out/*.csv -filter -diff -merge text
