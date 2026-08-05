@@ -221,16 +221,27 @@ class IBBroker(Broker):
             raise BrokerError("not connected")
         return self._ib
 
-    def contract(self, symbol: str):
-        if symbol in self._contracts:
-            return self._contracts[symbol]
-        from ib_async import Stock
+    def contract(self, symbol: str, sec_type: str = "STK"):
+        """Qualify a contract. `sec_type` "CASH" builds an FX pair (EURUSD).
+
+        FX is supported so the instrument screen can *measure* currency
+        candidates rather than assert anything about them. Nothing on the
+        trading path uses it — §11 permits no additional instruments.
+        """
+        key = (symbol, sec_type)
+        if key in self._contracts:
+            return self._contracts[key]
         ib = self._require()
-        c = Stock(symbol, self.exchange, "USD", primaryExchange=self.primary)
+        if sec_type == "CASH":
+            from ib_async import Forex
+            c = Forex(symbol)
+        else:
+            from ib_async import Stock
+            c = Stock(symbol, self.exchange, "USD", primaryExchange=self.primary)
         q = ib.qualifyContracts(c)
         if not q:
-            raise BrokerError(f"could not qualify {symbol}")
-        self._contracts[symbol] = q[0]
+            raise BrokerError(f"could not qualify {symbol} ({sec_type})")
+        self._contracts[key] = q[0]
         return q[0]
 
     # ------------------------------------------------------------- guards
@@ -323,14 +334,17 @@ class IBBroker(Broker):
             return float(x) if x is not None and x == x else 0.0
         return Quote(_f(t.bid), _f(t.ask), _f(t.last), _f(t.bidSize), _f(t.askSize))
 
-    def _dated_bars(self, symbol, end, duration, bar_size):
+    def _dated_bars(self, symbol, end, duration, bar_size, sec_type="STK"):
         """(date, Bar) pairs. Bars are clock-indexed like the CSVs — §2.1:
         index 0 is the 09:30 bar, addressed by clock time, not file position."""
         ib = self._require()
         bars = ib.reqHistoricalData(
-            self.contract(symbol),
+            self.contract(symbol, sec_type),
             endDateTime=end.strftime("%Y%m%d %H:%M:%S US/Eastern") if end else "",
-            durationStr=duration, barSizeSetting=bar_size, whatToShow="TRADES",
+            durationStr=duration, barSizeSetting=bar_size,
+            # FX has no consolidated trade tape; MIDPOINT is the only sane
+            # analogue, and the difference is itself worth seeing in a screen.
+            whatToShow="MIDPOINT" if sec_type == "CASH" else "TRADES",
             useRTH=True, formatDate=1, keepUpToDate=False)
         step = 5 if bar_size.startswith("5") else 1
         out = []
@@ -346,11 +360,11 @@ class IBBroker(Broker):
         return [b for _, b in self._dated_bars(symbol, end, duration, bar_size)]
 
     def historical_sessions(self, symbol, end, duration,
-                            bar_size="5 mins") -> list[tuple]:
+                            bar_size="5 mins", sec_type="STK") -> list[tuple]:
         """Grouped by calendar date, oldest first — the shape FeatureHistory
         and the shadow-parity replay both consume."""
         grouped: dict = {}
-        for day, bar in self._dated_bars(symbol, end, duration, bar_size):
+        for day, bar in self._dated_bars(symbol, end, duration, bar_size, sec_type):
             grouped.setdefault(day, []).append(bar)
         return [(d, sorted(v, key=lambda b: b.idx)) for d, v in sorted(grouped.items())]
 

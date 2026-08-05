@@ -176,7 +176,7 @@ def from_csv(symbol: str, root: str = ROOT):
     return load_sessions(symbol, root)
 
 
-def from_ib(broker, symbol: str, days: int = 250):
+def from_ib(broker, symbol: str, days: int = 250, sec_type: str = "STK"):
     """5-minute RTH bars from IBKR, chunked to stay inside pacing limits.
 
     §6.4 (duration limits for 5-minute bars) is still an unverified assumption,
@@ -187,7 +187,8 @@ def from_ib(broker, symbol: str, days: int = 250):
     while remaining > 0:
         chunk = min(remaining, 30)
         try:
-            got = broker.historical_sessions(symbol, end, f"{chunk} D", "5 mins")
+            got = broker.historical_sessions(symbol, end, f"{chunk} D",
+                                             "5 mins", sec_type)
         except Exception as exc:                          # noqa: BLE001
             print(f"    {symbol}: fetch failed ({exc}); using what we have")
             break
@@ -255,6 +256,10 @@ def main() -> int:
     ap.add_argument("--universe", action="store_true",
                     help="use the built-in leveraged-ETF list")
     ap.add_argument("--days", type=int, default=250, help="sessions to fetch per symbol")
+    ap.add_argument("--fx", action="store_true",
+                    help="treat --symbols as FX pairs (EURUSD, GBPJPY, ...). "
+                         "RTH bars only, so the numbers are directly comparable "
+                         "to the equity rows even though FX trades 24/5.")
     ap.add_argument("--host", default="127.0.0.1")
     ap.add_argument("--port", type=int, default=7497)
     ap.add_argument("--client-id", type=int, default=31)
@@ -275,7 +280,8 @@ def main() -> int:
             cands = {}
             for s in syms:
                 print(f"  fetching {s} ...", flush=True)
-                cands[s] = from_ib(broker, s, args.days)
+                cands[s] = from_ib(broker, s, args.days,
+                                   "CASH" if args.fx and s != "SOXL" else "STK")
         finally:
             broker.disconnect()
     else:
