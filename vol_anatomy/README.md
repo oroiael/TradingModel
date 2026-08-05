@@ -98,3 +98,109 @@ options structure, sizing a risk model, generating strategy stress paths — any
 levered proxy works. If you want SOXL's actual *exposure* (an AI-capex cycle,
 TSMC/Taiwan concentration, memory pricing), no amount of leverage on financials
 supplies it. Matching a moment is not matching a risk.
+
+
+---
+
+# Is high volatility *harvestable*? — `harvestability.py`
+
+Short answer: **volatility is a scale parameter, not an edge.** Selling options
+does not pay for taking volatility; it pays only for the *spread* between implied
+and subsequently realised volatility. That spread turns out to be small and
+roughly instrument-independent, while the vol level is not.
+
+## The premium does not scale with the level
+
+ATM implied vol at *t* minus the vol actually realised over the tenor. Identical
+method, both instruments, `SOXL_Options_2024/25.csv` and
+`raw_data/TQQQ_Options_2024/25.csv`:
+
+| | tenor | mean IV | mean RV | **mean VRP** | median VRP | % positive |
+|---|---|---:|---:|---:|---:|---:|
+| **SOXL** | 7d | 97.1% | 94.5% | **+2.6%** | +11.2% | 60% |
+| | 30d | 92.9% | 103.2% | **−10.3%** | −0.7% | 49% |
+| | 90d | 91.3% | 107.3% | **−15.9%** | −9.9% | 33% |
+| **TQQQ** | 7d | 58.4% | 57.2% | **+1.2%** | +10.1% | 65% |
+| | 30d | 56.1% | 66.1% | **−9.9%** | +2.5% | 57% |
+| | 90d | 56.9% | 72.6% | **−15.7%** | −2.7% | 46% |
+
+**The implied-vol levels differ by 39 points. The premiums differ by 1.4 points.**
+Doubling volatility did not double the harvest — it barely moved it. And beyond
+one week the premium is *negative on both*: sellers were systematically underpaid
+for what actually happened.
+
+This is precisely why the covered call in `cc_lp_lab` lost money on the call leg
+(−$35,264 net of $253,641 collected). It was not bad luck. There was no premium
+there to collect.
+
+Note the mean/median split: 60–65% of weeks show a positive premium while the
+mean is ~0. That is the short-vol payoff — win small, often; lose large, rarely.
+The mean is what compounds.
+
+A longer SOXL series (`pricing_lab/s2_vrp_daily.csv`, 2024–2026) agrees and is
+worse, because it includes 2026: 7d +0.7%, 30d −14.0%, 90d −21.8%, 180d −28.5%
+(positive in only **12%** of observations).
+
+## Leverage multiplies amplitude — and nothing else
+
+The one thing an active path-trade needs is structure. Leverage is a *linear*
+transform, so it scales every move and leaves every structural statistic exactly
+unchanged. Measured on 5-min returns, 2022–2026:
+
+| | ac(1) | ac(2) | ac(6) | VR(6) | VR(12) | VR(78) |
+|---|---:|---:|---:|---:|---:|---:|
+| SOXL | −0.0048 | −0.0042 | −0.0061 | 0.994 | 0.995 | 1.007 |
+| FAS | −0.0056 | −0.0175 | +0.0014 | 0.970 | 0.969 | 0.982 |
+| SOXS | −0.0140 | −0.0021 | −0.0008 | 0.987 | 1.002 | 1.066 |
+
+Both are random walks intraday (VR ≈ 1, autocorrelation ≈ 0), and **FAS is
+slightly *more* mean-reverting than SOXL, not less.** So the difference in
+tradability is not that SOXL's path is more predictable.
+
+What leverage *does* fix is amplitude against fixed costs:
+
+| | median day range | ≥0.5% swings/day | ≥1% | ≥2% | days with no 1% swing |
+|---|---:|---:|---:|---:|---:|
+| SOXL | 7.06% | 14.9 | 7.7 | 3.2 | 0% |
+| FAS | 3.59% | 8.2 | 3.5 | 1.2 | 4% |
+| **FAS levered 2.10×** | — | **16.3** | **8.6** | **3.7** | **0%** |
+
+Levered FAS *exceeds* SOXL's swing density. The raw material is reproducible.
+But **Sharpe is leverage-invariant** — levering scales return and risk equally, so
+it cannot convert a weak edge into a strong one.
+
+## Why FAS specifically has produced nothing here
+
+1. **Its vol is not SOXL's.** 55.6% vs 116.9% — it needs 2.10× leverage to match.
+2. **It was already tested.** `band_lab/out/etf_scaling_FAS.csv`: with SOXL's
+   locked settings FAS gives **−2.8 bp/ON-day, Sharpe −0.14**; fully rescaled to
+   its own volatility it reaches **+7.1 bp/day, Sharpe 0.49** — against SOXL's
+   **65.6 bp/day, Sharpe 3.09**. `MASTER_STRATEGY_DOCUMENT.md` §9: "SPXL, FAS and
+   TQQQ were evaluated; none is adopted."
+3. **It is not a diversifier.** `etf_overlap_FAS.csv`: +14.9 bp/day when SOXL is
+   also trading, **−10.9 bp/day when SOXL is idle**, correlation 0.578. It works
+   only when SOXL works.
+4. **There is no FAS option data in this repo at all** — only the 5-min price
+   file. No options trade on FAS can be backtested here, and FAS's real options
+   market is far thinner than SOXL's, whose weeklies carry $0.50 strikes and a
+   measured $0.02 half-spread.
+
+## The one genuinely long-vol finding
+
+At 30–90 days, realised **exceeded** implied on both instruments by 10–16 vol
+points. The profitable side of SOXL vol over 2024–25 was **buying** it, not
+selling it. That does *not* validate `cc_lp_lab`'s long put, which lost $42,120 —
+a long put is short delta, and SOXL rose 2.6× over the window, so it lost on
+direction. Capturing a positive long-vol premium requires **delta-hedging**
+(gamma scalping), paying the spread on every rehedge, which is a different trade
+with its own cost problem.
+
+## Bottom line
+
+100% volatility buys you more *transactions*, larger premiums and wider bands —
+and proportionally larger losses. What it does not buy is edge. Edge is either a
+**spread** (IV − RV, measured ≈ 0 at a week and negative beyond) or a
+**structure** (autocorrelation, measured ≈ 0). Neither improves with volatility.
+The real benefit of a high-vol instrument is **capital efficiency** — expressing a
+given dollar of risk with less capital — and that is genuine, but it is not free
+money and it cuts symmetrically.
