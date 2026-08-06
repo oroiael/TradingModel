@@ -42,7 +42,8 @@ class Book:
 def run(n_otm=2, put_dte=91, cost_per_contract=0.0, slip_call=0.0, slip_put=0.0,
         share_cost=0.0, cash_rate=0.0, start_cash=100_000.0, sticky=True,
         freeze_put_qty=False, use_put=True, use_call=True,
-        start=None, end=None, verbose=False):
+        early_assign_pct=0.0, strike_mode="count", call_delta=0.20, call_pct=0.05,
+        put_ratio=1.0, n_otm_put=None, start=None, end=None, verbose=False):
     """slip_call / slip_put are RELATIVE half-spreads: we sell at px*(1-s) and
     buy at px*(1+s). Measured EOD medians are 0.055 (weekly 2-OTM call) and
     0.019 (~90d 2-OTM put) -- see validate_pricing.py."""
@@ -122,8 +123,9 @@ def run(n_otm=2, put_dte=91, cost_per_contract=0.0, slip_call=0.0, slip_put=0.0,
                     pexp = cand.iloc[(cand.dte - put_dte).abs().argsort()].iloc[0]["exp"]
                     ks = standard_strikes(ch[(ch.exp == pexp) & (ch.right == "P")].strike.unique())
                     below = ks[ks < S10][::-1]
-                    if len(below) >= n_otm:
-                        pK = float(below[n_otm - 1])
+                    n_p = n_otm_put if n_otm_put is not None else n_otm
+                    if len(below) >= n_p:
+                        pK = float(below[n_p - 1])
                         px, src = P.mark(d, pexp, "P", pK, S10, ENTRY_MIN)
                         if px is not None: put_px = fill(px, +1, "P")
             live_put_px = mark(d, b.put, S10) if b.put else np.nan
@@ -132,7 +134,7 @@ def run(n_otm=2, put_dte=91, cost_per_contract=0.0, slip_call=0.0, slip_put=0.0,
 
             # -- 2. target lots: reinvest all liquid equity --
             avail = b.cash + b.shares * S10 + (b.put["n"] * 100 * live_put_px if b.put else 0.0)
-            unit = 100 * S10 + 100 * unit_put + 2 * cost_per_contract
+            unit = 100 * S10 + put_ratio * 100 * unit_put + 2 * cost_per_contract
             L = int(max(0, np.floor(avail / unit))) if unit > 0 else 0
 
             # -- 3. trade shares to L lots --
@@ -146,29 +148,42 @@ def run(n_otm=2, put_dte=91, cost_per_contract=0.0, slip_call=0.0, slip_put=0.0,
                 ledger.append(dict(date=d, act="SELL_SHARES", qty=d_sh, px=S10,
                                    spot=S10, cash=b.cash))
             # -- 4. trade puts to L --
-            if need_put and L > 0 and pK is not None and np.isfinite(put_px):
-                b.put = dict(exp=pexp, K=pK, n=L, right="P", cost=put_px)
-                b.cash -= L * 100 * put_px + L * cost_per_contract
-                pnl["puts"] -= L * 100 * put_px + L * cost_per_contract
-                ledger.append(dict(date=d, act="BUY_PUT", qty=L, K=pK, exp=pexp,
+            n_put_tgt = int(round(L * put_ratio))
+            if L > 0 and put_ratio > 0: n_put_tgt = max(1, n_put_tgt)
+            if need_put and n_put_tgt > 0 and pK is not None and np.isfinite(put_px):
+                b.put = dict(exp=pexp, K=pK, n=n_put_tgt, right="P", cost=put_px)
+                b.cash -= n_put_tgt * 100 * put_px + n_put_tgt * cost_per_contract
+                pnl["puts"] -= n_put_tgt * 100 * put_px + n_put_tgt * cost_per_contract
+                ledger.append(dict(date=d, act="BUY_PUT", qty=n_put_tgt, K=pK, exp=pexp,
                                    px=put_px, dte=(pexp - d).days, spot=S10,
                                    otm_pct=100*(S10 - pK)/S10, cash=b.cash))
-            elif (b.put is not None and L != b.put["n"] and np.isfinite(live_put_px)
+            elif (b.put is not None and n_put_tgt != b.put["n"] and np.isfinite(live_put_px)
                   and not freeze_put_qty):
-                dn = L - b.put["n"]
+                dn = n_put_tgt - b.put["n"]
                 _px = fill(live_put_px, +1 if dn > 0 else -1, "P")
                 b.cash -= dn * 100 * _px + abs(dn) * cost_per_contract
                 pnl["puts"] -= dn * 100 * _px + abs(dn) * cost_per_contract
-                b.put["n"] = L
+                b.put["n"] = n_put_tgt
                 ledger.append(dict(date=d, act="ADD_PUT" if dn > 0 else "TRIM_PUT",
                                    qty=dn, K=b.put["K"], exp=b.put["exp"], px=live_put_px, cash=b.cash))
-                if L == 0: b.put = None
+                if n_put_tgt == 0: b.put = None
 
             # -- 5. write the weekly call --
             if use_call and L > 0 and cexp is not None:
-                ks = standard_strikes(ch[(ch.exp == cexp) & (ch.right == "C")].strike.unique())
+                cc = ch[(ch.exp == cexp) & (ch.right == "C")]
+                ks = standard_strikes(cc.strike.unique())
                 above = ks[ks > S10]
                 fresh = float(above[n_otm - 1]) if len(above) >= n_otm else None
+                if strike_mode == "pct" and len(above):
+                    tgt = S10 * (1 + call_pct)
+                    fresh = float(above[np.argmin(np.abs(above - tgt))])
+                elif strike_mode == "delta" and len(above):
+                    dl = cc[cc.strike.isin(above) & cc.delta.notna() & (cc.delta > 0)]
+                    if len(dl):
+                        fresh = float(dl.iloc[(dl.delta - call_delta).abs().argsort()].iloc[0]["strike"])
+                    else:                                   # no delta -> % fallback
+                        tgt = S10 * (1 + call_pct)
+                        fresh = float(above[np.argmin(np.abs(above - tgt))])
                 use_sticky = sticky and sticky_K is not None and b.shares > 0
                 K = sticky_K if use_sticky else fresh
                 if K is None or K not in set(ks):
@@ -189,6 +204,26 @@ def run(n_otm=2, put_dte=91, cost_per_contract=0.0, slip_call=0.0, slip_put=0.0,
 
         # ---------------- close: settle expiries ----------------
         C = float(close.loc[d])
+        # Early assignment: an American short call is exercised early when its
+        # remaining time value falls below the dividend about to be captured.
+        # Modelled as a threshold on extrinsic value, in % of spot (SOXL's
+        # quarterly dividend runs ~0.25-0.5% of price).
+        if (early_assign_pct > 0 and b.call is not None and b.call["exp"] != d
+                and C > b.call["K"]):
+            mk = mark_close(d, b.call, C)
+            if (mk - (C - b.call["K"])) < early_assign_pct * C:
+                K, n = b.call["K"], b.call["n"]
+                sold = min(b.shares, n * 100)
+                sell_shares(sold, K)
+                pnl["calls"] -= n * 100 * (C - K)
+                pnl["shares"] += sold * (C - K)
+                if n * 100 > sold:
+                    b.cash -= (n * 100 - sold) * (C - K)
+                ledger.append(dict(date=d, act="CALL_EARLY_ASSIGNED", qty=n, K=K, px=C,
+                                   spot=C, itm=C - K, cash=b.cash))
+                b.call = None
+                sticky_K = None
+
         if b.call is not None and b.call["exp"] == d:
             K, n = b.call["K"], b.call["n"]
             if C > K:                                   # assigned -> shares called away
