@@ -81,6 +81,34 @@ class OrderManager:
     seen_execs: set = field(default_factory=set)
     highest_limit: float = 0.0          # the ratchet witness
 
+    def __post_init__(self) -> None:
+        """Recover which executions have already been handled.
+
+        `seen_execs` is what makes a reconnect safe: IBKR replays the whole
+        day's executions to every newly-connected client. In memory only, that
+        guarantee lasts exactly as long as the process — so a restart re-drained
+        the morning's fills as if they were new, which on 2026-08-06 replayed a
+        541-share entry three times into a state machine that was OBSERVING and
+        raised on each one.
+
+        The `fills` table already has the answer, keyed on the same `exec_id`
+        and unique. Reading it back on construction makes idempotency survive
+        the restart it was written for.
+        """
+        if self.store is None:
+            return
+        try:
+            rows = self.store.rows(
+                "SELECT exec_id FROM fills WHERE symbol=? AND session=?",
+                (self.symbol, self.session))
+        except Exception:                                   # noqa: BLE001
+            return                       # a fresh db has nothing to recover
+        recovered = {r["exec_id"] for r in rows}
+        if recovered:
+            self.seen_execs |= recovered
+            self.on_event("info", f"{self.symbol} recovered {len(recovered)} "
+                                  f"execution(s) already handled today")
+
     # ------------------------------------------------------------- helpers
     def _next_ref(self, role: str) -> str:
         self.seq += 1

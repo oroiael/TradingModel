@@ -25,11 +25,11 @@ def _sm(symbol="SOXL", capital=75_000.0):
     return sm
 
 
-def _om(tmp_path, symbol="SOXL", sm=None, ib=None):
+def _om(tmp_path, symbol="SOXL", sm=None, ib=None, db=None):
     ib = ib or FakeIB()
     ib.connect()
     sm = sm or _sm(symbol)
-    store = Store(str(tmp_path / "t.db"))
+    store = Store(db or str(tmp_path / "t.db"))
     return OrderManager(broker=ib, symbol=symbol, session="20260803",
                         sm=sm, store=store), ib, sm
 
@@ -328,3 +328,29 @@ def test_cover_whole_position_is_a_no_op_when_already_covered(tmp_path):
     before = len(ib.orders)
     assert om.cover_whole_position() is False
     assert len(ib.orders) == before, "no churn when the legs already match"
+
+
+# ------------------------------------------ idempotency across a *restart*
+def test_executions_already_handled_are_not_replayed_after_a_restart(tmp_path):
+    """IBKR replays the day's executions to every newly-connected client.
+
+    `seen_execs` lived only in memory, so a restart re-drained the morning's
+    fills as if new. On 2026-08-06 that replayed a 541-share entry (300+210+31)
+    into a fresh state machine that was still OBSERVING, raising three times and
+    aborting the bar loop with it.
+    """
+    db = str(tmp_path / "r.db")
+    ib = FakeIB(); ib.connect()
+
+    om1, _, sm1 = _armed(tmp_path, high=100.0, ib=ib, db=db)
+    entry = [o for o in ib.orders.values() if o.order_type == "LMT"][-1]
+    ib.fill(entry.order_id)
+    assert om1.on_executions(START_IDX), "the first process handles it"
+
+    # A restart: same broker and same db, brand-new OrderManager and state.
+    sm2 = _sm()
+    om2 = OrderManager(broker=ib, symbol="SOXL", session="20260803", sm=sm2,
+                       store=Store(db))
+    assert om2.on_executions(START_IDX) == [], \
+        "a restart must not re-process this morning's executions"
+    assert sm2.fills == 0, "and must not double-count them"

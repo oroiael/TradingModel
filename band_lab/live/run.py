@@ -146,7 +146,18 @@ class Runner:
                 self._connect()
                 for symbol, feed in self.feeds.items():
                     for bar in feed.poll(datetime.now(NY)):
-                        self.engine.on_bar(symbol, bar)
+                        try:
+                            self.engine.on_bar(symbol, bar)
+                        except Exception as exc:            # noqa: BLE001
+                            # One bad bar must not discard the rest. `poll`
+                            # marks every bar it returns as seen, so an
+                            # exception escaping this loop used to drop every
+                            # remaining bar permanently — on 2026-08-06 a
+                            # failure on bar 0 silently lost bars 1-42 and the
+                            # anchor was built from two bars out of 44.
+                            self._event("error",
+                                        f"{symbol} bar {bar.idx}: {exc!r} — "
+                                        f"skipped; later bars still processed")
                 self.engine.poll(max((f.last_idx for f in self.feeds.values()),
                                      default=-1))
                 if self.engine.day_loss_breached():
