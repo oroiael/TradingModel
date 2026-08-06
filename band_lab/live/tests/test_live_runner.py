@@ -320,3 +320,33 @@ def test_transmit_is_still_refused_on_a_live_money_port():
     for port in (7496, 4001):
         with pytest.raises(ConfigError):
             EngineConfig(port=port, transmit=True).validate()
+
+
+# ------------------------------------------------------------------ heartbeat
+def test_heartbeat_reports_each_sleeve(tmp_path):
+    """Silence has two readings — "nothing yet" and "died an hour ago"."""
+    r, ib, store = _runner(tmp_path)
+    seen = []
+    r._event = lambda l, m: seen.append(m)
+    r.pre_open(DAY)
+    r.heartbeat()
+    assert seen and seen[-1].startswith("heartbeat |")
+    assert "SOXL" in seen[-1]
+
+
+def test_heartbeat_names_the_reason_a_sleeve_is_dormant(tmp_path):
+    r, ib, store = _runner(tmp_path)
+    r.pre_open(DAY)
+    seen = []
+    r._event = lambda l, m: seen.append(m)
+    rt = r.engine.sleeves["SOXL"]
+    rt.dormant, rt.dormant_reason = True, "stand_down_wide_or_weak_pos10"
+    r.heartbeat()
+    assert "dormant(stand_down_wide_or_weak_pos10)" in seen[-1]
+
+
+def test_heartbeat_can_be_disabled():
+    from config import EngineConfig
+    EngineConfig(heartbeat_seconds=0).validate()      # 0 disables, must not raise
+    with pytest.raises(ConfigError):
+        EngineConfig(heartbeat_seconds=-1).validate()

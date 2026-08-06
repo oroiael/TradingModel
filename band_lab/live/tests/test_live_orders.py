@@ -239,3 +239,37 @@ def test_ensure_flat_reports_critical_when_it_cannot_flatten(tmp_path):
     om.on_event = lambda lvl, msg: seen.append((lvl, msg))
     assert om.ensure_flat(attempts=2) is False
     assert any(lvl == "critical" for lvl, _ in seen)
+
+
+# --------------------------------------------------- the console must speak
+def test_the_live_order_path_reports_to_the_console(tmp_path):
+    """A live session was silent: orders and fills went to SQLite only.
+
+    Dry runs printed "DRY RUN — not sent" for every order while a real session
+    printed nothing at all, so the mode with consequences was the quiet one.
+    §1's fifth design priority is observability.
+    """
+    seen = []
+    ib = FakeIB(); ib.connect()
+    sm = _sm()
+    store = Store(str(tmp_path / "t.db"))
+    om = OrderManager(broker=ib, symbol="SOXL", session="20260806", sm=sm,
+                      store=store, on_event=lambda l, m: seen.append(m))
+    sm.on_bar_open(START_IDX - 1)
+    sm.on_bar_close(Bar(START_IDX - 1, 100.0, 100.0, 100.0, 100.0, 1.0))
+    sm.on_bar_open(START_IDX)
+    om.apply(sm.drain_intents())
+    assert any("ARM" in m for m in seen), "the arming must be visible"
+
+    entry = [o for o in ib.orders.values() if o.order_type == "LMT"][-1]
+    ib.fill(entry.order_id)
+    om.on_executions(START_IDX)
+    assert any("FILL" in m for m in seen), "every execution must be visible"
+    assert any("BRACKET" in m for m in seen), "the protective legs must be visible"
+
+    target = [o for o in ib.orders.values()
+              if o.action == "SELL" and o.order_type == "LMT"][-1]
+    ib.fill(target.order_id)
+    om.on_executions(START_IDX + 1)
+    assert any("EXIT TARGET" in m for m in seen), "the outcome must be visible"
+    assert any("ret=" in m for m in seen), "and so must the P&L"
