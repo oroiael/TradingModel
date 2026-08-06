@@ -78,6 +78,9 @@ class OrderManager:
     bracket_ref: str = ""               # the entry whose fill opened this position
     entry_qty: float = 0.0              # accumulated across this entry's executions
     entry_notional: float = 0.0         # ... so the levels can use the true VWAP
+    exit_qty: float = 0.0               # the same, for an exit still settling
+    exit_notional: float = 0.0
+    exit_outcome: str = ""
     oca_group: str = ""
     seq: int = 0
     seen_execs: set = field(default_factory=set)
@@ -239,6 +242,10 @@ class OrderManager:
             vwap = self.entry_notional / self.entry_qty
             self.target_px = self._px(vwap * (1.0 + self.sm.cfg.target_pct))
             self.stop_px = self._px(vwap * (1.0 - self.sm.cfg.stop_pct))
+            # The state machine booked both from the first execution. Correct
+            # them, or the trade's return is computed on a fraction of what is
+            # actually held — 100 of 541 shares, live, on 2026-08-06.
+            self.sm.amend_entry(vwap, pos)
         working = {w.order_id: w for w in self.broker.working_orders(self.symbol)}
         covered = max((working[i].remaining
                        for i in (self.target_id, self.stop_id) if i in working),
@@ -288,6 +295,9 @@ class OrderManager:
                 self._on_entry_exec(e, bar_idx)
             elif role in (ROLE_TARGET, ROLE_STOP, ROLE_FLAT):
                 self._on_exit_exec(e, bar_idx, role)
+        # A position can go flat between executions, so re-check even when this
+        # poll brought nothing new — otherwise a settled exit never books.
+        self._book_exit_if_flat(bar_idx)
         return fresh
 
     def _record_fill(self, e: Execution) -> None:
@@ -347,28 +357,44 @@ class OrderManager:
         self.cover_whole_position()
 
     def _on_exit_exec(self, e: Execution, bar_idx: int, role: str) -> None:
+        """An exit settles in several executions too, and must not book early.
+
+        Booking on the first slice reported the trade on that slice alone *and*
+        re-armed §2.5's entry while the rest of the position was still being
+        sold — a race that can leave two positions open at once. The trade is
+        booked when the broker says the position is actually closed.
+        """
         outcome = {ROLE_TARGET: "target", ROLE_STOP: "stop", ROLE_FLAT: "flatten"}[role]
         if not self.sm.in_position:
             return
-        booked = float(getattr(self.sm, "_entry_px", 0.0) or 0.0)
-        if self.entry_qty > 0 and booked > 0:
-            vwap = self.entry_notional / self.entry_qty
-            if abs(vwap - booked) > self.tick / 2:
-                # The engine books §2.6's `E` from the first execution; the true
-                # cost basis is the VWAP. Recorded so Stage 6's shadow parity can
-                # correct for it instead of reading it as a fill-quality gap.
-                self.on_event("warn",
-                              f"{self.symbol} entry booked at {booked:.4f} but "
-                              f"filled vwap {vwap:.4f} over {self.entry_qty:.0f} "
-                              f"({(vwap - booked) / booked * 1e4:+.1f} bp) — P&L "
-                              f"for this trade is off by that much")
+        self.exit_qty += e.qty
+        self.exit_notional += e.qty * e.price
+        self.exit_outcome = outcome
+        self._book_exit_if_flat(bar_idx)
+
+    def _book_exit_if_flat(self, bar_idx: int) -> None:
+        if not (self.sm.in_position and self.exit_qty > 0):
+            return
+        pos = abs(self.broker.position(self.symbol))
+        if pos > 1e-9:
+            self.on_event("info",
+                          f"{self.symbol} exit settling — {pos:.0f} still held, "
+                          f"{self.exit_qty:.0f} sold; not booking or re-arming yet")
+            return
+        e_px = self.exit_notional / self.exit_qty
+        outcome = self.exit_outcome
+        self.exit_qty = self.exit_notional = 0.0
+        self.exit_outcome = ""
         self.bracket_ref = ""
         self.entry_qty = self.entry_notional = 0.0
-        self.sm.on_exit_fill(e.price, bar_idx, outcome)
+        self._book_exit(e_px, bar_idx, outcome)
+
+    def _book_exit(self, price: float, bar_idx: int, outcome: str) -> None:
+        self.sm.on_exit_fill(price, bar_idx, outcome)
         last = self.sm.trades[-1] if self.sm.trades else None
         self.on_event("info",
-                      f"{self.symbol} EXIT {outcome.upper()} @ {e.price:.4f}"
-                      + (f"  ret={last.ret*1e4:+.1f}bp" if last else "")
+                      f"{self.symbol} EXIT {outcome.upper()} @ {price:.4f}"
+                      + (f" x{last.qty:.0f}  ret={last.ret*1e4:+.1f}bp" if last else "")
                       + f"  fills={self.sm.fills}/{self.sm.cfg.max_fills}"
                       f" stops={self.sm.stop_outs}/{self.sm.cfg.max_stops}")
         self._cancel_bracket()

@@ -352,6 +352,23 @@ class SleeveStateMachine:
                    target_px=self._bracket.target_px,
                    stop_px=self._bracket.stop_px)
 
+    def amend_entry(self, price: float, qty: float) -> None:
+        """Correct `E` and the size once a fill has finished settling.
+
+        §2.6 prices the bracket off `E` and §2.4's return is computed on the
+        quantity held, but IBKR settles one order in as many executions as the
+        book requires — so neither is knowable from the first of them. Live on
+        2026-08-06 a 541-share entry booked its quantity as 100 and reported a
+        +1% target as **+18.1 bp instead of +96.5**.
+
+        A simulated fill is atomic, so `replay.py` never calls this and the
+        equivalence proof is untouched. It exists for the live path alone.
+        """
+        if not self.in_position:
+            return
+        self._entry_px = float(price)
+        self._qty = float(qty)
+
     def on_exit_fill(self, price: float, bar_idx: int, outcome: str) -> Trade:
         """A bracket leg (or the 15:55 flatten) filled. Book it and re-arm."""
         if not self.in_position:

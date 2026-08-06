@@ -386,3 +386,45 @@ def test_the_bracket_uses_the_volume_weighted_entry_price(tmp_path):
     assert stop.qty == pytest.approx(ib.position("SOXL"))
     assert stop.aux_px > round_to_tick(100.00 * 0.96, 0.01), \
         "and strictly above where the first execution alone would have put it"
+
+
+# ------------------------------- an exit settles in slices too (2026-08-06)
+def test_a_split_exit_books_the_whole_trade_not_the_first_slice(tmp_path):
+    """Live: a +1% target reported `ret=+18.1bp` instead of +96.5.
+
+    541 shares were entered in five executions, so the state machine booked the
+    quantity as the first slice's 100. The exit then sold 100 + 441, booked on
+    the first of those, and re-armed §2.5's entry while 441 shares were still
+    being sold — a race that can leave two positions open at once.
+    """
+    om, ib, sm = _armed(tmp_path, high=100.0)
+    entry = [o for o in ib.orders.values() if o.order_type == "LMT"][-1]
+    total = entry.qty
+    ib.fill(entry.order_id, qty=total * 0.2, price=100.0)   # a thin first slice
+    om.on_executions(START_IDX)
+    ib.fill(entry.order_id, qty=total * 0.8, price=100.0)
+    om.on_executions(START_IDX)
+    assert sm._qty == pytest.approx(total), "the whole entry, not the first slice"
+
+    target = [o for o in ib.orders.values()
+              if o.action == "SELL" and o.order_type == "LMT"
+              and o.status in ("Submitted", "PreSubmitted")][-1]
+    ib.fill(target.order_id, qty=total * 0.2, price=101.0)   # exit slice 1
+    om.on_executions(START_IDX + 1)
+    assert sm.in_position, "must not book while shares are still held"
+    assert not sm.trades, "and must not re-arm into a half-sold position"
+
+    ib.fill(target.order_id, qty=total * 0.8, price=101.0)   # the rest
+    om.on_executions(START_IDX + 1)
+    assert sm.trades, "booked once flat"
+    t = sm.trades[-1]
+    assert t.qty == pytest.approx(total)
+    assert t.ret == pytest.approx(total * 1.0 / sm.cfg.sleeve_capital), \
+        "the return is on every share, not on the first slice"
+
+
+def test_amend_entry_is_inert_when_flat(tmp_path):
+    """It must never invent a position — replay depends on that."""
+    om, ib, sm = _om(tmp_path)
+    sm.amend_entry(123.45, 999)
+    assert sm._qty == 0.0 and not sm.in_position
