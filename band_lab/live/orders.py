@@ -76,6 +76,8 @@ class OrderManager:
     target_px: float = 0.0              # remembered so the legs can be resized
     stop_px: float = 0.0
     bracket_ref: str = ""               # the entry whose fill opened this position
+    entry_qty: float = 0.0              # accumulated across this entry's executions
+    entry_notional: float = 0.0         # ... so the levels can use the true VWAP
     oca_group: str = ""
     seq: int = 0
     seen_execs: set = field(default_factory=set)
@@ -230,6 +232,13 @@ class OrderManager:
         pos = abs(self.broker.position(self.symbol))
         if pos <= 0 or self.target_px <= 0:
             return False
+        # §2.6 prices the bracket off `E`, the entry fill. With one order settled
+        # in several executions there is no single E — the honest one is the
+        # volume-weighted average, and it only exists once they have all landed.
+        if self.entry_qty > 0:
+            vwap = self.entry_notional / self.entry_qty
+            self.target_px = self._px(vwap * (1.0 + self.sm.cfg.target_pct))
+            self.stop_px = self._px(vwap * (1.0 - self.sm.cfg.stop_pct))
         working = {w.order_id: w for w in self.broker.working_orders(self.symbol)}
         covered = max((working[i].remaining
                        for i in (self.target_id, self.stop_id) if i in working),
@@ -310,9 +319,13 @@ class OrderManager:
         not open a second position or raise.
         """
         if self.sm.in_position and e.order_ref and e.order_ref == self.bracket_ref:
+            self.entry_qty += e.qty
+            self.entry_notional += e.qty * e.price
+            vwap = self.entry_notional / self.entry_qty
             self.on_event("info",
                           f"{self.symbol} entry {e.order_ref} settled in another "
-                          f"execution ({e.qty:.0f} @ {e.price:.4f}) — same fill")
+                          f"execution ({e.qty:.0f} @ {e.price:.4f}) — same fill, "
+                          f"vwap {vwap:.4f} over {self.entry_qty:.0f}")
             self.cover_whole_position()
             return
         if self.entry_id is not None:
@@ -325,6 +338,7 @@ class OrderManager:
                               f"{w.qty}; cancelled remainder, bracketing {e.qty}")
             self.entry_id = None
         self.bracket_ref = e.order_ref
+        self.entry_qty, self.entry_notional = e.qty, e.qty * e.price
         self.sm.on_entry_fill(e.price, bar_idx, qty=e.qty)
         self.apply(self.sm.drain_intents())
         # The remainder may already have executed while the cancel was in
@@ -336,7 +350,20 @@ class OrderManager:
         outcome = {ROLE_TARGET: "target", ROLE_STOP: "stop", ROLE_FLAT: "flatten"}[role]
         if not self.sm.in_position:
             return
+        booked = float(getattr(self.sm, "_entry_px", 0.0) or 0.0)
+        if self.entry_qty > 0 and booked > 0:
+            vwap = self.entry_notional / self.entry_qty
+            if abs(vwap - booked) > self.tick / 2:
+                # The engine books §2.6's `E` from the first execution; the true
+                # cost basis is the VWAP. Recorded so Stage 6's shadow parity can
+                # correct for it instead of reading it as a fill-quality gap.
+                self.on_event("warn",
+                              f"{self.symbol} entry booked at {booked:.4f} but "
+                              f"filled vwap {vwap:.4f} over {self.entry_qty:.0f} "
+                              f"({(vwap - booked) / booked * 1e4:+.1f} bp) — P&L "
+                              f"for this trade is off by that much")
         self.bracket_ref = ""
+        self.entry_qty = self.entry_notional = 0.0
         self.sm.on_exit_fill(e.price, bar_idx, outcome)
         last = self.sm.trades[-1] if self.sm.trades else None
         self.on_event("info",

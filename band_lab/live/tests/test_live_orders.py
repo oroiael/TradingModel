@@ -354,3 +354,35 @@ def test_executions_already_handled_are_not_replayed_after_a_restart(tmp_path):
     assert om2.on_executions(START_IDX) == [], \
         "a restart must not re-process this morning's executions"
     assert sm2.fills == 0, "and must not double-count them"
+
+
+def test_the_bracket_uses_the_volume_weighted_entry_price(tmp_path):
+    """§2.6 prices the bracket off `E`. Several executions have no single E.
+
+    Live 2026-08-06: 541 shares filled as 100/181/143/106/11 across 136.19 to
+    136.24. The bracket was priced off the *first* execution, putting the target
+    and the stop 2c low — 1.6 bp of error on a strategy whose whole edge is
+    ~40 bp/day, which the shadow-parity report would have read as fill quality.
+    """
+    om, ib, sm = _armed(tmp_path, high=100.0)
+    entry = [o for o in ib.orders.values() if o.order_type == "LMT"][-1]
+    total = entry.qty
+
+    ib.fill(entry.order_id, qty=total / 2, price=100.00)
+    om.on_executions(START_IDX)
+    ib.fill(entry.order_id, qty=total / 2, price=101.00)   # a worse half
+    om.on_executions(START_IDX)
+
+    from strategy_core import round_to_tick
+    vwap = 100.50                                  # (100.00 + 101.00) / 2
+    stop = [o for o in ib.orders.values()
+            if o.order_type == "STP" and o.status in ("Submitted", "PreSubmitted")][-1]
+    target = [o for o in ib.orders.values()
+              if o.action == "SELL" and o.order_type == "LMT"
+              and o.status in ("Submitted", "PreSubmitted")][-1]
+    assert stop.aux_px == pytest.approx(round_to_tick(vwap * 0.96, 0.01)), \
+        "the stop must sit 4% below the average paid, not below the first slice"
+    assert target.limit_px == pytest.approx(round_to_tick(vwap * 1.01, 0.01))
+    assert stop.qty == pytest.approx(ib.position("SOXL"))
+    assert stop.aux_px > round_to_tick(100.00 * 0.96, 0.01), \
+        "and strictly above where the first execution alone would have put it"
