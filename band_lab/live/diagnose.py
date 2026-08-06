@@ -165,14 +165,35 @@ class Diagnosis:
                            f"{dates[0]}..{dates[-1]}",
                      "historical_bars filters to one date; this is why it must")
 
-        seen = self.broker.historical_bars(symbol, datetime.now(NY), "1 D", "5 mins")
+        now = datetime.now(NY)
+        seen = self.broker.historical_bars(symbol, now, "1 D", "5 mins")
         if seen:
-            self.say(OK, f"{symbol} engine would consume {len(seen)} bars "
-                         f"(idx {seen[0].idx}..{seen[-1].idx})")
+            return self.say(OK, f"{symbol} engine would consume {len(seen)} bars "
+                                f"(idx {seen[0].idx}..{seen[-1].idx})")
+
+        # Zero bars is the *correct* answer before the first one completes at
+        # 09:35 — there is no session today yet, and the date filter is what
+        # stops the prior session being replayed as this one. Calling that a
+        # failure made a clean pre-market pre-flight read NOT READY.
+        first_bar_done = now.replace(hour=9, minute=36, second=0, microsecond=0)
+        if now.weekday() >= 5:
+            self.say(WARN, f"{symbol} no bars for today — it is "
+                           f"{now:%A}, the market is closed")
+        elif now < first_bar_done:
+            self.say(OK, f"{symbol} no bars for today yet — correct at "
+                         f"{now:%H:%M}, the 09:30 bar completes at 09:35",
+                     f"the {len(raw)} bars returned are from {dates[-1]} and are "
+                     f"correctly filtered out — replaying them as today is the "
+                     f"failure this filter exists to prevent")
+            if dates and (now.date() - dates[-1]).days > 4:
+                self.say(BAD, f"{symbol} newest available session is "
+                              f"{dates[-1]}, {(now.date() - dates[-1]).days} "
+                              f"days old", "the feed is stale, not merely early")
         else:
             self.say(BAD, f"{symbol} engine would consume ZERO bars",
                      f"{len(raw)} arrived but none matched today "
-                     f"({datetime.now(NY).date()}) after the date filter")
+                     f"({now.date()}) — and it is {now:%H:%M}, so today's "
+                     f"session should have bars by now")
 
     def market_data(self, symbol: str) -> None:
         self.step = f"market data {symbol}"
