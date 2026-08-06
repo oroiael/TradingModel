@@ -5,11 +5,11 @@ status and planning document only. It explains *what has been done and whether
 it worked*; it contains no instructions.
 
 The instructions live in exactly one place: **[`live/RUNBOOK.md`](live/RUNBOOK.md)**
-— what to type, in what order, on the Windows 11 machine.
+— what to type, in what order. §0M is macOS, §0 is Windows.
 
-Last reviewed: **2026-08-03** — QA/QC pass (§4.1–4.5) plus the first three live
-IBKR sessions (§4.6). Every PASS in §2 is a command that was executed, not a
-claim carried forward from an earlier document.
+Last reviewed: **2026-08-06** — QA/QC pass (§4.1–4.5), the first live IBKR
+sessions (§4.6), and the first transmitting session (§4.7). Every PASS in §2 is
+a command that was executed, not a claim carried forward.
 
 ---
 
@@ -21,34 +21,29 @@ claim carried forward from an earlier document.
 | Re-tests (V16–V18) | Re-sweep the churn parameters on 1-minute data | ✅ **complete** — nothing adopted, strategy unchanged |
 | Phase 1 | Clean-room backtest parity harness | ✅ **complete and PASSING** |
 | Phase 2 · Stage 1 | Live state machine proven equal to the backtest | ✅ **complete and PASSING** |
-| Phase 2 · Stages 2–4 | Broker adapter, store, orders, timetable, entrypoint | ✅ **code complete, 223 tests green**, and connected to IBKR on 2026-08-03 |
-| Phase 2 · Stage 4 acceptance | One live session, transmit OFF | 🟡 **superseded** — three dry runs on 2026-08-03 found five defects and cleared both blockers, but never reached 11:00. `diagnose.py` now covers what they checked. See §4.6 |
-| Phase 2 · Stage 5 | Go live on paper, ≥4 weeks | 🟡 **first transmit-ON session 2026-08-04**, attended. First ~3 sessions are shakedown |
+| Phase 2 · Stages 2–4 | Broker adapter, store, orders, timetable, entrypoint | ✅ **code complete, 232 tests green**; trading against IBKR paper since 2026-08-06 |
+| Phase 2 · Stage 4 acceptance | One live session, transmit OFF | 🟡 **superseded** — the dry runs never reached 11:00 and `diagnose.py` now covers what they checked. See §4.6 |
+| Phase 2 · Stage 5 | Go live on paper, ≥4 weeks | 🟡 **underway — first real orders placed 2026-08-06.** Three more defects found, all fixed. See §4.7 |
 | Phase 2 · Stage 6 | `report.py` — daily shadow parity | ⬜ **not built** |
 | Phase 2 · Stage 7 | `risk.py`, `watchdog.py`, alerting, service supervision | ⬜ **not built** |
 | Phase 3 | Live money at reduced size | ⬜ not started |
 
-**The step we are on: the first transmit-ON paper session, 2026-08-04.**
+**The step we are on: the paper run, session 1 complete.**
 
-The dry-run gate was deliberately stood down. It had two jobs — prove the
-pre-open half, and de-risk the first order — and `diagnose.py` now does the
-first cleanly. The second is worth less than it looks on a paper account: the
-financial risk is nil, while the three `PHASE2_PLAN.md` §6 assumptions (§6.1 the
-stop outliving the engine, §6.3 OCA, §6.2 the 23:00 restart) and the S10/S11
-fill question **can only be answered by transmitting**. Attended, per §7 of the
-spec. Procedure: `live/RUNBOOK.md` §7.
+The engine placed its first real orders on 2026-08-06. It is attended, on a
+paper account, at f=1.00 and w=0.50 per sleeve, and the first ~3 sessions are
+shakedown and excluded from the evidence set.
 
-**The single most important sentence in this document:** the engine has now
-connected to IBKR, but **it has never reached the 11:00 arming** — so no order
-path, no bracket, no ratchet and no flatten has ever run against a broker. What
-2026-08-03 proved is the pre-open half: connection, capital, contracts, session
-hours, the bar feed and the live-data guard. What it did *not* prove is
-everything §4.6 lists as still untested, and every §6 assumption in
-`PHASE2_PLAN.md` remains open.
+**The single most important sentence in this document:** eight defects have been
+found in five live sessions, and every one of them was invisible to a test suite
+that is now 232 green — because all eight lived in `IBBroker`, the feature
+bootstrap, or the order path against a real broker, which a `FakeIB` suite
+cannot reach by construction. The most serious, found on the first transmitting
+session, left **241 of 541 shares with no protective stop**.
 
-The corollary is §4.6's finding and it is the load-bearing one: **five defects
-turned up in the first three sessions, and 220 green tests had caught none of
-them**, because all five lived in the code a `FakeIB` suite cannot reach.
+Read that as the argument for the attended requirement and against waiving any
+gate, not as an argument that the engine is unsound. Each defect was found in
+the cheapest possible place: paper money, watched, with nothing at risk.
 
 ---
 
@@ -63,11 +58,12 @@ either exits 0 or it does not.
 | 2 | Phase 1 clean-room rebuild | ✅ **PASS** | `pytest band_lab/phase1` → **59 passed** |
 | 3 | Phase 1 parity vs research engine | ✅ **PASS** | `band_lab/phase1/parity.py` → **exit 0**; all **16** published §8 numbers reproduce exactly |
 | 4 | Live state machine equivalence | ✅ **PASS** | `band_lab/live/replay.py` → **exit 0**; SOXL 779=779 ON-days, SOXS 793=793, max daily P&L difference **0.0**, 5,118 trades with 0 outcome differences |
-| 5 | Live engine unit + integration tests | ✅ **PASS** | `pytest band_lab/live` → **164 passed** (137 before this review; +27 added by §4's fixes) |
+| 5 | Live engine unit + integration tests | ✅ **PASS** | `pytest band_lab/live` → **173 passed** (137 before this review; +36 added by §4's fixes) |
 | 6 | 1-minute fill-resolution study | ✅ complete | `live/PHASE2_PARITY.md` S10–S12 — **the most consequential finding in the project**, see §3 |
 | 7 | V16 / V17 / V18 re-tests | ✅ complete, **nothing adopted** | `v2_dev/` — ~1,040 parameter cells across V1, V3, V7, V10 |
 | 8 | IBKR pre-flight, both sleeves | ✅ **READY** (2026-08-03 17:19 ET) | `band_lab/live/diagnose.py` — connection, capital, contracts, hours, 78 bars at idx 0..77, live data confirmed |
-| 9 | Stage 4 acceptance (transmit-OFF session) | ⬜ **NOT DONE** — never reached 11:00 | — |
+| 9 | Stage 4 acceptance (transmit-OFF session) | ⬜ superseded — never reached 11:00 | — |
+| 10 | **First transmitting session** | ✅ **2026-08-06** — gate, 10:00 filter, 11:00 arming, entry fill, OCA bracket all observed live | §4.7 |
 
 ### What #6 changed, because it governs how the paper run is read
 
@@ -91,7 +87,7 @@ No §12 constant changed. Three re-test programmes tried and adopted nothing.
 
 | Gap | Consequence | When it must exist |
 |---|---|---|
-| **No order path has ever run against IBKR** | The engine connects and reads bars, but has never armed. Every §6 assumption in `PHASE2_PLAN.md` is still unverified — most importantly §6.1, that a `STP` order is broker-side and survives the engine dying | Stage 4 dry run |
+| **No exit has ever filled against IBKR** | Entry, bracket and ratchet are proven live; no target or stop has executed, and the 15:55 flatten has never run against a real position. All three `PHASE2_PLAN.md` §6 assumptions remain open — above all §6.1, that a `STP` is broker-side and survives the engine dying | next sessions |
 | **`report.py` does not exist** (Stage 6) | There is no instrument to answer the S10/S11 question. Without it the paper run produces fills nobody diffs against the backtest, which is the *entire reason to launch* | Week 1 of the paper run |
 | **`risk.py` does not exist** (Stage 7) | `Engine.day_loss_breached()` measures the −8.5% condition and `run.py` breaks the session loop on it, but nothing enforces a dormant-until-cleared state | Before Phase 3 |
 | **`watchdog.py` does not exist** (Stage 7) | If the engine hangs while holding a position, nothing independent flattens it. On paper this risks no money; on real money it is the difference between −4% and unbounded | Before Phase 3 |
@@ -110,15 +106,19 @@ No §12 constant changed. Three re-test programmes tried and adopted nothing.
 | 15 (session decision log), 16 (weekly report) | ⬜ open — Stage 6 |
 
 The spec's own §10 table still shows 9 and 10 as fully open; that is now
-understated. It remains true that none of 9–12 has run against a real broker.
+understated against `FakeIB`. It remains true that **none of 9–12 has completed
+against a real broker** — the 2026-08-06 session proved the entry half of the
+order path only.
 
 ---
 
-## 4. QA/QC findings — 2026-08-02 review and 2026-08-03 first contact
+## 4. QA/QC findings — the review, and five live sessions
 
-Five defects, all in code, all fixed. §4.1–4.2 came from reading; §4.6's three
-came from actually connecting. **None touches a §12 constant**, and `replay.py`
-reports exact equivalence after all five.
+**Eight defects, all in code, all fixed.** Two came from reading the code
+(§4.1–4.2), three from first contact with IBKR (§4.6), and three from the first
+transmitting session (§4.7). **None touches a §12 constant**, and `replay.py`
+reports exact equivalence after all eight — every one was in live plumbing, not
+in strategy arithmetic.
 
 ### 4.1 🔴 `--dry-run` would have placed real orders — **fixed**
 
@@ -263,6 +263,47 @@ the suite (it caught the strategy logic, which is what it was for); it is an
 argument that `diagnose.py` and the dry-run gate are load-bearing, and that
 **Stage 4's acceptance must not be waived.**
 
+### 4.7 The 2026-08-06 session — first real orders
+
+The engine transmitted for the first time. **Three more defects, all fixed**;
+none of them was reachable without live orders.
+
+| | Defect | Consequence |
+|---|---|---|
+| 6 | `diagnose.py` called a pre-market run a failure | Zero bars for *today* is correct before 09:35 — it is the date filter doing its job. Run at 07:48 the pre-flight said `NOT READY` on the one line behaving properly, and the runbook says stop at the first thing that misbehaves |
+| 7 | The live-data guard refused on **silence** | TWS does not reliably send a `marketDataType` callback when it is already serving what was asked for, so silence is the ordinary case. At 11:05 it stood a healthy sleeve down on a confirmed-good subscription and ended the session. Refusal is now reserved for positive evidence — the error codes, which fired correctly on 2026-08-03 when the feed really was delayed |
+| **8** | **One order settled in several executions was read as several entries** | **The most serious defect in the project so far.** IBKR filled 541 shares as 300 + 210 + 31. The bracket was sized from the first execution, so **241 shares carried no stop and no target**, while the state machine believed it held 300 — a target or stop fill would have sold 300, left 241 long, and re-armed as though flat |
+
+Defect 8 is the one to remember. §4.1 of `PHASE2_PLAN.md` anticipated partial
+fills and specified "cancel the remainder, bracket what filled" — but the cancel
+races the remainder executing, and on the first live entry it lost that race.
+The fix stops trusting any single execution: the protective legs are now sized
+from `broker.position()` after every entry execution, which is the only quantity
+that cannot be wrong, and re-armed until they cover it.
+
+Defects 6 and 7 are the same lesson from opposite directions: **a safety check
+that fires on healthy days is not a safety feature.** Both refused on the
+absence of evidence rather than on evidence, and both cost a session.
+
+**What the session did prove**, none of it previously observed live:
+
+- the gate passing both sleeves on live ATR5;
+- the **10:00 morning filter firing on time**, standing SOXS down for the
+  documented reason (`stand_down_wide_or_weak_pos10`);
+- the 11:00 activation, the resting buy limit, and the ratchet;
+- **a real entry fill, and a real OCA bracket placed against it.**
+
+**What it did not prove**, and what the next sessions are for:
+
+- the exit path — no target or stop has ever filled;
+- the 15:55 flatten against a real position;
+- all three `PHASE2_PLAN.md` §6 assumptions, still open, §6.1 above all.
+
+One reading note for the evidence set: the entry armed at 138.60 off a 09:30
+session high and filled at 133.54, because the engine was restarted at 12:26
+into a market already 4.6% below that high. Correct by the rules, and not
+representative — a continuous run would have entered hours earlier and higher.
+
 ### 4.5 On the strategy itself — no errors found, one observation
 
 I did not re-test anything, as instructed. Reading for high-level and
@@ -350,36 +391,29 @@ shared to paper the same evening; `diagnose.py` returns `VERDICT: READY`.
 subscription was itself a competing session. It costs 20 seconds and it is the
 difference between finding that at 08:30 and finding it at 11:00.
 
-### B. Monday 2026-08-03 — the dry run (RUNBOOK §5)
+### B. ✅ Done — dry runs and first transmitting session
 
-Transmit **OFF** all day. Nothing reaches the market.
+- [x] Machine, TWS, market data, pre-flight `VERDICT: READY`
+- [x] Dry runs 2026-08-03 (five defects found)
+- [x] **First transmit-ON session 2026-08-06** — first real orders placed
+- [x] Defects 6, 7, 8 found and fixed
 
-- [ ] Start `run.py --dry-run` before 09:25 ET
-- [ ] **06:00-equivalent check:** the pre-open line shows `+N broker` with
-      **N > 0** — SOXL should top up **8** sessions, SOXS **5**. If N = 0 the
-      features are stale to 2026-07-21 and the run is not valid
-- [ ] Gate prints ON for both sleeves with ATR5 ≈ 15.8 (SOXL) / 17.5 (SOXS)
-- [ ] 10:00 — filter decision is printed and written to `daily.filter_reason`
-- [ ] 11:00 — the limit *would* arm; `DRY RUN — not sent:` lines appear
-- [ ] **No `BAR GAP` errors all session** — a missed bar understates
-      `session_high`, which is the anchor everything ratchets from
-- [ ] **No bar arrives before 09:30 and no bar index repeats** — this is the
-      §4.2 fix under observation on real data for the first time
-- [ ] 15:55 / 16:00 — flatten and verify-flat paths run clean
-- [ ] Session ends `EOD reconcile: AGREES`
+### C. 🔜 The next session — what to watch, in order
 
-### C. Monday evening — go/no-go (RUNBOOK §6)
-
-- [ ] Compare the day's decisions against an EOD replay of the same bars
-- [ ] Decide transmit ON for Tuesday. **Any unexplained item in B is a no-go**
-
-### D. First transmit-ON session (RUNBOOK §7)
-
-- [ ] Deliberately check the three `PHASE2_PLAN.md` §6 assumptions the first
-      session answers — **§6.1 the stop survives killing the engine** (the most
-      safety-critical item in the system), §6.3 OCA cancels the sibling,
-      §6.2 the 23:00 restart reconciles without double-counting
-- [ ] First ~3 sessions are shakedown and are excluded from the evidence set
+- [ ] **The exit path.** No target or stop has ever filled. Watch for
+      `EXIT TARGET` / `EXIT STOP` with a `ret=` figure
+- [ ] **§6.1 — the safety-critical one.** Once a bracket is on: confirm SELL LMT
+      and SELL STP in TWS, kill the engine, **check the stop is still there**.
+      If it vanishes, stop and report — nothing runs unattended until it is
+      resolved
+- [ ] **§6.3** — a target fill must cancel its sibling stop by itself
+- [ ] **A bracket that covers the whole position.** After any entry, the stop's
+      quantity in TWS must equal the position. This is defect 8's fix under
+      observation on real fills for the first time
+- [ ] **The 15:55 flatten** against a real position — verify flat in TWS with
+      your own eyes, not just the log line
+- [ ] **§6.2** — leave it overnight; confirm the 23:00 TWS restart reconciles
+      without double-counting
 
 ### E. Week 1 of the paper run
 
