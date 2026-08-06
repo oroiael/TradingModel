@@ -273,3 +273,58 @@ def test_the_live_order_path_reports_to_the_console(tmp_path):
     om.on_executions(START_IDX + 1)
     assert any("EXIT TARGET" in m for m in seen), "the outcome must be visible"
     assert any("ret=" in m for m in seen), "and so must the P&L"
+
+
+# --------------------------------------- one order, several executions (§4.1)
+def test_an_entry_settled_in_several_executions_is_one_fill(tmp_path):
+    """IBKR splits a fill across executions; the engine must not split the trade.
+
+    Observed live 2026-08-06: a 541-share entry came back as 300 + 210 + 31.
+    The first execution bracketed 300 and the next two raised
+    RuntimeError('entry fill in state IN_POSITION') — leaving 241 shares held
+    with no stop and no target, and a state machine that believed it held 300.
+    """
+    om, ib, sm = _armed(tmp_path, high=100.0)
+    entry = [o for o in ib.orders.values() if o.order_type == "LMT"][-1]
+    total = entry.qty
+
+    ib.fill(entry.order_id, qty=total * 0.55, price=99.0)   # first slice
+    om.on_executions(START_IDX)
+    assert sm.in_position
+    assert sm.fills == 1
+
+    ib.fill(entry.order_id, qty=total * 0.45, price=99.0)   # the remainder
+    om.on_executions(START_IDX)                              # must not raise
+
+    assert sm.fills == 1, "one order is one fill, however many executions"
+    stops = [o for o in ib.orders.values()
+             if o.order_type == "STP" and o.status in ("Submitted", "PreSubmitted")]
+    assert stops, "a protective stop must still be resting"
+    assert stops[-1].qty == pytest.approx(ib.position("SOXL")), \
+        "and it must cover every share held, not just the first execution"
+
+
+def test_the_bracket_is_resized_to_the_broker_position(tmp_path):
+    """§6.1 is 'a stop is always resting for what is held', not 'for part'."""
+    om, ib, sm = _armed(tmp_path, high=100.0)
+    entry = [o for o in ib.orders.values() if o.order_type == "LMT"][-1]
+    ib.fill(entry.order_id, qty=100, price=99.0)
+    om.on_executions(START_IDX)
+
+    ib.positions["SOXL"] = 250.0            # as if the rest settled unseen
+    assert om.cover_whole_position() is True
+    for otype in ("LMT", "STP"):
+        leg = [o for o in ib.orders.values()
+               if o.action == "SELL" and o.order_type == otype
+               and o.status in ("Submitted", "PreSubmitted")][-1]
+        assert leg.qty == pytest.approx(250.0), f"{otype} leg must cover 250"
+
+
+def test_cover_whole_position_is_a_no_op_when_already_covered(tmp_path):
+    om, ib, sm = _armed(tmp_path, high=100.0)
+    entry = [o for o in ib.orders.values() if o.order_type == "LMT"][-1]
+    ib.fill(entry.order_id)
+    om.on_executions(START_IDX)
+    before = len(ib.orders)
+    assert om.cover_whole_position() is False
+    assert len(ib.orders) == before, "no churn when the legs already match"
