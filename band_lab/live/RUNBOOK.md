@@ -177,9 +177,13 @@ source .venv-live/bin/activate
 python3 band_lab/live/diagnose.py              # want VERDICT: READY
 
 mkdir -p logs
-caffeinate -dims python3 -u band_lab/live/run.py --transmit 2>&1 \
-    | tee "logs/$(date +%Y%m%d)-live.log"
+caffeinate -dims python3 -u band_lab/live/run.py --transmit 2>&1 | tee "logs/$(date +%Y%m%d)-live.log"
 ```
+
+> **Forward slashes, and keep the launch line unbroken.** `band_lab\live\run.py`
+> is a Windows path; in a POSIX shell the backslashes are escape characters and
+> it collapses to `band_labliverun.py`. A stray `\` before the pipe breaks it the
+> same way. Copy the line whole rather than retyping it.
 
 `caffeinate -dims` holds sleep off for exactly as long as the engine runs, and
 releases it when the engine exits. `-u` is deliberately absent — it expires
