@@ -1,4 +1,4 @@
-# Runbook — Windows 11, IBKR TWS paper
+# Runbook — IBKR TWS paper
 
 **Instructions only.** What to type, in what order, and what you should see.
 No explanation of why — that is in
@@ -11,17 +11,28 @@ Two rules while working through this:
    around it. Every check here exists because something can go silently wrong
    underneath it.
 
-Conventions: `C:\TradingModel` is used as the repo location — substitute yours.
-All times are **America/New_York (ET)**. Commands are PowerShell.
+**Pick your platform and go:**
+
+| | |
+|---|---|
+| **macOS** | **[§0M](#0m--macos--the-whole-path-start-to-finish)** — the whole path, start to finish |
+| **Windows 11** | [§0](#0--windows-if-the-machine-is-already-set-up--the-short-path) if already set up, otherwise §1 |
+
+Shell commands outside §0M are PowerShell; §0M carries the macOS equivalents.
+Everything that is a *decision* rather than a command — the TWS settings (§4),
+the timeline (§7.0), the checks (§5.3, §7.2), the troubleshooting (§9) — is
+platform-independent.
+
+All times are **America/New_York (ET)**.
 **The paper port is 7497** — everywhere in this document, without exception.
 7496 and 4001 are live-money ports and the engine refuses to start on them.
 
 ---
 
-# §0 · If the machine is already set up — the short path
+# §0 · Windows: if the machine is already set up — the short path
 
 Python, TWS and the repo are already installed: **skip §1 and §2.** Four things
-still have to happen before Monday.
+still have to happen before the session. (On macOS, use **§0M** instead.)
 
 ### 0.1 🔴 `git pull` — this one is mandatory
 
@@ -71,6 +82,113 @@ fix, so check the commit hash in §0.1 rather than memorising a number.
 
 Then go to **§4** (verify the TWS settings even if you believe they are done —
 in particular §4.4 market data and §4.5 the account) and **§5** for Monday.
+
+---
+
+# §0M · macOS — the whole path, start to finish
+
+Everything outside this section that is a *shell command* is PowerShell.
+Everything that is a *decision* — the TWS settings in §4, the timeline in §7.0,
+the checks in §5.3 and §7.2, the troubleshooting in §9 — is platform-independent
+and applies unchanged.
+
+Substitute your repo location for `~/TradingModel` throughout.
+
+### 0M.1 Where am I? Run this first
+
+```bash
+cd ~/TradingModel || cd ~/Documents/TradingModel || echo "FIND THE REPO FIRST"
+pwd
+python3 --version                                   # need 3.11+
+git rev-parse --short HEAD                          # which commit
+git lfs version                                     # must not error
+ls -lh SOXL_5min_6Years.csv SOXS_5min_6Years.csv    # must be MB, not 132B
+ls -d .venv-live 2>/dev/null || echo "NO VENV"
+```
+
+That one block answers every setup question at once. Anything that errors or
+looks wrong is the next step below; anything already fine is a step to skip.
+
+### 0M.2 Fill the gaps
+
+```bash
+# only what 0M.1 said was missing
+brew install python@3.12 git-lfs
+git lfs install
+
+cd ~/TradingModel
+git checkout main && git pull
+git lfs pull --include="SOXL_5min_6Years.csv,SOXS_5min_6Years.csv"
+
+python3 -m venv .venv-live
+source .venv-live/bin/activate
+pip install -U pip
+pip install -r band_lab/live/requirements.txt
+```
+
+**The 5-minute CSVs must be ~7.4 MB and ~8.3 MB.** At 132 bytes they are still
+Git LFS pointers and nothing downstream works.
+
+### 0M.3 Verify — four commands, all must pass
+
+```bash
+cd ~/TradingModel
+source .venv-live/bin/activate
+
+python3 -m pytest band_lab/phase1 -q      # 59 passed — a fixed invariant
+python3 band_lab/phase1/parity.py         ; echo "exit=$?"   # want 0
+python3 band_lab/live/replay.py           ; echo "exit=$?"   # want 0
+python3 -m pytest band_lab/live -q        # 0 failures
+```
+
+`parity.py` takes ~2 minutes, `replay.py` ~1. Anything other than pass / exit 0
+is a stop.
+
+### 0M.4 TWS
+
+Install Trader Workstation, log in to the **paper** account, and apply **§4.1
+through §4.5** — those settings are identical on macOS (**TWS → Settings**, or
+**File → Global Configuration** on older builds). Port **7497**, Trusted IP
+**127.0.0.1**, Read-Only API **off**, Download open orders **on**.
+
+Market data entitlement is account-level, not machine-level, so a subscription
+already shared to the paper account carries over to this machine.
+
+> **Only one machine at a time.** IBKR serves market data to one location, and a
+> second logged-in TWS anywhere produces error 162 on this one — silently
+> stopping the bar feed. Confirm the other box is logged out.
+
+### 0M.5 Stop the Mac sleeping
+
+```bash
+sudo pmset -c sleep 0 disksleep 0 displaysleep 10
+pmset -g custom          # verify
+```
+
+Locking the screen is fine — the process keeps running. **Closing the Terminal
+window kills it**, and so does logging out.
+
+### 0M.6 Pre-flight, then launch
+
+```bash
+cd ~/TradingModel
+source .venv-live/bin/activate
+
+python3 band_lab/live/diagnose.py              # want VERDICT: READY
+
+mkdir -p logs
+caffeinate -dims python3 -u band_lab/live/run.py --transmit 2>&1 \
+    | tee "logs/$(date +%Y%m%d)-live.log"
+```
+
+`caffeinate -dims` holds sleep off for exactly as long as the engine runs, and
+releases it when the engine exits. `-u` is deliberately absent — it expires
+after five seconds without `-t` and would do nothing useful here.
+
+For a rehearsal with no orders, swap `--transmit` for `--dry-run`.
+
+Then read **§7.0** for the timeline, **§7.2** for the three assumptions to test
+deliberately, and **§9** if anything errors.
 
 ---
 
