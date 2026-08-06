@@ -141,14 +141,32 @@ def test_a_subscription_error_on_one_sleeve_does_not_condemn_the_other():
     b.assert_live_data("SOXS")               # must not raise
 
 
-def test_silence_is_not_taken_for_live():
-    """ib_async defaults `marketDataType` to 1, so no callback reads as live.
+def test_silence_proceeds_with_a_warning_rather_than_refusing():
+    """Measured 2026-08-06: TWS often sends no `marketDataType` at all.
 
-    Unknown has to refuse, or the guard is decorative on exactly the path it
-    exists to catch.
+    The guard first shipped refusing on silence, on "unknown should fail safe".
+    That stood a healthy sleeve down at 11:05 on a confirmed-good subscription
+    and cost the session — silence is the ordinary case, so refusing on it fires
+    mostly on good days. Refusal is now reserved for positive evidence, and the
+    error-code path below is what carries §4.
     """
+    warned = []
     b = _broker(readonly=True, mdt=None)     # TWS never answers
     b._ib._ticker = _StubTicker()
+    b._on_event = lambda level, msg: warned.append((level, msg))
+    b.assert_live_data("SOXL")               # must NOT raise
+    assert any(l == "warn" for l, _ in warned), "but it must say so, loudly"
+
+
+def test_positive_evidence_still_refuses_after_the_loosening():
+    """The loosening must not have hollowed the guard out."""
+    b = _broker(readonly=True, mdt=3)        # TWS says delayed
+    with pytest.raises(NotLiveDataError):
+        b.assert_live_data("SOXL")
+
+    b = _broker(readonly=True, mdt=None)     # silent, but an error arrived
+    b._ib._ticker = _StubTicker()
+    b._on_ib_error(9, 10089, "no subscription", SimpleNamespace(symbol="SOXL"))
     with pytest.raises(NotLiveDataError):
         b.assert_live_data("SOXL")
 

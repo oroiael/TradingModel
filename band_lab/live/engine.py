@@ -185,9 +185,20 @@ class Engine:
             return
 
         if bar.idx >= START_IDX and not rt.activated:
-            # Per symbol: entitlements are per contract, and one sleeve being
-            # unsubscribed says nothing about the other.
-            self.broker.assert_live_data(symbol)   # never arm on delayed data
+            # Per symbol, and contained to that symbol: entitlements are per
+            # contract, so one sleeve losing its feed says nothing about the
+            # other. Letting this propagate stood the whole session down on
+            # 2026-08-06 when a single probe was inconclusive.
+            try:
+                self.broker.assert_live_data(symbol)   # never arm on delayed data
+            except NotLiveDataError as exc:
+                rt.dormant, rt.dormant_reason = True, "not_live_data"
+                self.on_event("critical", f"{symbol} NOT LIVE DATA: {exc} — "
+                                          f"this sleeve stands down; the other "
+                                          f"is unaffected")
+                self.store.daily(self.session, symbol, filter_ok=0,
+                                 filter_reason="not_live_data")
+                return
             rt.activated = True
         rt.sm.on_bar_open(bar.idx)
         rt.om.apply(rt.sm.drain_intents())
