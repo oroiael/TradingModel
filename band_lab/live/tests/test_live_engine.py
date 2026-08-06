@@ -49,11 +49,12 @@ def _history(range_pct=10.0, or30=3.0, n=130) -> FeatureHistory:
     return h
 
 
-def _engine(tmp_path, range_pct=10.0, or30=3.0, equity=150_000.0):
+def _engine(tmp_path, range_pct=10.0, or30=3.0, equity=150_000.0,
+            symbols=("SOXL",)):
     ib = FakeIB(equity=equity)
     store = Store(str(tmp_path / "e.db"))
-    eng = Engine(ib, store, symbols=("SOXL",), on_event=lambda l, m: None)
-    feats = {"SOXL": _history(range_pct, or30)}
+    eng = Engine(ib, store, symbols=symbols, on_event=lambda l, m: None)
+    feats = {s: _history(range_pct, or30) for s in symbols}
     return eng, ib, store, feats
 
 
@@ -140,8 +141,36 @@ def test_activation_refuses_delayed_market_data(tmp_path):
     ib.market_data_type = 3          # delayed
     for b in _session_bars(n=START_IDX):
         eng.on_bar("SOXL", b)
-    with pytest.raises(NotLiveDataError):
-        eng.on_bar("SOXL", Bar(START_IDX, 100.0, 100.0, 100.0, 100.0, 1.0))
+    eng.on_bar("SOXL", Bar(START_IDX, 100.0, 100.0, 100.0, 100.0, 1.0))
+    rt = eng.sleeves["SOXL"]
+    assert rt.dormant and rt.dormant_reason == "not_live_data"
+    assert not rt.activated, "a delayed feed must never arm"
+    assert not ib.working_orders("SOXL"), "and must place no order"
+
+
+def test_one_sleeve_losing_its_feed_does_not_end_the_session(tmp_path):
+    """Entitlements are per contract.
+
+    On 2026-08-06 a NotLiveDataError on SOXL propagated out of `on_bar`, broke
+    the runner's session loop and flattened both sleeves. It is contained now.
+    """
+    eng, ib, store, feats = _engine(tmp_path, symbols=("SOXL", "SOXS"))
+    eng.pre_open(DAY, feats)
+
+    real = ib.assert_live_data
+    def only_soxl_is_delayed(symbol=None):
+        if symbol == "SOXL":
+            raise NotLiveDataError("SOXL: delayed")
+        return real(symbol)
+    ib.assert_live_data = only_soxl_is_delayed
+
+    for b in _session_bars(n=START_IDX + 1):
+        eng.on_bar("SOXL", b)
+        eng.on_bar("SOXS", b)
+
+    assert eng.sleeves["SOXL"].dormant, "the affected sleeve stands down"
+    assert not eng.sleeves["SOXS"].dormant, "the healthy sleeve keeps trading"
+    assert eng.sleeves["SOXS"].activated
 
 
 def test_bar_gap_is_reported(tmp_path):

@@ -130,6 +130,8 @@ class OrderManager:
             self.symbol, "BUY", qty, px, self.entry_ref)
         self._log_order(self.entry_ref, ROLE_ENTRY, "BUY", "LMT", "placed",
                         order_id=self.entry_id, qty=qty, limit_px=px)
+        self.on_event("info", f"{self.symbol} ARM  buy limit {qty:.0f} @ {px:.2f} "
+                              f"({self.entry_ref})")
 
     def _modify_entry(self, it: Intent) -> None:
         px, qty = self._px(it.limit_px), it.qty
@@ -138,10 +140,13 @@ class OrderManager:
         self._assert_ratchet(px)
         if abs(px - self.entry_limit) < self.tick / 2 and qty == 0:
             return
+        was = self.entry_limit
         self.broker.modify_limit(self.entry_id, px, qty)
         self.entry_limit = px
         self._log_order(self.entry_ref, ROLE_ENTRY, "BUY", "LMT", "modified",
                         order_id=self.entry_id, qty=qty, limit_px=px)
+        self.on_event("info", f"{self.symbol} RATCHET {was:.2f} -> {px:.2f} "
+                              f"x{qty:.0f}")
 
     def _cancel_entry(self, it: Intent = None) -> None:
         if self.entry_id is not None:
@@ -167,6 +172,8 @@ class OrderManager:
         self._log_order(sref, ROLE_STOP, "SELL", "STP", "placed",
                         order_id=self.stop_id, qty=qty, aux_px=spx,
                         oca_group=self.oca_group)
+        self.on_event("info", f"{self.symbol} BRACKET x{qty:.0f}  target "
+                              f"{tpx:.2f} / stop {spx:.2f}  oca={self.oca_group}")
 
     def _cancel_bracket(self, it: Intent = None) -> None:
         for oid, role in ((self.target_id, ROLE_TARGET), (self.stop_id, ROLE_STOP)):
@@ -211,13 +218,16 @@ class OrderManager:
         return fresh
 
     def _record_fill(self, e: Execution) -> None:
+        parsed = parse_ref(e.order_ref)
+        role = parsed[2] if parsed else "?"
+        self.on_event("info", f"{self.symbol} FILL {role} {e.side} {e.qty:.0f} "
+                              f"@ {e.price:.4f}  ({e.order_ref})")
         if self.store is None:
             return
         try:
             q: Quote = self.broker.quote(self.symbol)
         except Exception:                                   # noqa: BLE001
             q = Quote(0.0, 0.0, 0.0)
-        parsed = parse_ref(e.order_ref)
         self.store.fill(self.symbol, self.session, e.exec_id,
                         order_ref=e.order_ref, perm_id=e.perm_id,
                         role=parsed[2] if parsed else "", side=e.side,
@@ -246,6 +256,12 @@ class OrderManager:
         if not self.sm.in_position:
             return
         self.sm.on_exit_fill(e.price, bar_idx, outcome)
+        last = self.sm.trades[-1] if self.sm.trades else None
+        self.on_event("info",
+                      f"{self.symbol} EXIT {outcome.upper()} @ {e.price:.4f}"
+                      + (f"  ret={last.ret*1e4:+.1f}bp" if last else "")
+                      + f"  fills={self.sm.fills}/{self.sm.cfg.max_fills}"
+                      f" stops={self.sm.stop_outs}/{self.sm.cfg.max_stops}")
         self._cancel_bracket()
         # §4.5 — re-arm is immediate, on the exit event.
         self.apply(self.sm.drain_intents())

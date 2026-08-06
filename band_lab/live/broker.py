@@ -43,6 +43,18 @@ MARKET_DATA_LIVE = 1
 #: below is the backstop for a silent downgrade, not the primary detector.
 NO_LIVE_DATA_ERRORS = frozenset({354, 10089, 10090, 10167, 10168})
 
+#: How long to wait for TWS to describe the feed before warning and proceeding.
+PROBE_SECONDS = 5.0
+
+
+def _has_quote(ticker) -> bool:
+    """Is real data flowing? A live bid/ask is evidence in its own right."""
+    for attr in ("bid", "ask", "last"):
+        v = getattr(ticker, attr, None)
+        if v is not None and v == v and v > 0:    # not None, not NaN, positive
+            return True
+    return False
+
 
 class BrokerError(RuntimeError):
     pass
@@ -293,26 +305,35 @@ class IBBroker(Broker):
 
         `reqMarketDataType(1)` requests live; IBKR silently downgrades to
         delayed when the subscription is missing, which is exactly the failure
-        this guards. The engine calls this before every order-placing phase,
-        not once at startup.
+        this guards. The engine calls this before every order-placing phase.
 
-        **This method was a no-op until 2026-08-03.** It read
-        `ib._ccr_probe_ticker`, an attribute nothing ever set, so the `is None`
-        branch returned on every real connection and the guard could not fire.
-        It was found on the first paper session, on an account that was in fact
-        serving delayed data.
+        **History, because both mistakes are instructive.** Until 2026-08-03 this
+        read `ib._ccr_probe_ticker`, an attribute nothing ever set, so it was a
+        no-op on every real connection — found on an account that was in fact
+        serving delayed data. The replacement then refused on *silence*, on the
+        reasoning that unknown should fail safe. On 2026-08-06 that stood a
+        healthy sleeve down at 11:05 on a confirmed-good subscription and cost
+        the session.
 
-        Two independent signals now, because neither alone is sufficient:
+        The measurement settled it: **TWS does not reliably send a
+        `marketDataType` callback when it is already serving what was asked
+        for.** Silence is the ordinary case, so refusing on it makes the guard
+        fire mostly on healthy days — the opposite of a safety feature.
 
-        * the **error codes** in `NO_LIVE_DATA_ERRORS`, which TWS emits plainly
-          and which is what actually fired in the field; and
-        * **`Ticker.marketDataType`**, for a downgrade that arrives without an
-          error. ib_async defaults that field to `1`, so silence and "live" are
-          indistinguishable — it is zeroed first and treated as unknown.
+        What refuses now is **positive evidence** of non-live data, in order of
+        authority:
 
-        Unknown refuses. Costing an ON-day to a false refusal is recoverable;
-        arming a limit off 15-minute-old prices is not, and §1's third design
-        priority is "fail to flat".
+        1. the **error codes** in `NO_LIVE_DATA_ERRORS` — TWS says so in words,
+           and this is what actually fired in the field on 2026-08-03; and
+        2. **`Ticker.marketDataType` of 2/3/4** — frozen or delayed arriving
+           without an error.
+
+        Neither present, with a quote flowing, passes silently. Neither present
+        and no quote either passes with a loud warning rather than a refusal:
+        the authoritative detector is the error path, and standing a whole
+        session down on an inconclusive probe is the worse of the two failures.
+        §4's requirement is carried by (1) and (2), which is where the signal
+        actually lives.
         """
         ib = self._require()
         ib.reqMarketDataType(MARKET_DATA_LIVE)
@@ -330,27 +351,37 @@ class IBBroker(Broker):
         contract = self.contract(symbol)
         ticker = ib.reqMktData(contract, "", False, False)
         ticker.marketDataType = 0                 # sentinel; the default is 1
-        deadline = time.time() + 3.0
-        while not ticker.marketDataType and time.time() < deadline:
+        deadline = time.time() + PROBE_SECONDS
+        while time.time() < deadline:
+            if ticker.marketDataType or _has_quote(ticker):
+                break
+            if symbol in self._no_live_data:      # the error arrived mid-wait
+                break
             ib.sleep(0.1)
         mdt = int(ticker.marketDataType or 0)
+        quoted = _has_quote(ticker)
         if symbol not in self._no_live_data:
             # A rejected subscription has no ticker to cancel, and asking makes
-            # TWS answer 300 "Can't find EId" — a confusing error attributed to
+            # TWS answer 300 "Can\'t find EId" — a confusing error attributed to
             # whatever step happens to be running when it arrives.
             try:
                 ib.cancelMktData(contract)
             except Exception:                     # noqa: BLE001
                 pass                              # tidying up must not refuse
+
         if symbol in self._no_live_data:
             _refuse("IBKR reported no live market-data subscription")
-        if mdt == 0:
-            _refuse("no marketDataType callback within 3s — cannot confirm the "
-                    "feed is live. If the subscription is known good, this is "
-                    "the guard being too strict and is worth one measurement")
-        if mdt != MARKET_DATA_LIVE:
-            _refuse(f"marketDataType={mdt} (1=live 2=frozen 3=delayed "
-                    f"4=delayed-frozen) — refusing to trade")
+        if mdt in (2, 3, 4):
+            _refuse(f"marketDataType={mdt} "
+                    f"(2=frozen 3=delayed 4=delayed-frozen) — refusing to trade")
+        if mdt == MARKET_DATA_LIVE:
+            return
+        self._on_event(
+            "warn",
+            f"{symbol}: no marketDataType callback in {PROBE_SECONDS:.0f}s"
+            + (" but a quote is flowing" if quoted else " and no quote arrived")
+            + " — proceeding. IBKR reported no subscription error, which is the"
+              " signal that fires when the feed is not live.")
 
     def session_hours(self, symbol: str, day: datetime) -> SessionHours:
         """Today's RTH from contract details.

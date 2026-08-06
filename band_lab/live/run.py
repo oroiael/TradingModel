@@ -110,10 +110,37 @@ class Runner:
         return any(not rt.dormant for rt in self.engine.sleeves.values())
 
     # --------------------------------------------------------- the session
-    def run_session(self, day: datetime, sleep: float = None) -> None:
+    def heartbeat(self) -> None:
+        """Periodic proof of life.
+
+        The engine is silent by design between events, and on a normal day the
+        events are hours apart — so silence has two readings, "nothing has
+        happened yet" and "this died an hour ago", and the operator cannot tell
+        them apart. §1's fifth design priority is observability; this is the
+        cheapest possible version of it.
+        """
+        parts = []
+        for symbol, rt in self.engine.sleeves.items():
+            if rt.dormant:
+                parts.append(f"{symbol} dormant({rt.dormant_reason})")
+                continue
+            state = getattr(rt.sm.state, "name", str(rt.sm.state))
+            bar = self.feeds[symbol].last_idx if symbol in self.feeds else -1
+            pos = self.broker.position(symbol)
+            bit = (f"{symbol} {state} bar={bar} "
+                   f"fills={rt.sm.fills} stops={rt.sm.stop_outs}")
+            if abs(pos) > 1e-9:
+                bit += f" POS={pos:.0f}"
+            parts.append(bit)
+        self._event("info", "heartbeat | " + " | ".join(parts or ["no sleeves"]))
+
+    def run_session(self, day: datetime, sleep: float = None,
+                    heartbeat: float = None) -> None:
         """09:30 -> 15:55. Polls the feed, drives the engine, drains fills."""
         sleep = self.cfg.bar_poll_seconds if sleep is None else sleep
+        heartbeat = self.cfg.heartbeat_seconds if heartbeat is None else heartbeat
         flatten_at = _at(day, 15, 55)
+        last_beat = time.monotonic()
         while datetime.now(NY) < flatten_at:
             try:
                 self._connect()
@@ -132,6 +159,12 @@ class Runner:
                 self._event("error", f"broker: {exc}; will reconnect")
             except Exception as exc:                        # noqa: BLE001
                 self._event("error", f"session loop: {exc!r}")
+            if heartbeat > 0 and time.monotonic() - last_beat >= heartbeat:
+                last_beat = time.monotonic()
+                try:
+                    self.heartbeat()
+                except Exception as exc:                    # noqa: BLE001
+                    self._event("error", f"heartbeat: {exc!r}")
             time.sleep(sleep)
 
     # ------------------------------------------------------ 15:55 / 16:10
@@ -155,7 +188,8 @@ class Runner:
             if not summary.get("agrees", True):
                 self._event("error", f"{symbol} reconcile mismatch on connect: {summary}")
 
-    def day(self, day: Optional[datetime] = None, sleep: float = None) -> dict:
+    def day(self, day: Optional[datetime] = None, sleep: float = None,
+            heartbeat: float = None) -> dict:
         day = day or datetime.now(NY)
         if day.weekday() >= 5:
             # Cheap and local; the broker is still authoritative for holidays,
@@ -170,7 +204,8 @@ class Runner:
             else:
                 self._event("info", f"all sleeves dormant — no session to run: {reasons}")
             return self.engine.reconcile()
-        self.run_session(day, sleep=sleep)
+        self.heartbeat()
+        self.run_session(day, sleep=sleep, heartbeat=heartbeat)
         return self.close_out()
 
 
@@ -184,6 +219,8 @@ def main() -> int:
                          "the live-money ports are refused by config validation.")
     ap.add_argument("--root", default=ROOT)
     ap.add_argument("--poll", type=float, default=None)
+    ap.add_argument("--heartbeat", type=float, default=None,
+                    help="seconds between status lines (0 disables; default 900)")
     args = ap.parse_args()
 
     if args.dry_run and args.transmit:
@@ -218,7 +255,7 @@ def main() -> int:
 
     runner = Runner(cfg, root=args.root)
     try:
-        summary = runner.day(sleep=args.poll)
+        summary = runner.day(sleep=args.poll, heartbeat=args.heartbeat)
     finally:
         runner.broker.disconnect()
     if not summary:
