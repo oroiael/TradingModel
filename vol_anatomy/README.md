@@ -204,3 +204,106 @@ and proportionally larger losses. What it does not buy is edge. Edge is either a
 The real benefit of a high-vol instrument is **capital efficiency** — expressing a
 given dollar of risk with less capital — and that is genuine, but it is not free
 money and it cuts symmetrically.
+
+
+---
+
+# Can you build the leverage yourself? — `leverage_cost.py`
+
+## 1. What the ETF wrapper actually costs (measured, not quoted)
+
+If SOXL is +3× and SOXS is −3× of the *same* daily index return, then
+`r_L + r_S = −(f_L + f_S)` exactly — the index cancels and only the fees survive.
+Over 1,140 sessions 2022–2026:
+
+| | |
+|---|---:|
+| measured `mean(r_SOXL + r_SOXS) × 252` | **−2.63% / yr** |
+| stated net expense ratios (0.75% + 1.00%) | −1.75% |
+| residual: swap spread + tracking, both legs | **−0.88% / yr** |
+
+This is **not** decomposable into a per-leg number from this identity — the long
+leg *pays* financing on borrowed notional while the short leg *receives* it on
+short proceeds, so the two partly cancel inside the sum. What it does establish is
+the round-trip cost of the pair: **2.63%/yr of NAV against a stated 1.75%.** The
+wrapper is cheap. Rafferty finances at institutional swap rates on billions of
+notional; you will not beat that spread.
+
+## 2. Recreating the swap — the synthetic forward
+
+A total return swap has a listed equivalent: **long call + short put, same strike
+and expiry**. That is a synthetic long — full price exposure, no shares, margin
+of roughly 20% of notional. The financing is not a line item; it is embedded in
+the forward, and put-call parity recovers it. Regressing `C − P` on `K` across
+near-money strikes gives `slope = −e^{−rT}` and `intercept = e^{−rT}·F`, so a
+single fit returns both the discount rate and the implied forward.
+
+7,765 (date, expiry) fits on the SOXL chain, 20–400 DTE:
+
+| | median | IQR |
+|---|---:|---:|
+| implied discount rate `r` | **3.07%** | −1.08% … 6.95% |
+| implied carry `ln(F/S)/T` = `r − q` | **2.19%** | 0.31% … 3.70% |
+
+| year | 2022 | 2023 | 2024 | 2025 | 2026 |
+|---|---:|---:|---:|---:|---:|
+| median carry | 0.72% | 2.48% | 3.03% | 2.66% | 0.53% |
+
+So the listed market will finance you at roughly the risk-free rate — genuinely
+competitive with the fund's swaps. **The catch is not the rate, it is the
+friction**: you cross a bid/ask on two option legs at every roll, on a chain whose
+near-money relative spread was measured at 3.7% (90d) to 10.9% (weeklies) in
+`cc_lp_lab`. Roll quarterly and that is far more than the 2.63%/yr you were trying
+to avoid. The synthetic wins only at size, at long tenor, and with patient limit
+execution.
+
+## 3. The full ladder of what is actually available
+
+| route | leverage | financing | the real constraint |
+|---|---|---|---|
+| Reg-T margin | 2× overnight, 4× intraday (PDT) | broker rate, often 5–13% retail | **cannot reach 3× overnight** |
+| Portfolio margin | risk-based, ~6× on diversified stock | broker rate | needs ~$125k; a 3× ETF gets punitive haircuts |
+| **Index futures** | 10–25× notional per margin dollar | embedded at ~risk-free | **no semiconductor index future exists**; NQ is the nearest liquid proxy |
+| **Synthetic forward** (long call/short put) | ~5× on margin | ~risk-free, implied above | two spreads per roll |
+| Deep-ITM LEAPS calls | 2–3× | embedded, plus time value | you also buy volatility you may not want |
+| Box spread (borrow) | financing only | near-SOFR, often the cheapest retail cash | pairs with an unlevered position |
+| Total return swap | any | institutional | requires an ISDA — not available retail |
+| CFDs | 5–20× | broker rate | not available to US persons |
+
+Buying SOXL is one of the *cheapest* 3× structures a retail account can get, and
+the only one needing no margin agreement at all. The DIY versions mostly buy you
+control over strike, tenor and tax treatment — not a lower cost.
+
+## 4. "Invent more leverage" — the measured reason not to
+
+Compound growth of a *k*-times daily-rebalanced position on the 1× semis index,
+2022–2026 (no fees; the wrapper cost shifts every row down):
+
+| k | ann vol | total return | CAGR | max DD |
+|---|---:|---:|---:|---:|
+| 1× | 39.0% | +164.2% | +23.8% | −46.5% |
+| **2×** | 77.9% | **+251.6%** | **+31.9%** | −75.5% |
+| 3× | 116.9% | +133.1% | +20.5% | −90.4% |
+| 4× | 155.9% | **−25.0%** | −6.1% | −97.8% |
+| 5× | 194.8% | −88.8% | −38.2% | −99.8% |
+| 8× | 311.7% | −100.0% | −94.8% | −100.0% |
+
+`g(k) = k·μ − (k·σ)²/2` peaks at `k* = μ/σ² =` **1.91×**, and the measured curve
+agrees: 2× beat both 1× and 3×. **The 3× fund is already past the growth-optimal
+point for this index, and 4× turned a +164% index into a loss.** Return is linear
+in leverage; drag is quadratic. There is a ceiling, it is low, and it sits *below*
+the product already being used.
+
+The hard floor underneath that: at *k*× leverage a single-day index move of
+−100/k% is total loss. The worst 1× day in this sample was **−10.2%**, so ruin
+arrives mechanically at **k ≥ 9.8×** — no stop-loss, no margin call, just gone.
+
+## Bottom line
+
+**Yes, you can build 3×** — synthetic forwards or futures get you there at close
+to the fund's financing rate. **No, you should not**, on this evidence: the
+wrapper costs 2.63%/yr for the pair, your friction will exceed that, and the
+measured optimum is 1.9× — *less* leverage than the product you would be
+replicating, not more. The question "can I invent more leverage" has a measured
+answer on this data, and it is that more leverage past ~2× made you poorer while
+making every drawdown worse.
