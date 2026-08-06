@@ -73,6 +73,9 @@ class OrderManager:
     entry_limit: float = 0.0
     target_id: Optional[int] = None
     stop_id: Optional[int] = None
+    target_px: float = 0.0              # remembered so the legs can be resized
+    stop_px: float = 0.0
+    bracket_ref: str = ""               # the entry whose fill opened this position
     oca_group: str = ""
     seq: int = 0
     seen_execs: set = field(default_factory=set)
@@ -162,6 +165,7 @@ class OrderManager:
         tref = self._next_ref(ROLE_TARGET)
         sref = self._next_ref(ROLE_STOP)
         tpx, spx = self._px(it.target_px), self._px(it.stop_px)
+        self.target_px, self.stop_px = tpx, spx
         self.target_id = self.broker.place_limit(
             self.symbol, "SELL", qty, tpx, tref, oca_group=self.oca_group)
         self.stop_id = self.broker.place_stop(
@@ -181,6 +185,38 @@ class OrderManager:
                 self.broker.cancel(oid)
                 self._log_order("", role, "SELL", "", "cancelled", order_id=oid)
         self.target_id = self.stop_id = None
+
+    def cover_whole_position(self) -> bool:
+        """Make the protective legs cover every share actually held.
+
+        IBKR settles one order in as many executions as the book requires — a
+        541-share entry came back as 300 + 210 + 31 on 2026-08-06. The bracket
+        was sized from the *first* execution, so 241 shares carried no stop and
+        no target, and the state machine believed the position was 300.
+
+        The broker's position is the only trustworthy quantity here, so the legs
+        are rebuilt against it at the same prices. §6.1's guarantee is that a
+        protective stop is always resting for what is held; a bracket sized from
+        one execution of several does not deliver it.
+        """
+        pos = abs(self.broker.position(self.symbol))
+        if pos <= 0 or self.target_px <= 0:
+            return False
+        working = {w.order_id: w for w in self.broker.working_orders(self.symbol)}
+        covered = max((working[i].remaining
+                       for i in (self.target_id, self.stop_id) if i in working),
+                      default=0.0)
+        if abs(covered - pos) < 1e-9:
+            return False
+        self.on_event("warn",
+                      f"{self.symbol} bracket covers {covered:.0f} of {pos:.0f} "
+                      f"held — resizing so every share has a stop")
+        self._cancel_bracket()
+        self._place_bracket(Intent(kind=IntentKind.PLACE_BRACKET,
+                                   bar_idx=self.sm._last_bar_idx, qty=pos,
+                                   target_px=self.target_px,
+                                   stop_px=self.stop_px))
+        return True
 
     def _flatten(self, it: Intent) -> None:
         """§4.7 — MKT, not MOC. Residual is re-sent by `ensure_flat`."""
@@ -238,7 +274,19 @@ class OrderManager:
                          q.bid, q.ask, q.last)
 
     def _on_entry_exec(self, e: Execution, bar_idx: int) -> None:
-        """§4.1 — cancel the remainder, bracket what actually filled, count one."""
+        """§4.1 — cancel the remainder, bracket what actually filled, count one.
+
+        "One execution" and "one fill" are not the same thing. When IBKR settles
+        a single entry order in several executions, every one after the first is
+        a continuation of the *same* logical entry: it must widen the bracket,
+        not open a second position or raise.
+        """
+        if self.sm.in_position and e.order_ref and e.order_ref == self.bracket_ref:
+            self.on_event("info",
+                          f"{self.symbol} entry {e.order_ref} settled in another "
+                          f"execution ({e.qty:.0f} @ {e.price:.4f}) — same fill")
+            self.cover_whole_position()
+            return
         if self.entry_id is not None:
             working = {w.order_id: w for w in self.broker.working_orders(self.symbol)}
             w = working.get(self.entry_id)
@@ -248,13 +296,19 @@ class OrderManager:
                               f"{self.symbol} partial entry fill {e.qty} of "
                               f"{w.qty}; cancelled remainder, bracketing {e.qty}")
             self.entry_id = None
+        self.bracket_ref = e.order_ref
         self.sm.on_entry_fill(e.price, bar_idx, qty=e.qty)
         self.apply(self.sm.drain_intents())
+        # The remainder may already have executed while the cancel was in
+        # flight, so size the legs off the broker rather than off this one
+        # execution. Cheap, and it is the only thing that closes the race.
+        self.cover_whole_position()
 
     def _on_exit_exec(self, e: Execution, bar_idx: int, role: str) -> None:
         outcome = {ROLE_TARGET: "target", ROLE_STOP: "stop", ROLE_FLAT: "flatten"}[role]
         if not self.sm.in_position:
             return
+        self.bracket_ref = ""
         self.sm.on_exit_fill(e.price, bar_idx, outcome)
         last = self.sm.trades[-1] if self.sm.trades else None
         self.on_event("info",
