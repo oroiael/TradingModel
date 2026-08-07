@@ -1,0 +1,123 @@
+
+==============================================================================
+T0.1  SESSION GRID COMPLETENESS
+==============================================================================
+        bars  sessions       first        last  years  full_78  half_42  other  dup_ts  nan_close  nonpos_px  zero_vol_bars  ohlc_viol
+sym                                                                                                                                   
+SPXL  117012      1506  2020-07-23  2026-07-22   6.00     1493       12      1       0          0          0             22          0
+FAS   117036      1506  2020-07-23  2026-07-22   6.00     1494       12      0       0          0          0            348          0
+VXX   117270      1509  2020-07-23  2026-07-27   6.01     1497       12      0       0          0          0              3          0
+
+Sessions that are neither 78 nor 42 bars (anomalies):
+  SPXL: 1 sessions
+            bars           first_bar            last_bar   close
+session                                                         
+2026-07-22    54 2026-07-22 09:30:00 2026-07-22 13:55:00  271.31
+  FAS: none
+  VXX: none
+
+First/last bar-of-day distribution:
+  SPXL: first={datetime.time(9, 30): 1506}  last={datetime.time(15, 55): 1493, datetime.time(12, 55): 12, datetime.time(13, 55): 1}
+  FAS: first={datetime.time(9, 30): 1506}  last={datetime.time(15, 55): 1494, datetime.time(12, 55): 12}
+  VXX: first={datetime.time(9, 30): 1509}  last={datetime.time(15, 55): 1497, datetime.time(12, 55): 12}
+
+==============================================================================
+T0.2  CORPORATE ACTION / ADJUSTMENT BASIS SCAN
+==============================================================================
+
+SPXL: 0 session boundaries with open/prev_close outside [0.60, 1.70]
+  ordinary overnight gap range: 0.8791 .. 1.1200   (n=1505)
+
+FAS: 0 session boundaries with open/prev_close outside [0.60, 1.70]
+  ordinary overnight gap range: 0.8812 .. 1.1651   (n=1505)
+
+VXX: 0 session boundaries with open/prev_close outside [0.60, 1.70]
+  ordinary overnight gap range: 0.8635 .. 1.4410   (n=1508)
+
+Price level trajectory (year-end close) -- reveals adjustment basis:
+             SPXL    FAS      VXX
+session                          
+2020-12-31  72.20  60.74 1,074.56
+2021-12-31 143.38 130.70   296.48
+2022-12-31  62.11  73.61   225.92
+2023-12-31 103.99  82.66    62.20
+2024-12-31 168.67 150.75    45.73
+2025-12-31 220.69 168.32    26.55
+2026-12-31 271.31 166.53    22.22
+
+==============================================================================
+T0.3  CROSS-FILE ALIGNMENT
+==============================================================================
+sessions: union=1509  intersection=1506
+  SPXL: 1506 sessions, 0 not in all-three, 0 unique to SPXL
+  FAS: 1506 sessions, 0 not in all-three, 0 unique to FAS
+  VXX: 1509 sessions, 3 not in all-three, 3 unique to VXX
+  SPXL missing 3 sessions present elsewhere, e.g. ['2026-07-23', '2026-07-24', '2026-07-27']
+  FAS missing 3 sessions present elsewhere, e.g. ['2026-07-23', '2026-07-24', '2026-07-27']
+
+5-min timestamps: union=117,270  intersection=117,012
+  SPXL: 117,012 stamps, 0 not shared by all three
+  FAS: 117,036 stamps, 24 not shared by all three
+  VXX: 117,270 stamps, 258 not shared by all three
+
+Usable common window: 2020-07-23 -> 2026-07-22  (1506 sessions)
+
+==============================================================================
+T0.4  LIQUIDITY AND CAPACITY PROFILE
+==============================================================================
+Trailing 2 years:
+      med_bar_notional_$  p05_bar_notional_$  med_daily_notional_$  med_bar_shares  max_ord_1pct_$  max_ord_5pct_$  last_px
+sym                                                                                                                        
+SPXL           3,756,285             865,603           397,368,766          20,159           8,656          43,280      271
+FAS              528,233              62,686            68,640,506           3,531             627           3,134      167
+VXX            1,792,304             441,529           176,825,094          46,786           4,415          22,076       22
+
+Median bar notional by time of day (trailing 2y, $):
+               SPXL       FAS       VXX
+tod                                    
+09:30:00 19,210,769 4,058,574 5,722,470
+10:00:00  8,567,814 1,610,242 3,636,833
+10:30:00  5,727,496   900,378 2,538,217
+11:00:00  4,479,717   734,266 2,152,822
+11:30:00  3,874,870   538,020 1,719,925
+12:00:00  3,288,779   442,520 1,593,110
+12:30:00  2,800,950   400,478 1,516,084
+13:00:00  3,189,394   414,771 1,474,695
+13:30:00  2,795,196   330,858 1,370,128
+14:00:00  3,056,712   365,489 1,523,286
+14:30:00  2,924,209   322,720 1,494,027
+15:00:00  3,114,844   392,321 1,510,254
+15:30:00  3,900,846   519,291 2,211,053
+
+Amihud illiquidity (|daily return| per $1M daily notional, trailing 2y):
+  SPXL: 3.786e-05
+  FAS: 2.541e-04
+  VXX: 1.077e-04
+
+==============================================================================
+T0.5  MICROSTRUCTURE NOISE -- SIGNATURE PLOT + SPREAD ESTIMATES
+==============================================================================
+Realized variance annualized (%), by sampling interval.
+A flat row = efficient prices. Rising toward the left = bid-ask bounce.
+
+      5min  10min  15min  30min    1h  half-day  1day
+SPXL 49.51  49.29  49.24  49.14 49.51     48.91 48.59
+FAS  58.59  58.39  58.30  58.06 58.87     58.19 57.90
+VXX  68.98  68.11  67.56  68.03 67.32     67.03 67.38
+
+First-order autocorrelation of 5-min returns (Roll's negative-ACF signature):
+      acf1_5min          cov1  roll_spread_bp
+sym                                          
+SPXL  -0.011620 -1.449343e-07        7.614048
+FAS   -0.003782 -6.604656e-08        5.139905
+VXX   -0.032099 -7.769456e-07       17.628904
+
+Corwin-Schultz spread estimate from daily high/low (trailing 2y):
+      median_bp  mean_bp  pct_negative_est
+sym                                       
+SPXL     109.33    70.88             49.10
+FAS      142.57    83.90             48.10
+VXX      143.18    99.31             50.30
+
+NOTE: negative Corwin-Schultz estimates are a known artifact and are floored at 0.
+These are ESTIMATES. No quote data exists in this repo to validate them against.

@@ -1,0 +1,100 @@
+
+==============================================================================
+NESTED TEST: does the cross term survive the target's own leverage effect?
+==============================================================================
+Target = next-day log realized volatility. All variables standardized.
+
+===== target SPXL next-day logRV   <-   source VXX =====  n=1472
+  M0 HAR                 R2 = 55.056%   adjR2 = 54.964%
+  M1 HAR+own leverage    R2 = 57.732%   adjR2 = 57.559%
+  M2 M1+cross            R2 = 58.860%   adjR2 = 58.607%
+  incremental R2 from the cross terms: 1.128 pp
+  joint Wald test that ALL cross terms = 0: F = 13.893, p = 6.194e-09
+  cross term             M2 beta    M2 t          p   (alone-vs-HAR t from p12 in brackets)
+    x_day_cir              0.0848   2.897  3.764e-03
+    x_day_ret              0.0113   0.351  7.257e-01
+    x_lasthr_logrv         0.0935   4.280  1.870e-05
+
+===== target FAS next-day logRV   <-   source VXX =====  n=1472
+  M0 HAR                 R2 = 55.788%   adjR2 = 55.698%
+  M1 HAR+own leverage    R2 = 57.248%   adjR2 = 57.073%
+  M2 M1+cross            R2 = 59.289%   adjR2 = 59.039%
+  incremental R2 from the cross terms: 2.042 pp
+  joint Wald test that ALL cross terms = 0: F = 21.293, p = 1.680e-13
+  cross term             M2 beta    M2 t          p   (alone-vs-HAR t from p12 in brackets)
+    x_day_cir              0.0888   3.205  1.352e-03
+    x_day_ret              0.0403   1.199  2.307e-01
+    x_lasthr_logrv         0.1046   5.033  4.833e-07
+
+===== target FAS next-day logRV   <-   source SPXL =====  n=1472
+  M0 HAR                 R2 = 55.788%   adjR2 = 55.698%
+  M1 HAR+own leverage    R2 = 57.248%   adjR2 = 57.073%
+  M2 M1+cross            R2 = 58.722%   adjR2 = 58.468%
+  incremental R2 from the cross terms: 1.474 pp
+  joint Wald test that ALL cross terms = 0: F = 17.227, p = 5.380e-11
+  cross term             M2 beta    M2 t          p   (alone-vs-HAR t from p12 in brackets)
+    x_lasthr_logrv         0.1415   5.619  1.924e-08
+    x_day_cir             -0.0118  -0.383  7.020e-01
+    x_day_ret             -0.0896  -2.289  2.208e-02
+
+===== target SPXL next-day logRV   <-   source FAS =====  n=1472
+  M0 HAR                 R2 = 55.056%   adjR2 = 54.964%
+  M1 HAR+own leverage    R2 = 57.732%   adjR2 = 57.559%
+  M2 M1+cross            R2 = 57.926%   adjR2 = 57.667%
+  incremental R2 from the cross terms: 0.194 pp
+  joint Wald test that ALL cross terms = 0: F = 1.908, p = 1.263e-01
+  cross term             M2 beta    M2 t          p   (alone-vs-HAR t from p12 in brackets)
+    x_lasthr_logrv         0.0664   2.203  2.760e-02
+    x_day_cir              0.0292   0.842  3.998e-01
+    x_day_ret             -0.0062  -0.147  8.830e-01
+
+
+==============================================================================
+SUMMARY OF NESTED FITS
+==============================================================================
+target source   R2_M0   R2_M1   R2_M2  incr_pp  joint_F  joint_p
+  SPXL    VXX 55.0559 57.7322 58.8604   1.1282  13.8933   0.0000
+   FAS    VXX 55.7882 57.2476 59.2893   2.0417  21.2933   0.0000
+   FAS   SPXL 55.7882 57.2476 58.7218   1.4742  17.2272   0.0000
+  SPXL    FAS 55.0559 57.7322 57.9261   0.1939   1.9085   0.1263
+
+==============================================================================
+OUT-OF-SAMPLE FORECAST EVALUATION (expanding window)
+==============================================================================
+Refit each model every day on all history to date; forecast next-day logRV.
+QLIKE = log(s2) + rv2/s2 on the variance scale -- the standard loss for
+volatility forecasts, penalizing under-prediction. Lower is better.
+Diebold-Mariano compares M2 against M1 with HAC standard errors.
+
+===== SPXL <- VXX =====  972 out-of-sample days (2022-08-23 -> 2026-07-22)
+  M0: OOS R2 =  50.02%   RMSE = 0.3257   mean QLIKE = -1.2475
+  M1: OOS R2 =  51.73%   RMSE = 0.3201   mean QLIKE = -1.2605
+  M2: OOS R2 =  53.13%   RMSE = 0.3154   mean QLIKE = -1.2661
+    DM M2-M1 on MSE  : mean diff -0.00298  t = -3.098  p = 0.0019  (M2 better)
+    DM M2-M1 on QLIKE: mean diff -0.00557  t = -1.498  p = 0.1341  (M2 better)
+    DM M1-M0 on MSE  : mean diff -0.00362  t = -1.622  p = 0.1047  (M2 better)
+
+===== FAS <- VXX =====  972 out-of-sample days (2022-08-23 -> 2026-07-22)
+  M0: OOS R2 =  53.18%   RMSE = 0.2458   mean QLIKE = -0.9674
+  M1: OOS R2 =  54.31%   RMSE = 0.2428   mean QLIKE = -0.9746
+  M2: OOS R2 =  56.20%   RMSE = 0.2377   mean QLIKE = -0.9788
+    DM M2-M1 on MSE  : mean diff -0.00244  t = -2.896  p = 0.0038  (M2 better)
+    DM M2-M1 on QLIKE: mean diff -0.00426  t = -1.917  p = 0.0552  (M2 better)
+    DM M1-M0 on MSE  : mean diff -0.00146  t = -1.348  p = 0.1776  (M2 better)
+
+===== FAS <- SPXL =====  972 out-of-sample days (2022-08-23 -> 2026-07-22)
+  M0: OOS R2 =  53.18%   RMSE = 0.2458   mean QLIKE = -0.9674
+  M1: OOS R2 =  54.31%   RMSE = 0.2428   mean QLIKE = -0.9746
+  M2: OOS R2 =  55.45%   RMSE = 0.2398   mean QLIKE = -0.9784
+    DM M2-M1 on MSE  : mean diff -0.00147  t = -1.916  p = 0.0553  (M2 better)
+    DM M2-M1 on QLIKE: mean diff -0.00382  t = -1.922  p = 0.0546  (M2 better)
+    DM M1-M0 on MSE  : mean diff -0.00146  t = -1.348  p = 0.1776  (M2 better)
+
+===== SPXL <- FAS =====  972 out-of-sample days (2022-08-23 -> 2026-07-22)
+  M0: OOS R2 =  50.02%   RMSE = 0.3257   mean QLIKE = -1.2475
+  M1: OOS R2 =  51.73%   RMSE = 0.3201   mean QLIKE = -1.2605
+  M2: OOS R2 =  51.79%   RMSE = 0.3199   mean QLIKE = -1.2581
+    DM M2-M1 on MSE  : mean diff -0.00013  t = -0.380  p = 0.7037  (M2 better)
+    DM M2-M1 on QLIKE: mean diff +0.00242  t = +1.589  p = 0.1121  (M1 better)
+    DM M1-M0 on MSE  : mean diff -0.00362  t = -1.622  p = 0.1047  (M2 better)
+

@@ -1,0 +1,196 @@
+Common daily grid: 2020-07-23 -> 2026-07-22 (1506 sessions, 1505 returns)
+Common 5-min grid: 115,506 intra-session returns
+
+==============================================================================
+T2.1  CORRELATION ACROSS HORIZONS AND THROUGH TIME
+==============================================================================
+
+--- 5-min Pearson ---
+        SPXL     FAS     VXX
+SPXL  1.0000  0.7635 -0.7310
+FAS   0.7635  1.0000 -0.5570
+VXX  -0.7310 -0.5570  1.0000
+--- 5-min Spearman ---
+        SPXL     FAS     VXX
+SPXL  1.0000  0.6689 -0.7016
+FAS   0.6689  1.0000 -0.4850
+VXX  -0.7016 -0.4850  1.0000
+
+--- 30-min Pearson ---
+        SPXL     FAS     VXX
+SPXL  1.0000  0.7870 -0.7690
+FAS   0.7870  1.0000 -0.6169
+VXX  -0.7690 -0.6169  1.0000
+--- 30-min Spearman ---
+        SPXL     FAS     VXX
+SPXL  1.0000  0.6941 -0.7233
+FAS   0.6941  1.0000 -0.5229
+VXX  -0.7233 -0.5229  1.0000
+
+--- daily Pearson ---
+        SPXL     FAS     VXX
+SPXL  1.0000  0.7784 -0.7325
+FAS   0.7784  1.0000 -0.6098
+VXX  -0.7325 -0.6098  1.0000
+--- daily Spearman ---
+        SPXL     FAS     VXX
+SPXL  1.0000  0.7135 -0.7133
+FAS   0.7135  1.0000 -0.5588
+VXX  -0.7133 -0.5588  1.0000
+
+60-day rolling correlation (daily returns) -- stability check:
+            mean    std     min     25%     50%     75%     max
+SPXL~FAS  0.7383 0.1386  0.1713  0.6488  0.7355  0.8360  0.9606
+SPXL~VXX -0.7758 0.0975 -0.9453 -0.8434 -0.7975 -0.7235 -0.4232
+FAS~VXX  -0.6236 0.1176 -0.8885 -0.6947 -0.6304 -0.5464 -0.2770
+
+Annual mean of the rolling correlations:
+         SPXL~FAS  SPXL~VXX  FAS~VXX
+session                             
+2020       0.7256   -0.6694  -0.4127
+2021       0.6947   -0.8338  -0.6182
+2022       0.8797   -0.7216  -0.6428
+2023       0.8058   -0.7292  -0.6662
+2024       0.6416   -0.7281  -0.5646
+2025       0.7655   -0.8577  -0.6970
+2026       0.5709   -0.8329  -0.5773
+
+==============================================================================
+T2.2  TAIL / EXCEEDANCE CORRELATION
+==============================================================================
+Correlation conditional on SPXL being beyond a quantile threshold.
+Average correlation is the wrong statistic if the strategy dies in tails.
+
+                 n  SPXL~FAS  SPXL~VXX  FAS~VXX
+bucket                                         
+SPXL worst 5%   76    0.7394   -0.2396  -0.2761
+worst 10%      151    0.7071   -0.4046  -0.3728
+worst 25%      377    0.6742   -0.5797  -0.4626
+middle 50%     753    0.3578   -0.3021  -0.2170
+best 25%       377    0.6443   -0.3514  -0.2728
+best 10%       151    0.5874   -0.4324  -0.2374
+best 5%         76    0.6657   -0.4935  -0.2865
+
+NOTE: conditioning on one variable's range mechanically attenuates its own
+correlations (range restriction). Compare buckets to each other, not to the
+unconditional value. FAS~VXX is NOT range-restricted here and is the clean read.
+
+Empirical tail dependence (P[Y extreme | X extreme]) at the 5% level:
+  SPXL~FAS : lower-lower 0.627   upper-upper 0.553   SPXL-crash & FAS-spike 0.000
+  SPXL~VXX : lower-lower 0.000   upper-upper 0.000   SPXL-crash & VXX-spike 0.587
+  FAS ~VXX : lower-lower 0.000   upper-upper 0.000   FAS-crash & VXX-spike 0.453
+
+==============================================================================
+T2.3  COINTEGRATION -- SPXL vs FAS  (levered AND de-levered)
+==============================================================================
+
+--- LEVERED log prices ---
+  Engle-Granger: t=-1.6773  p=0.6872  crit(1%,5%,10%)=[-3.904 -3.34  -3.047]
+  OLS hedge ratio beta=0.9278;  ADF on spread: stat=-1.6764 p=0.4433
+  Johansen trace stats=[8.712 0.699]  5% crit=[15.494  3.842]  -> rank 0
+  OU mean-reversion half-life: 149.0 days
+  spread range: 0.0849 .. 1.1510  std=0.1995  |  final-vs-initial drift=+0.2874
+
+--- DE-LEVERED (1x) log prices ---
+  Engle-Granger: t=-1.9636  p=0.5474  crit(1%,5%,10%)=[-3.904 -3.34  -3.047]
+  OLS hedge ratio beta=0.9509;  ADF on spread: stat=-1.9628 p=0.3031
+  Johansen trace stats=[9.209 0.424]  5% crit=[15.494  3.842]  -> rank 0
+  OU mean-reversion half-life: 120.9 days
+  spread range: -0.1886 .. 0.1475  std=0.0643  |  final-vs-initial drift=+0.0493
+
+Ratio drift check -- does SPXL/FAS revert or wander?
+  ratio start 1.3684  end 1.6292  min 0.7947  max 2.2288
+  ADF on log ratio: p=0.3222
+
+==============================================================================
+T2.4  LEAD-LAG STRUCTURE
+==============================================================================
+Cross-correlation of 5-min intra-session returns, lags -6..+6 bars.
+ccf[k] = corr(x[t], y[t+k]); positive k means x LEADS y.
+
+  VXX vs SPXL  (95% band +/-0.0058):
+    lag   -6   -5   -4   -3   -2   -1   +0   +1   +2   +3   +4   +5   +6
+    ccf  -0.006  +0.006  -0.009  -0.006  +0.008  +0.008  -0.731  +0.012  +0.007  -0.001  -0.003  +0.014  +0.004
+    significant non-zero lags: ['-6', '-4', '-3', '-2', '-1', '+1', '+2', '+5']
+  FAS vs SPXL  (95% band +/-0.0058):
+    lag   -6   -5   -4   -3   -2   -1   +0   +1   +2   +3   +4   +5   +6
+    ccf  +0.001  -0.005  +0.010  +0.006  -0.013  -0.008  +0.764  +0.014  -0.014  +0.004  +0.013  -0.003  +0.001
+    significant non-zero lags: ['-4', '-3', '-2', '-1', '+1', '+2', '+4']
+  VXX vs FAS  (95% band +/-0.0058):
+    lag   -6   -5   -4   -3   -2   -1   +0   +1   +2   +3   +4   +5   +6
+    ccf  -0.009  -0.000  -0.010  -0.004  +0.009  -0.011  -0.557  +0.005  +0.003  -0.003  -0.001  +0.011  +0.004
+    significant non-zero lags: ['-6', '-4', '-2', '-1', '+5']
+
+Granger causality on 5-min returns (max lag 3), p-values:
+  VXX -> SPXL: p(lag1)=8.276e-01  p(lag2)=5.940e-01  p(lag3)=7.734e-01
+  SPXL -> VXX: p(lag1)=1.390e-01  p(lag2)=3.141e-01  p(lag3)=5.038e-01
+  FAS -> SPXL: p(lag1)=7.239e-01  p(lag2)=4.349e-01  p(lag3)=5.940e-01
+  SPXL -> FAS: p(lag1)=2.226e-28  p(lag2)=1.910e-27  p(lag3)=2.142e-28
+
+NOTE: with ~115k observations almost anything is 'significant'. Economic
+magnitude (the ccf value) matters, not the p-value.
+
+==============================================================================
+T2.5  PCA / EIGENPORTFOLIO DECOMPOSITION
+==============================================================================
+
+--- daily ---
+  variance explained: [80.54 13.11  6.35] %
+  cumulative        : [ 80.54  93.65 100.  ] %
+         PC1     PC2     PC3
+SPXL +0.6024 +0.0972 +0.7923
+FAS  +0.5712 +0.6408 -0.5129
+VXX  -0.5575 +0.7615 +0.3305
+
+--- 5-min ---
+  variance explained: [79.05 14.81  6.14] %
+  cumulative        : [ 79.05  93.86 100.  ] %
+         PC1     PC2     PC3
+SPXL +0.6104 +0.0511 +0.7904
+FAS  +0.5652 +0.6710 -0.4799
+VXX  -0.5549 +0.7397 +0.3807
+
+Rolling 252-day PC1 variance share (is the structure stable?):
+  mean 0.8191  min 0.7556  max 0.8928
+date
+2021   0.7871
+2022   0.8264
+2023   0.8201
+2024   0.7855
+2025   0.8455
+2026   0.8435
+
+==============================================================================
+T2.6  BASKET CONSTRUCTION -- WALK-FORWARD, NO IN-SAMPLE FITTING
+==============================================================================
+Weights formed on a trailing 126-day window, applied to the NEXT day,
+rebalanced monthly. Long-only where the scheme implies it.
+
+             ann_ret ann_vol  sharpe  max_dd  calmar  cvar95 ann_turnover                  avg_w
+strategy                                                                                        
+equal_weight -0.1034  0.2304 -0.4487 -0.6391 -0.1617 -0.0344       0.0000  [0.333, 0.333, 0.333]
+inverse_vol  -0.0726  0.2498 -0.2909 -0.6760 -0.1075 -0.0366       0.4567   [0.387, 0.33, 0.283]
+risk_parity   0.0679  0.1744  0.3891 -0.1742  0.3896 -0.0236          NaN        [nan, nan, nan]
+min_variance -0.1891  0.1989 -0.9505 -0.7433 -0.2544 -0.0291       0.9177  [0.498, 0.092, 0.409]
+long_only_2   0.1974  0.4963  0.3977 -0.6358  0.3104 -0.0758       0.2662    [0.539, 0.461, 0.0]
+buyhold_SPXL  0.2297  0.4984  0.4608 -0.6386  0.3596 -0.0756          NaN                      -
+buyhold_FAS   0.1703  0.5560  0.3063 -0.6775  0.2513 -0.0840          NaN                      -
+buyhold_VXX  -0.7100  0.6754 -1.0511 -0.9845 -0.7211 -0.0892          NaN                      -
+
+WARNING: min_variance may hold VXX purely as a variance sink while ignoring
+its -52%/yr drift. Read ann_ret, not just ann_vol.
+
+==============================================================================
+T2.7  NONLINEAR DEPENDENCE (exploratory, P3)
+==============================================================================
+Daily returns. Compared against |Pearson| to see if anything nonlinear is added.
+MI significance from a 500-draw permutation null.
+
+  SPXL~FAS : |Pearson|=0.7784  dCor=0.7037  MI=0.3488 nats (perm p=0.000, null mean 0.0176)
+  SPXL~VXX : |Pearson|=0.7325  dCor=0.7080  MI=0.3161 nats (perm p=0.000, null mean 0.0177)
+  FAS ~VXX : |Pearson|=0.6098  dCor=0.5572  MI=0.1933 nats (perm p=0.000, null mean 0.0199)
+
+Interpretation guide: dCor materially above |Pearson| would indicate nonlinear
+structure. Similar values mean the linear measure already captures the relationship.
+
+[saved] /home/user/TradingModel/ETFGroupAnalysis/out/p2_baskets.csv, p2_corr_daily.csv, p2_rolling_corr.csv

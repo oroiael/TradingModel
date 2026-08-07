@@ -1,0 +1,115 @@
+
+==============================================================================
+1.  ENTRY GRADIENT, TRAIN AND TEST COMPUTED SEPARATELY
+==============================================================================
+Exit held fixed at the 09:30 opening print. If the gradient is real it
+should slope the same way in both halves, not just in the pooled sample.
+
+===== SPXL =====
+       sr_full  sr_train  sr_test  ann_full  ann_train  ann_test
+entry                                                           
+15:00   0.3330   -0.0921   0.9620    0.1121    -0.0321    0.3079
+15:15   0.3382   -0.0464   0.9064    0.1118    -0.0158    0.2852
+15:30   0.4419    0.0077   1.0506    0.1441     0.0026    0.3364
+15:40   0.5904    0.0640   1.3155    0.1897     0.0207    0.4193
+15:50   0.6536    0.4174   0.9803    0.2024     0.1303    0.3004
+15:55   0.6735    0.4023   1.0486    0.2058     0.1239    0.3171
+  monotonicity of sr_train  vs entry lateness: rho = +0.943
+  monotonicity of sr_test   vs entry lateness: rho = +0.486
+
+===== FAS =====
+       sr_full  sr_train  sr_test  ann_full  ann_train  ann_test
+entry                                                           
+15:00   0.1579    0.2559  -0.0041    0.0587     0.1028   -0.0013
+15:15   0.1447    0.2724  -0.0709    0.0525     0.1075   -0.0223
+15:30   0.2538    0.3692   0.0670    0.0908     0.1419    0.0213
+15:40   0.3745    0.4100   0.3204    0.1321     0.1544    0.1018
+15:50   0.4972    0.7479   0.0884    0.1702     0.2758    0.0268
+15:55   0.6565    0.8359   0.3680    0.2224     0.3047    0.1104
+  monotonicity of sr_train  vs entry lateness: rho = +1.000  (perfectly monotone)
+  monotonicity of sr_test   vs entry lateness: rho = +0.886
+
+
+==============================================================================
+2.  EXIT COMPARISON, TRAIN AND TEST SEPARATELY
+==============================================================================
+Entry held fixed at 15:55.
+
+===== SPXL =====
+       sr_full  sr_train  sr_test  ann_full  vol_full
+exit                                                 
+open    0.6735    0.4023   1.0486    0.2058    0.3056
+09:30   0.7355    0.5387   1.0089    0.2236    0.3039
+09:35   0.7658    0.5344   1.0923    0.2362    0.3084
+09:45   0.6712    0.4987   0.9234    0.2186    0.3257
+10:00   0.7465    0.5702   1.0198    0.2607    0.3493
+10:30   0.7247    0.4718   1.1198    0.2673    0.3689
+11:00   0.6457    0.4476   0.9636    0.2482    0.3843
+  best exit on TRAIN: 10:00  -> its TEST Sharpe 1.0198   (best possible on test was 10:30 at 1.1198)
+  'open' exit on test: 1.0486
+
+===== FAS =====
+       sr_full  sr_train  sr_test  ann_full  vol_full
+exit                                                 
+open    0.6565    0.8359   0.3680    0.2224    0.3387
+09:30   0.8696    0.7327   1.1098    0.3307    0.3803
+09:35   0.7569    0.6196   0.9944    0.2995    0.3956
+09:45   0.6667    0.5702   0.8352    0.2790    0.4186
+10:00   0.7692    0.7288   0.8478    0.3405    0.4427
+10:30   0.7914    0.6699   1.0069    0.3701    0.4676
+11:00   0.7756    0.7197   0.8820    0.3749    0.4834
+  best exit on TRAIN: open  -> its TEST Sharpe 0.3680   (best possible on test was 09:30 at 1.1098)
+  'open' exit on test: 0.3680
+
+
+==============================================================================
+3.  YEAR BY YEAR -- earliest vs latest entry, exit at the open
+==============================================================================
+--- SPXL ---
+         entry_15:00_ann  entry_15:55_ann  late_minus_early
+session                                                    
+2020             +97.42%         +115.26%           +17.84%
+2021              +9.52%          +42.75%           +33.23%
+2022             -55.23%          -51.89%            +3.34%
+2023              -8.68%           +0.42%            +9.10%
+2024             +65.15%          +56.33%            -8.82%
+2025              +9.34%          +17.40%            +8.05%
+2026              +7.00%          +12.76%            +5.77%
+  late entry beat early entry in 6 of 7 years
+
+--- FAS ---
+         entry_15:00_ann  entry_15:55_ann  late_minus_early
+session                                                    
+2020            +111.40%         +133.17%           +21.78%
+2021             +40.84%          +81.01%           +40.17%
+2022             -19.69%          -17.23%            +2.46%
+2023             -35.69%          -18.55%           +17.14%
+2024             +64.01%          +56.23%            -7.78%
+2025             -34.10%          -14.04%           +20.06%
+2026             -55.48%          -25.86%           +29.63%
+  late entry beat early entry in 6 of 7 years
+
+
+==============================================================================
+4.  RECOMMENDED TRADE, NET OF COST
+==============================================================================
+Entry 15:55 close (MOC). Two exits shown. 252 round trips per year.
+Cost is charged per round trip; the break-even column is the number that
+decides viability, and this repo has no quote data to check it against.
+
+                                  ann_ret  ann_vol  sharpe  max_dd    hit   worst   be_bp
+sym  exit                                                                                
+SPXL 09:30 opening auction (MOO)   0.2058   0.3056  0.6735 -0.5401 0.5573 -0.1288  8.1673
+     09:30 bar close               0.2236   0.3039  0.7355 -0.5360 0.5566 -0.1243  8.8717
+FAS  09:30 opening auction (MOO)   0.2224   0.3387  0.6565 -0.5157 0.5506 -0.1265  8.8237
+     09:30 bar close               0.3307   0.3803  0.8696 -0.5744 0.5432 -0.1169 13.1244
+
+Sharpe net of round-trip cost:
+                                  SR@1bp  SR@2bp  SR@3bp  SR@5bp  SR@8bp
+sym  exit                                                               
+SPXL 09:30 opening auction (MOO) +0.5910 +0.5086 +0.4261 +0.2612 +0.0138
+     09:30 bar close             +0.6526 +0.5697 +0.4868 +0.3210 +0.0723
+FAS  09:30 opening auction (MOO) +0.5821 +0.5077 +0.4333 +0.2845 +0.0613
+     09:30 bar close             +0.8033 +0.7371 +0.6708 +0.5383 +0.3395
+
+[saved] /home/user/TradingModel/ETFGroupAnalysis/out/p10_recommended_net.csv
