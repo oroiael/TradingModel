@@ -25,6 +25,7 @@ from __future__ import annotations
 
 import os
 import sys
+import time
 from dataclasses import dataclass, field
 from typing import Callable, Optional
 
@@ -446,23 +447,58 @@ class OrderManager:
                 self.seq = max(self.seq, p[3])
         return summary
 
-    def ensure_flat(self, attempts: int = 3) -> bool:
-        """§4.7 — re-send until flat; critical alert if not flat by 16:00."""
+    def _working_flatten(self) -> list:
+        """Flatten orders already at the broker for this symbol."""
+        out = []
+        for w in self.broker.working_orders(self.symbol):
+            parsed = parse_ref(w.order_ref)
+            if parsed and parsed[2] == ROLE_FLAT and w.remaining > 0:
+                out.append(w)
+        return out
+
+    def ensure_flat(self, attempts: int = 3, settle: float = 2.0) -> bool:
+        """§4.7 — re-send until flat; critical alert if not flat by 16:00.
+
+        Two things this has to get right, and the first version got neither.
+
+        **Give the order time to fill.** The original looped with no pause, so on
+        2026-08-06 all three attempts ran inside the same second: the position
+        still read 541 each time because no market order can fill that fast, and
+        it declared failure while the sells were in flight.
+
+        **Never stack duplicates.** Worse than declaring failure, that loop sent
+        a *fresh* market order for the whole position on every attempt. Three
+        sells of 541 against one long 541 is a short 1,082 — turning a failure to
+        flatten into an inverted position, which is the one direction §11
+        prohibits outright. A flatten already working is left alone.
+        """
         for i in range(attempts):
             pos = self.broker.position(self.symbol)
             if abs(pos) < 1e-9:
                 return True
-            self._cancel_bracket()
-            self._cancel_entry()
-            ref = self._next_ref(ROLE_FLAT)
-            self.broker.place_market(self.symbol, "SELL" if pos > 0 else "BUY",
-                                     abs(pos), ref)
-            self._log_order(ref, ROLE_FLAT, "SELL" if pos > 0 else "BUY", "MKT",
-                            f"flatten_attempt_{i+1}", qty=abs(pos))
+            already = self._working_flatten()
+            if already:
+                self.on_event("info",
+                              f"{self.symbol} flatten already working for "
+                              f"{sum(w.remaining for w in already):.0f} — waiting, "
+                              f"not re-sending")
+            else:
+                self._cancel_bracket()
+                self._cancel_entry()
+                ref = self._next_ref(ROLE_FLAT)
+                self.broker.place_market(self.symbol, "SELL" if pos > 0 else "BUY",
+                                         abs(pos), ref)
+                self._log_order(ref, ROLE_FLAT, "SELL" if pos > 0 else "BUY", "MKT",
+                                f"flatten_attempt_{i+1}", qty=abs(pos))
+                self.on_event("info", f"{self.symbol} FLATTEN market "
+                                      f"{'SELL' if pos > 0 else 'BUY'} {abs(pos):.0f}")
+            if settle > 0:
+                time.sleep(settle)
             self.on_executions(bar_idx=-1)
         flat = abs(self.broker.position(self.symbol)) < 1e-9
         if not flat:
             self.on_event("critical",
                           f"{self.symbol} NOT FLAT after {attempts} attempts: "
-                          f"position={self.broker.position(self.symbol)}")
+                          f"position={self.broker.position(self.symbol)} — "
+                          f"CLOSE IT BY HAND. §1 forbids holding overnight.")
         return flat

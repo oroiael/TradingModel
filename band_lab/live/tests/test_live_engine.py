@@ -271,3 +271,30 @@ def test_bars_are_persisted(tmp_path):
     for b in _session_bars(n=6):
         eng.on_bar("SOXL", b)
     assert len(store.session_bars("SOXL", "20260803")) == 6
+
+
+def test_a_failed_flatten_does_not_book_a_fabricated_trade(tmp_path):
+    """`sm.flatten(price=0.0)` reported a real open position as -4018 bp.
+
+    It was called unconditionally on a comment asserting "not in a position
+    now" — false exactly when `ensure_flat` fails. Booking an exit at zero
+    prices the trade at `qty * (0 - entry) / capital`, which looks like a
+    catastrophic loss and buries the actual fault: shares about to be carried
+    overnight, which §1 forbids above everything else.
+    """
+    eng, ib, store, feats = _engine(tmp_path)
+    eng.pre_open(DAY, feats)
+    for b in _session_bars(n=START_IDX + 1):
+        eng.on_bar("SOXL", b)
+    entry = [o for o in ib.orders.values() if o.order_type == "LMT"][-1]
+    ib.fill(entry.order_id, price=100.0)
+    eng.poll(START_IDX + 1)
+    assert eng.sleeves["SOXL"].sm.in_position
+
+    ib.fill = lambda *a, **k: None            # the flatten cannot settle
+    flat = eng.flatten_all(settle=0)
+    assert flat["SOXL"] is False
+    sm = eng.sleeves["SOXL"].sm
+    assert sm.in_position, "the position is real and still open — say so"
+    assert not sm.trades, "no trade may be booked at a price nothing traded at"
+    assert sm.pnl == 0.0, "and the day's P&L must not be fabricated"
