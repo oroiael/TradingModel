@@ -25,6 +25,7 @@ from __future__ import annotations
 
 import os
 import sys
+import time
 from dataclasses import dataclass, field
 from typing import Callable, Optional
 
@@ -76,6 +77,11 @@ class OrderManager:
     target_px: float = 0.0              # remembered so the legs can be resized
     stop_px: float = 0.0
     bracket_ref: str = ""               # the entry whose fill opened this position
+    entry_qty: float = 0.0              # accumulated across this entry's executions
+    entry_notional: float = 0.0         # ... so the levels can use the true VWAP
+    exit_qty: float = 0.0               # the same, for an exit still settling
+    exit_notional: float = 0.0
+    exit_outcome: str = ""
     oca_group: str = ""
     seq: int = 0
     seen_execs: set = field(default_factory=set)
@@ -230,6 +236,17 @@ class OrderManager:
         pos = abs(self.broker.position(self.symbol))
         if pos <= 0 or self.target_px <= 0:
             return False
+        # §2.6 prices the bracket off `E`, the entry fill. With one order settled
+        # in several executions there is no single E — the honest one is the
+        # volume-weighted average, and it only exists once they have all landed.
+        if self.entry_qty > 0:
+            vwap = self.entry_notional / self.entry_qty
+            self.target_px = self._px(vwap * (1.0 + self.sm.cfg.target_pct))
+            self.stop_px = self._px(vwap * (1.0 - self.sm.cfg.stop_pct))
+            # The state machine booked both from the first execution. Correct
+            # them, or the trade's return is computed on a fraction of what is
+            # actually held — 100 of 541 shares, live, on 2026-08-06.
+            self.sm.amend_entry(vwap, pos)
         working = {w.order_id: w for w in self.broker.working_orders(self.symbol)}
         covered = max((working[i].remaining
                        for i in (self.target_id, self.stop_id) if i in working),
@@ -279,6 +296,9 @@ class OrderManager:
                 self._on_entry_exec(e, bar_idx)
             elif role in (ROLE_TARGET, ROLE_STOP, ROLE_FLAT):
                 self._on_exit_exec(e, bar_idx, role)
+        # A position can go flat between executions, so re-check even when this
+        # poll brought nothing new — otherwise a settled exit never books.
+        self._book_exit_if_flat(bar_idx)
         return fresh
 
     def _record_fill(self, e: Execution) -> None:
@@ -310,9 +330,13 @@ class OrderManager:
         not open a second position or raise.
         """
         if self.sm.in_position and e.order_ref and e.order_ref == self.bracket_ref:
+            self.entry_qty += e.qty
+            self.entry_notional += e.qty * e.price
+            vwap = self.entry_notional / self.entry_qty
             self.on_event("info",
                           f"{self.symbol} entry {e.order_ref} settled in another "
-                          f"execution ({e.qty:.0f} @ {e.price:.4f}) — same fill")
+                          f"execution ({e.qty:.0f} @ {e.price:.4f}) — same fill, "
+                          f"vwap {vwap:.4f} over {self.entry_qty:.0f}")
             self.cover_whole_position()
             return
         if self.entry_id is not None:
@@ -325,6 +349,7 @@ class OrderManager:
                               f"{w.qty}; cancelled remainder, bracketing {e.qty}")
             self.entry_id = None
         self.bracket_ref = e.order_ref
+        self.entry_qty, self.entry_notional = e.qty, e.qty * e.price
         self.sm.on_entry_fill(e.price, bar_idx, qty=e.qty)
         self.apply(self.sm.drain_intents())
         # The remainder may already have executed while the cancel was in
@@ -333,15 +358,44 @@ class OrderManager:
         self.cover_whole_position()
 
     def _on_exit_exec(self, e: Execution, bar_idx: int, role: str) -> None:
+        """An exit settles in several executions too, and must not book early.
+
+        Booking on the first slice reported the trade on that slice alone *and*
+        re-armed §2.5's entry while the rest of the position was still being
+        sold — a race that can leave two positions open at once. The trade is
+        booked when the broker says the position is actually closed.
+        """
         outcome = {ROLE_TARGET: "target", ROLE_STOP: "stop", ROLE_FLAT: "flatten"}[role]
         if not self.sm.in_position:
             return
+        self.exit_qty += e.qty
+        self.exit_notional += e.qty * e.price
+        self.exit_outcome = outcome
+        self._book_exit_if_flat(bar_idx)
+
+    def _book_exit_if_flat(self, bar_idx: int) -> None:
+        if not (self.sm.in_position and self.exit_qty > 0):
+            return
+        pos = abs(self.broker.position(self.symbol))
+        if pos > 1e-9:
+            self.on_event("info",
+                          f"{self.symbol} exit settling — {pos:.0f} still held, "
+                          f"{self.exit_qty:.0f} sold; not booking or re-arming yet")
+            return
+        e_px = self.exit_notional / self.exit_qty
+        outcome = self.exit_outcome
+        self.exit_qty = self.exit_notional = 0.0
+        self.exit_outcome = ""
         self.bracket_ref = ""
-        self.sm.on_exit_fill(e.price, bar_idx, outcome)
+        self.entry_qty = self.entry_notional = 0.0
+        self._book_exit(e_px, bar_idx, outcome)
+
+    def _book_exit(self, price: float, bar_idx: int, outcome: str) -> None:
+        self.sm.on_exit_fill(price, bar_idx, outcome)
         last = self.sm.trades[-1] if self.sm.trades else None
         self.on_event("info",
-                      f"{self.symbol} EXIT {outcome.upper()} @ {e.price:.4f}"
-                      + (f"  ret={last.ret*1e4:+.1f}bp" if last else "")
+                      f"{self.symbol} EXIT {outcome.upper()} @ {price:.4f}"
+                      + (f" x{last.qty:.0f}  ret={last.ret*1e4:+.1f}bp" if last else "")
                       + f"  fills={self.sm.fills}/{self.sm.cfg.max_fills}"
                       f" stops={self.sm.stop_outs}/{self.sm.cfg.max_stops}")
         self._cancel_bracket()
@@ -393,23 +447,58 @@ class OrderManager:
                 self.seq = max(self.seq, p[3])
         return summary
 
-    def ensure_flat(self, attempts: int = 3) -> bool:
-        """§4.7 — re-send until flat; critical alert if not flat by 16:00."""
+    def _working_flatten(self) -> list:
+        """Flatten orders already at the broker for this symbol."""
+        out = []
+        for w in self.broker.working_orders(self.symbol):
+            parsed = parse_ref(w.order_ref)
+            if parsed and parsed[2] == ROLE_FLAT and w.remaining > 0:
+                out.append(w)
+        return out
+
+    def ensure_flat(self, attempts: int = 3, settle: float = 2.0) -> bool:
+        """§4.7 — re-send until flat; critical alert if not flat by 16:00.
+
+        Two things this has to get right, and the first version got neither.
+
+        **Give the order time to fill.** The original looped with no pause, so on
+        2026-08-06 all three attempts ran inside the same second: the position
+        still read 541 each time because no market order can fill that fast, and
+        it declared failure while the sells were in flight.
+
+        **Never stack duplicates.** Worse than declaring failure, that loop sent
+        a *fresh* market order for the whole position on every attempt. Three
+        sells of 541 against one long 541 is a short 1,082 — turning a failure to
+        flatten into an inverted position, which is the one direction §11
+        prohibits outright. A flatten already working is left alone.
+        """
         for i in range(attempts):
             pos = self.broker.position(self.symbol)
             if abs(pos) < 1e-9:
                 return True
-            self._cancel_bracket()
-            self._cancel_entry()
-            ref = self._next_ref(ROLE_FLAT)
-            self.broker.place_market(self.symbol, "SELL" if pos > 0 else "BUY",
-                                     abs(pos), ref)
-            self._log_order(ref, ROLE_FLAT, "SELL" if pos > 0 else "BUY", "MKT",
-                            f"flatten_attempt_{i+1}", qty=abs(pos))
+            already = self._working_flatten()
+            if already:
+                self.on_event("info",
+                              f"{self.symbol} flatten already working for "
+                              f"{sum(w.remaining for w in already):.0f} — waiting, "
+                              f"not re-sending")
+            else:
+                self._cancel_bracket()
+                self._cancel_entry()
+                ref = self._next_ref(ROLE_FLAT)
+                self.broker.place_market(self.symbol, "SELL" if pos > 0 else "BUY",
+                                         abs(pos), ref)
+                self._log_order(ref, ROLE_FLAT, "SELL" if pos > 0 else "BUY", "MKT",
+                                f"flatten_attempt_{i+1}", qty=abs(pos))
+                self.on_event("info", f"{self.symbol} FLATTEN market "
+                                      f"{'SELL' if pos > 0 else 'BUY'} {abs(pos):.0f}")
+            if settle > 0:
+                time.sleep(settle)
             self.on_executions(bar_idx=-1)
         flat = abs(self.broker.position(self.symbol)) < 1e-9
         if not flat:
             self.on_event("critical",
                           f"{self.symbol} NOT FLAT after {attempts} attempts: "
-                          f"position={self.broker.position(self.symbol)}")
+                          f"position={self.broker.position(self.symbol)} — "
+                          f"CLOSE IT BY HAND. §1 forbids holding overnight.")
         return flat
