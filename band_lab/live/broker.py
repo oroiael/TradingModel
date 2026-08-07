@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import os
 import sys
+import time
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from typing import Any, Callable, Optional
@@ -35,6 +36,24 @@ NY = ZoneInfo("America/New_York")
 #: §2 of the plan — the engine refuses to trade on delayed data.
 #: 1 = live, 2 = frozen, 3 = delayed, 4 = delayed-frozen.
 MARKET_DATA_LIVE = 1
+
+#: IBKR error codes that say, in words, "you are not getting live data here".
+#: These are the *reliable* signal — observed 2026-08-03, when TWS emitted 10089
+#: four times while `marketDataType` stayed silent. The `marketDataType` probe
+#: below is the backstop for a silent downgrade, not the primary detector.
+NO_LIVE_DATA_ERRORS = frozenset({354, 10089, 10090, 10167, 10168})
+
+#: How long to wait for TWS to describe the feed before warning and proceeding.
+PROBE_SECONDS = 5.0
+
+
+def _has_quote(ticker) -> bool:
+    """Is real data flowing? A live bid/ask is evidence in its own right."""
+    for attr in ("bid", "ask", "last"):
+        v = getattr(ticker, attr, None)
+        if v is not None and v == v and v > 0:    # not None, not NaN, positive
+            return True
+    return False
 
 
 class BrokerError(RuntimeError):
@@ -53,6 +72,30 @@ class MarketClosedError(BrokerError):
     failure to read contract details still fails loudly. An always-on service
     meets this every Saturday and Sunday.
     """
+
+
+def bar_time_et(raw) -> datetime:
+    """An IBKR bar timestamp as **exchange wall-clock**, whatever form it takes.
+
+    `Bar.idx` is minutes since 09:30 ET, so this conversion is load-bearing: an
+    hour of error is twelve bars of error, and a bar index outside 0-77 quietly
+    matches neither the 10:00 filter (bar 5) nor the 11:00 activation (bar 18) —
+    the engine then runs a whole session without deciding anything.
+
+    `ib_async.util.parseIBDatetime` can hand back any of three things depending
+    on the TWS version and its configured timezone: a tz-aware datetime carrying
+    an IANA zone, a tz-aware UTC datetime decoded from an epoch, or a naive one
+    with no zone at all. Only the last is safe to read hour-of-day from
+    directly, and only because a zone-less TWS timestamp is already exchange
+    time — the same convention the repository's CSVs use.
+    """
+    if not isinstance(raw, datetime):
+        try:
+            return datetime.strptime(str(raw), "%Y%m%d  %H:%M:%S")
+        except ValueError:
+            return datetime.strptime(str(raw)[:19].replace("-", "").replace(" ", ""),
+                                     "%Y%m%d%H:%M:%S")
+    return raw.astimezone(NY).replace(tzinfo=None) if raw.tzinfo else raw
 
 
 def parse_liquid_hours(hours: str, target: str):
@@ -161,7 +204,7 @@ class Broker:
     def disconnect(self) -> None: ...
     @property
     def connected(self) -> bool: ...
-    def assert_live_data(self) -> None: ...
+    def assert_live_data(self, symbol: Optional[str] = None) -> None: ...
     def session_hours(self, symbol: str, day: datetime) -> SessionHours: ...
     def net_liquidation(self) -> float: ...
     def position(self, symbol: str) -> float: ...
@@ -196,6 +239,8 @@ class IBBroker(Broker):
         self._ib = None
         self._contracts: dict[str, Any] = {}
         self._dry_seq = 0
+        self._no_live_data: set = set()
+        self._error_hooked = False
 
     # ---------------------------------------------------------- lifecycle
     def connect(self) -> None:
@@ -206,8 +251,28 @@ class IBBroker(Broker):
             return
         self._ib.connect(self.host, self.port, clientId=self.client_id,
                          timeout=30, readonly=self.readonly)
+        if not self._error_hooked:
+            # Once per IB object, not per connect — `+=` on an ib_async Event
+            # registers a second handler and would double-fire on every reconnect.
+            self._ib.errorEvent += self._on_ib_error
+            self._error_hooked = True
         self._on_event("info", f"connected {self.host}:{self.port} "
                                f"clientId={self.client_id}")
+
+    def _on_ib_error(self, reqId, errorCode, errorString, contract=None) -> None:
+        """Record the subscription errors that mean the feed is not live.
+
+        TWS reports a missing subscription by error code and then quietly serves
+        delayed data. Nothing else in the API says so as plainly, so this is
+        where §4's "must detect delayed-data mode and refuse to trade" is
+        actually decided.
+        """
+        if errorCode not in NO_LIVE_DATA_ERRORS:
+            return
+        symbol = getattr(contract, "symbol", None) or "*"
+        if symbol not in self._no_live_data:
+            self._on_event("error", f"IBKR {errorCode} on {symbol}: {errorString}")
+        self._no_live_data.add(symbol)
 
     def disconnect(self) -> None:
         if self._ib is not None and self._ib.isConnected():
@@ -235,22 +300,88 @@ class IBBroker(Broker):
         return q[0]
 
     # ------------------------------------------------------------- guards
-    def assert_live_data(self) -> None:
+    def assert_live_data(self, symbol: Optional[str] = None) -> None:
         """§2 — refuse to trade on delayed data.
 
         `reqMarketDataType(1)` requests live; IBKR silently downgrades to
         delayed when the subscription is missing, which is exactly the failure
-        this guards. The engine calls this before every order-placing phase,
-        not once at startup.
+        this guards. The engine calls this before every order-placing phase.
+
+        **History, because both mistakes are instructive.** Until 2026-08-03 this
+        read `ib._ccr_probe_ticker`, an attribute nothing ever set, so it was a
+        no-op on every real connection — found on an account that was in fact
+        serving delayed data. The replacement then refused on *silence*, on the
+        reasoning that unknown should fail safe. On 2026-08-06 that stood a
+        healthy sleeve down at 11:05 on a confirmed-good subscription and cost
+        the session.
+
+        The measurement settled it: **TWS does not reliably send a
+        `marketDataType` callback when it is already serving what was asked
+        for.** Silence is the ordinary case, so refusing on it makes the guard
+        fire mostly on healthy days — the opposite of a safety feature.
+
+        What refuses now is **positive evidence** of non-live data, in order of
+        authority:
+
+        1. the **error codes** in `NO_LIVE_DATA_ERRORS` — TWS says so in words,
+           and this is what actually fired in the field on 2026-08-03; and
+        2. **`Ticker.marketDataType` of 2/3/4** — frozen or delayed arriving
+           without an error.
+
+        Neither present, with a quote flowing, passes silently. Neither present
+        and no quote either passes with a loud warning rather than a refusal:
+        the authoritative detector is the error path, and standing a whole
+        session down on an inconclusive probe is the worse of the two failures.
+        §4's requirement is carried by (1) and (2), which is where the signal
+        actually lives.
         """
         ib = self._require()
         ib.reqMarketDataType(MARKET_DATA_LIVE)
-        ticker = getattr(ib, "_ccr_probe_ticker", None)
-        if ticker is None:
+
+        def _refuse(why: str) -> None:
+            raise NotLiveDataError(f"{symbol or 'account'}: {why}")
+
+        if "*" in self._no_live_data or (symbol and symbol in self._no_live_data):
+            _refuse("IBKR reported no live market-data subscription "
+                    "(see the 10089/354 error above); §4 forbids trading on "
+                    "delayed data")
+        if symbol is None:
             return
-        mdt = getattr(ticker, "marketDataType", MARKET_DATA_LIVE)
-        if mdt != MARKET_DATA_LIVE:
-            raise NotLiveDataError(f"marketDataType={mdt}, refusing to trade")
+
+        contract = self.contract(symbol)
+        ticker = ib.reqMktData(contract, "", False, False)
+        ticker.marketDataType = 0                 # sentinel; the default is 1
+        deadline = time.time() + PROBE_SECONDS
+        while time.time() < deadline:
+            if ticker.marketDataType or _has_quote(ticker):
+                break
+            if symbol in self._no_live_data:      # the error arrived mid-wait
+                break
+            ib.sleep(0.1)
+        mdt = int(ticker.marketDataType or 0)
+        quoted = _has_quote(ticker)
+        if symbol not in self._no_live_data:
+            # A rejected subscription has no ticker to cancel, and asking makes
+            # TWS answer 300 "Can\'t find EId" — a confusing error attributed to
+            # whatever step happens to be running when it arrives.
+            try:
+                ib.cancelMktData(contract)
+            except Exception:                     # noqa: BLE001
+                pass                              # tidying up must not refuse
+
+        if symbol in self._no_live_data:
+            _refuse("IBKR reported no live market-data subscription")
+        if mdt in (2, 3, 4):
+            _refuse(f"marketDataType={mdt} "
+                    f"(2=frozen 3=delayed 4=delayed-frozen) — refusing to trade")
+        if mdt == MARKET_DATA_LIVE:
+            return
+        self._on_event(
+            "warn",
+            f"{symbol}: no marketDataType callback in {PROBE_SECONDS:.0f}s"
+            + (" but a quote is flowing" if quoted else " and no quote arrived")
+            + " — proceeding. IBKR reported no subscription error, which is the"
+              " signal that fires when the feed is not live.")
 
     def session_hours(self, symbol: str, day: datetime) -> SessionHours:
         """Today's RTH from contract details.
@@ -336,8 +467,7 @@ class IBBroker(Broker):
         step = 5 if bar_size.startswith("5") else 1
         out = []
         for b in bars:
-            dt = b.date if isinstance(b.date, datetime) else datetime.strptime(
-                str(b.date), "%Y%m%d  %H:%M:%S")
+            dt = bar_time_et(b.date)
             mins = dt.hour * 60 + dt.minute - (9 * 60 + 30)
             out.append((dt.date(), Bar(mins // step, float(b.open), float(b.high),
                                        float(b.low), float(b.close), float(b.volume))))
@@ -513,7 +643,7 @@ class FakeIB(Broker):
     def connected(self) -> bool:
         return self._connected
 
-    def assert_live_data(self) -> None:
+    def assert_live_data(self, symbol: Optional[str] = None) -> None:
         if self.market_data_type != MARKET_DATA_LIVE:
             raise NotLiveDataError(f"marketDataType={self.market_data_type}")
 

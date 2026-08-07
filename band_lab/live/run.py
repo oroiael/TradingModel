@@ -18,6 +18,7 @@ re-fetches the session's bars rather than trusting memory, so starting at
 from __future__ import annotations
 
 import argparse
+import json
 import os
 import sys
 import time
@@ -99,9 +100,9 @@ class Runner:
                             f"{symbol}: the broker top-up added no sessions — "
                             f"ATR5 and thr80 are being computed from history "
                             f"ending {last}. Verify before trusting the gate.")
-        if not features.check(boots, self._event):
-            self._event("critical", "insufficient history — every sleeve would "
-                                    "stand down; refusing to start")
+        if not features.check(boots, self._event, today=day):
+            self._event("critical", "feature history is insufficient or stale — "
+                                    "refusing to start. Nothing was traded.")
             return False
 
         for f in self.feeds.values():
@@ -110,18 +111,84 @@ class Runner:
         return any(not rt.dormant for rt in self.engine.sleeves.values())
 
     # --------------------------------------------------------- the session
-    def run_session(self, day: datetime, sleep: float = None) -> None:
+    def touch_heartbeat(self) -> None:
+        """Proof of life for `watchdog.py`, written every poll.
+
+        A file rather than the SQLite store: the watchdog must be able to tell
+        "the engine is alive" without taking a lock on the database the engine
+        is writing to, and an mtime is the cheapest possible statement of it.
+        """
+        path = self.cfg.heartbeat_file
+        if not path:
+            return
+        try:
+            os.makedirs(os.path.dirname(os.path.abspath(path)), exist_ok=True)
+            payload = {
+                "ts": datetime.now(NY).isoformat(),
+                "session": self.session,
+                "pid": os.getpid(),
+                "sleeves": {s: ("dormant" if rt.dormant else
+                                getattr(rt.sm.state, "name", "?"))
+                            for s, rt in self.engine.sleeves.items()},
+            }
+            tmp = f"{path}.tmp"
+            with open(tmp, "w") as fh:
+                json.dump(payload, fh)
+            os.replace(tmp, path)        # atomic; the watchdog never sees a partial
+        except Exception:                                   # noqa: BLE001
+            pass                         # a heartbeat must never kill the session
+
+    def heartbeat(self) -> None:
+        """Periodic proof of life.
+
+        The engine is silent by design between events, and on a normal day the
+        events are hours apart — so silence has two readings, "nothing has
+        happened yet" and "this died an hour ago", and the operator cannot tell
+        them apart. §1's fifth design priority is observability; this is the
+        cheapest possible version of it.
+        """
+        parts = []
+        for symbol, rt in self.engine.sleeves.items():
+            if rt.dormant:
+                parts.append(f"{symbol} dormant({rt.dormant_reason})")
+                continue
+            state = getattr(rt.sm.state, "name", str(rt.sm.state))
+            bar = self.feeds[symbol].last_idx if symbol in self.feeds else -1
+            pos = self.broker.position(symbol)
+            bit = (f"{symbol} {state} bar={bar} "
+                   f"fills={rt.sm.fills} stops={rt.sm.stop_outs}")
+            if abs(pos) > 1e-9:
+                bit += f" POS={pos:.0f}"
+            parts.append(bit)
+        self._event("info", "heartbeat | " + " | ".join(parts or ["no sleeves"]))
+
+    def run_session(self, day: datetime, sleep: float = None,
+                    heartbeat: float = None) -> None:
         """09:30 -> 15:55. Polls the feed, drives the engine, drains fills."""
         sleep = self.cfg.bar_poll_seconds if sleep is None else sleep
+        heartbeat = self.cfg.heartbeat_seconds if heartbeat is None else heartbeat
         flatten_at = _at(day, 15, 55)
+        last_beat = time.monotonic()
         while datetime.now(NY) < flatten_at:
             try:
                 self._connect()
                 for symbol, feed in self.feeds.items():
                     for bar in feed.poll(datetime.now(NY)):
-                        self.engine.on_bar(symbol, bar)
+                        try:
+                            self.engine.on_bar(symbol, bar)
+                        except Exception as exc:            # noqa: BLE001
+                            # One bad bar must not discard the rest. `poll`
+                            # marks every bar it returns as seen, so an
+                            # exception escaping this loop used to drop every
+                            # remaining bar permanently — on 2026-08-06 a
+                            # failure on bar 0 silently lost bars 1-42 and the
+                            # anchor was built from two bars out of 44.
+                            self._event("error",
+                                        f"{symbol} bar {bar.idx}: {exc!r} — "
+                                        f"skipped; later bars still processed")
                 self.engine.poll(max((f.last_idx for f in self.feeds.values()),
                                      default=-1))
+                self.touch_heartbeat()
                 if self.engine.day_loss_breached():
                     self._event("critical", "day-loss condition — flattening early")
                     break
@@ -132,6 +199,12 @@ class Runner:
                 self._event("error", f"broker: {exc}; will reconnect")
             except Exception as exc:                        # noqa: BLE001
                 self._event("error", f"session loop: {exc!r}")
+            if heartbeat > 0 and time.monotonic() - last_beat >= heartbeat:
+                last_beat = time.monotonic()
+                try:
+                    self.heartbeat()
+                except Exception as exc:                    # noqa: BLE001
+                    self._event("error", f"heartbeat: {exc!r}")
             time.sleep(sleep)
 
     # ------------------------------------------------------ 15:55 / 16:10
@@ -155,7 +228,8 @@ class Runner:
             if not summary.get("agrees", True):
                 self._event("error", f"{symbol} reconcile mismatch on connect: {summary}")
 
-    def day(self, day: Optional[datetime] = None, sleep: float = None) -> dict:
+    def day(self, day: Optional[datetime] = None, sleep: float = None,
+            heartbeat: float = None) -> dict:
         day = day or datetime.now(NY)
         if day.weekday() >= 5:
             # Cheap and local; the broker is still authoritative for holidays,
@@ -170,7 +244,8 @@ class Runner:
             else:
                 self._event("info", f"all sleeves dormant — no session to run: {reasons}")
             return self.engine.reconcile()
-        self.run_session(day, sleep=sleep)
+        self.heartbeat()
+        self.run_session(day, sleep=sleep, heartbeat=heartbeat)
         return self.close_out()
 
 
@@ -179,24 +254,48 @@ def main() -> int:
     ap.add_argument("--config", default=None, help="JSON config; defaults are §12")
     ap.add_argument("--dry-run", action="store_true",
                     help="transmit OFF — Stage 4 acceptance mode")
+    ap.add_argument("--transmit", action="store_true",
+                    help="ARM THE ORDER PATH — orders reach the market. Paper only; "
+                         "the live-money ports are refused by config validation.")
     ap.add_argument("--root", default=ROOT)
     ap.add_argument("--poll", type=float, default=None)
+    ap.add_argument("--heartbeat", type=float, default=None,
+                    help="seconds between status lines (0 disables; default 900)")
     args = ap.parse_args()
 
+    if args.dry_run and args.transmit:
+        print("--dry-run and --transmit are contradictory; refusing to guess.")
+        return 2
+
     cfg = EngineConfig.load(args.config)
+    if args.transmit:
+        cfg.transmit = True
     if args.dry_run:
         cfg.transmit = False
-    cfg.validate()
+    cfg.validate()                       # §6.8; also refuses live-money ports
 
     if not cfg.transmit:
         print("=" * 72)
         print("DRY RUN — transmit is OFF. Decisions are computed and logged;")
         print("the broker adapter is read-only. Nothing reaches the market.")
         print("=" * 72)
+    else:
+        # Loud, and in the log: which account, which port, how big. The failure
+        # this guards against is not a wrong click, it is a session that was
+        # believed to be a dry run.
+        print("=" * 72)
+        print("*** TRANSMIT ON — ORDERS WILL REACH THE MARKET ***")
+        print(f"    port {cfg.port} "
+              f"({'PAPER' if cfg.port in (7497, 4002) else 'CHECK THIS PORT'})"
+              f"   clientId={cfg.client_id}")
+        print(f"    {','.join(cfg.symbols)} at f={cfg.f} w={cfg.w} "
+              f"cap=${cfg.capital_cap:,.0f}")
+        print("    First order is possible only after the 11:00 bar (§2.3).")
+        print("=" * 72)
 
     runner = Runner(cfg, root=args.root)
     try:
-        summary = runner.day(sleep=args.poll)
+        summary = runner.day(sleep=args.poll, heartbeat=args.heartbeat)
     finally:
         runner.broker.disconnect()
     if not summary:

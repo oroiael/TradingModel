@@ -1,4 +1,4 @@
-# Runbook — Windows 11, IBKR TWS paper
+# Runbook — IBKR TWS paper
 
 **Instructions only.** What to type, in what order, and what you should see.
 No explanation of why — that is in
@@ -11,17 +11,28 @@ Two rules while working through this:
    around it. Every check here exists because something can go silently wrong
    underneath it.
 
-Conventions: `C:\TradingModel` is used as the repo location — substitute yours.
-All times are **America/New_York (ET)**. Commands are PowerShell.
+**Pick your platform and go:**
+
+| | |
+|---|---|
+| **macOS** | **[§0M](#0m--macos--the-whole-path-start-to-finish)** — the whole path, start to finish |
+| **Windows 11** | [§0](#0--windows-if-the-machine-is-already-set-up--the-short-path) if already set up, otherwise §1 |
+
+Shell commands outside §0M are PowerShell; §0M carries the macOS equivalents.
+Everything that is a *decision* rather than a command — the TWS settings (§4),
+the timeline (§7.0), the checks (§5.3, §7.2), the troubleshooting (§9) — is
+platform-independent.
+
+All times are **America/New_York (ET)**.
 **The paper port is 7497** — everywhere in this document, without exception.
 7496 and 4001 are live-money ports and the engine refuses to start on them.
 
 ---
 
-# §0 · If the machine is already set up — the short path
+# §0 · Windows: if the machine is already set up — the short path
 
 Python, TWS and the repo are already installed: **skip §1 and §2.** Four things
-still have to happen before Monday.
+still have to happen before the session. (On macOS, use **§0M** instead.)
 
 ### 0.1 🔴 `git pull` — this one is mandatory
 
@@ -66,10 +77,122 @@ every timestamp in the engine goes through `ZoneInfo("America/New_York")`.
 ### 0.4 Run §3's four verification commands
 
 Not optional, and not a formality — they are what proves the pull landed
-cleanly. Expect **`144 passed`** on the live suite, not 137.
+cleanly. The live suite must report **0 failures**; its total grows with each
+fix, so check the commit hash in §0.1 rather than memorising a number.
 
 Then go to **§4** (verify the TWS settings even if you believe they are done —
 in particular §4.4 market data and §4.5 the account) and **§5** for Monday.
+
+---
+
+# §0M · macOS — the whole path, start to finish
+
+Everything outside this section that is a *shell command* is PowerShell.
+Everything that is a *decision* — the TWS settings in §4, the timeline in §7.0,
+the checks in §5.3 and §7.2, the troubleshooting in §9 — is platform-independent
+and applies unchanged.
+
+Substitute your repo location for `~/TradingModel` throughout.
+
+### 0M.1 Where am I? Run this first
+
+```bash
+cd ~/TradingModel || cd ~/Documents/TradingModel || echo "FIND THE REPO FIRST"
+pwd
+python3 --version                                   # need 3.11+
+git rev-parse --short HEAD                          # which commit
+git lfs version                                     # must not error
+ls -lh SOXL_5min_6Years.csv SOXS_5min_6Years.csv    # must be MB, not 132B
+ls -d .venv-live 2>/dev/null || echo "NO VENV"
+```
+
+That one block answers every setup question at once. Anything that errors or
+looks wrong is the next step below; anything already fine is a step to skip.
+
+### 0M.2 Fill the gaps
+
+```bash
+# only what 0M.1 said was missing
+brew install python@3.12 git-lfs
+git lfs install
+
+cd ~/TradingModel
+git checkout main && git pull
+git lfs pull --include="SOXL_5min_6Years.csv,SOXS_5min_6Years.csv"
+
+python3 -m venv .venv-live
+source .venv-live/bin/activate
+pip install -U pip
+pip install -r band_lab/live/requirements.txt
+```
+
+**The 5-minute CSVs must be ~7.4 MB and ~8.3 MB.** At 132 bytes they are still
+Git LFS pointers and nothing downstream works.
+
+### 0M.3 Verify — four commands, all must pass
+
+```bash
+cd ~/TradingModel
+source .venv-live/bin/activate
+
+python3 -m pytest band_lab/phase1 -q      # 59 passed — a fixed invariant
+python3 band_lab/phase1/parity.py         ; echo "exit=$?"   # want 0
+python3 band_lab/live/replay.py           ; echo "exit=$?"   # want 0
+python3 -m pytest band_lab/live -q        # 0 failures
+```
+
+`parity.py` takes ~2 minutes, `replay.py` ~1. Anything other than pass / exit 0
+is a stop.
+
+### 0M.4 TWS
+
+Install Trader Workstation, log in to the **paper** account, and apply **§4.1
+through §4.5** — those settings are identical on macOS (**TWS → Settings**, or
+**File → Global Configuration** on older builds). Port **7497**, Trusted IP
+**127.0.0.1**, Read-Only API **off**, Download open orders **on**.
+
+Market data entitlement is account-level, not machine-level, so a subscription
+already shared to the paper account carries over to this machine.
+
+> **Only one machine at a time.** IBKR serves market data to one location, and a
+> second logged-in TWS anywhere produces error 162 on this one — silently
+> stopping the bar feed. Confirm the other box is logged out.
+
+### 0M.5 Stop the Mac sleeping
+
+```bash
+sudo pmset -c sleep 0 disksleep 0 displaysleep 10
+pmset -g custom          # verify
+```
+
+Locking the screen is fine — the process keeps running. **Closing the Terminal
+window kills it**, and so does logging out.
+
+### 0M.6 Pre-flight, then launch
+
+```bash
+cd ~/TradingModel
+source .venv-live/bin/activate
+
+python3 band_lab/live/diagnose.py              # want VERDICT: READY
+
+mkdir -p logs
+caffeinate -dims python3 -u band_lab/live/run.py --transmit 2>&1 | tee "logs/$(date +%Y%m%d)-live.log"
+```
+
+> **Forward slashes, and keep the launch line unbroken.** `band_lab\live\run.py`
+> is a Windows path; in a POSIX shell the backslashes are escape characters and
+> it collapses to `band_labliverun.py`. A stray `\` before the pipe breaks it the
+> same way. Copy the line whole rather than retyping it.
+
+`caffeinate -dims` holds sleep off for exactly as long as the engine runs, and
+releases it when the engine exits. `-u` is deliberately absent — it expires
+after five seconds without `-t` and would do nothing useful here.
+
+For a rehearsal with no orders, swap `--transmit` for `--dry-run`.
+
+Then read **§7.0** for the timeline, **§7.2** for the three assumptions to test
+deliberately, and **§9** if anything errors.
 
 ---
 
@@ -175,10 +298,10 @@ Expected, exactly:
 
 | Command | Must show |
 |---|---|
-| `pytest band_lab\phase1` | `59 passed` |
+| `pytest band_lab\phase1` | `59 passed` — this one is a fixed invariant |
 | `parity.py` | a table ending in the §8 numbers, then `exit=0` |
 | `replay.py` | `STAGE 1 EQUIVALENCE: PASS`, then `exit=0` |
-| `pytest band_lab\live` | `144 passed` |
+| `pytest band_lab\live` | all pass, **0 failures** (the count grows; the commit hash above is the real check) |
 
 `parity.py` takes ~2 minutes and `replay.py` ~1 minute. Anything other than the
 above — a failure, a different count, a non-zero exit — is a stop.
@@ -327,10 +450,45 @@ cover 09:00–17:00 so it does not reboot mid-session.
 
 ---
 
-# §5 · Monday 2026-08-03 — the dry run
+# §4.8 · Pre-flight — run this before every session
 
-**Transmit is OFF. Nothing reaches the market.** This is Stage 4's acceptance
-and it must be clean before any order is ever sent.
+```powershell
+cd C:\TradingModel
+.\.venv-live\Scripts\Activate.ps1
+python band_lab\live\diagnose.py
+```
+
+Read-only: connects on its own client id, performs each call the engine
+performs, prints what came back, places no orders. It ends in
+`VERDICT: READY` or `VERDICT: NOT READY` with the specific failures named.
+
+It exists because `run.py` is deliberately quiet — it prints decisions, not
+plumbing — so **a silent feed and a working feed look identical**. The two
+things it answers that nothing else does:
+
+| Question | Why it matters |
+|---|---|
+| Does `reqHistoricalData` return bars, and is **bar 0 the 09:30 bar**? | `Bar.idx` is minutes since 09:30 ET. A timezone mismatch shifts the whole grid, so bar 5 (the 10:00 filter) and bar 18 (the 11:00 arming) never come up. The engine consumes every bar and decides nothing, with no error |
+| Is the feed **live**, per contract? | §4 forbids trading on delayed data |
+
+If it says NOT READY, do not start `run.py` — you will learn nothing from the
+session that this did not just tell you faster.
+
+---
+
+# §5 · The dry run — transmit OFF
+
+> **Not the current path.** The 2026-08-03 dry runs found five defects and
+> cleared both operational blockers, but never reached the 11:00 arming.
+> `diagnose.py` now covers the pre-open half a dry run was checking, and the
+> three `PHASE2_PLAN.md` §6 assumptions can only be tested with live orders —
+> so **2026-08-04 goes straight to transmit ON: [§7](#7--the-first-transmit-on-session)**.
+>
+> Keep this section for a first session on any *new* machine, after a change to
+> the order path, or whenever you want a no-consequence rehearsal. The seven
+> checks in §5.3 apply to a transmit-ON session too — read them either way.
+
+**Transmit is OFF. Nothing reaches the market.**
 
 ## 5.1 — 08:30 ET, before the open
 
@@ -341,8 +499,8 @@ git pull
 git log --oneline -1        # must be 014e9b4 or later — see §0.1
 ```
 
-Run the four verification commands from **§3**. All four must pass, and the live
-suite must say **`144 passed`**.
+Run the four verification commands from **§3**. All four must pass with **0
+failures**.
 
 Start TWS and log in to the **paper** account — the login screen's Live/Paper
 selector must say Paper, and the API port must be **7497**. Leave it running.
@@ -500,9 +658,9 @@ Copy-Item band_lab\live\out\live.db "$env:USERPROFILE\Desktop\live-20260803-dryr
 
 ---
 
-# §6 · Monday evening — the go/no-go
+# §6 · After a dry run — the go/no-go
 
-Answer these six. **Any "no" is a no-go for transmitting on Tuesday.**
+Answer these six. **Any "no" is a no-go for transmitting.**
 
 - [ ] Did all four §3 verification commands pass in the morning?
 - [ ] Did the feature top-up show `+N broker` with N > 0 (Check 1)?
@@ -525,46 +683,92 @@ Inspect what the engine actually decided:
 python -c "import sqlite3; c=sqlite3.connect(r'band_lab\live\out\live.db'); [print(dict(r)) for r in c.execute('SELECT * FROM daily WHERE session=\"20260803\"').fetchall()]"
 ```
 
-If everything is clean, Tuesday is the first transmit-ON session (**§7**).
-If anything is unexplained, repeat the dry run on Tuesday. Calendar time is
-cheap here; a wrong first order is not.
+If everything is clean, the next session can transmit (**§7**). If anything is
+unexplained, repeat the dry run. Calendar time is cheap; a wrong first order is
+not.
 
 ---
 
 # §7 · The first transmit-ON session
 
-Only after §6 is all "yes".
+**Orders reach the market. Paper account only.** The live-money ports (7496,
+4001) are refused by config validation and there is no flag that overrides that
+in Phase 2.
+
+## 7.0 — the timeline, and why an 08:00 start is safe
+
+**No order can exist before the 11:00 bar.** §2.3: *"No orders may be placed
+before 11:00 under any circumstance."* It is enforced in three places — the
+state machine only activates at `bar_idx >= 18`, the engine only calls
+`assert_live_data` at that same point, and no intent is emitted before it. It
+is covered by `test_no_orders_before_1100_then_armed_at_1100`.
+
+| Time (ET) | What the engine does | Needs you? |
+|---|---|---|
+| 08:00 | start; pre-open: connect, features, gate, capital | ✅ watch this |
+| 08:00–09:30 | polls; the feed correctly returns **nothing** before the open | no |
+| 09:30–10:00 | records bars 0–5 | no |
+| 10:00 | morning filter fires on bar 5 | no |
+| 10:00–11:00 | observes; tracks `session_high`. **Still cannot order** | no |
+| **~11:05** | **first arming** — see 7.0.1 | ✅ **be back** |
+| 11:05–15:55 | ratchet, fills, brackets, re-arm | ✅ |
+| 15:55 | flatten | ✅ verify in TWS |
+
+**So an 08:00 start with an absence from 09:00 to 11:00 is safe**, and safe
+structurally rather than by luck: the window you miss is the one in which the
+engine is forbidden from acting. If it dies while you are away, it dies flat —
+there is nothing to leave open.
+
+### 7.0.1 Why "~11:05" and not 11:00
+
+Bar 18 covers 11:00–11:05 and is only delivered once it *closes*. The engine
+arms on receipt, so the limit goes live around 11:05–11:06, priced off bars
+0–17 — the same anchor the backtest uses at 11:00 — and is then immediately
+ratcheted if bar 18 printed a new high.
+
+The backtest's limit rests from 11:00 and can therefore fill during bar 18;
+live, you are not in the market for those five minutes. **The gap runs one
+direction only: live will miss fills the backtest books, never the reverse.**
+Expect a small systematic shortfall against the shadow-parity comparison from
+this alone, before any of the S10/S11 fill effects.
+
+## 7.1 — launch
 
 ```powershell
 cd C:\TradingModel
+git pull
 .\.venv-live\Scripts\Activate.ps1
 ```
 
-Create `band_lab\live\config.local.json` — **JSON, not TOML**, despite what
-`DEPLOYMENT.md` §9 says:
-
-```json
-{
-  "transmit": true,
-  "port": 7497,
-  "client_id": 11,
-  "db_path": "band_lab/live/out/live.db"
-}
-```
-
-> Strategy numbers are deliberately absent. `validate_config` rejects any
-> attempt to put one here — that is §6.8 of the spec in executable form.
-
-Run the §3 verification block, then:
+Run **§4.8's pre-flight** and the **§3** verification block. `diagnose.py` must
+say `VERDICT: READY`; the four commands must pass with 0 failures. Then:
 
 ```powershell
-python band_lab\live\run.py --config band_lab\live\config.local.json
+mkdir logs -Force
+python -u band_lab\live\run.py --transmit 2>&1 |
+    Tee-Object -FilePath "logs\$(Get-Date -f yyyyMMdd)-live.log"
 ```
 
-The banner must now read `TRANSMIT ON` and the DRY RUN block must **not**
-appear.
+The banner must read:
 
-## 7.1 — three things to check deliberately on the first session
+```
+========================================================================
+*** TRANSMIT ON — ORDERS WILL REACH THE MARKET ***
+    port 7497 (PAPER)   clientId=11
+    SOXL,SOXS at f=1.0 w=0.5 cap=$150,000
+    First order is possible only after the 11:00 bar (§2.3).
+========================================================================
+```
+
+**If it says `DRY RUN` instead, `--transmit` did not take.** If the port is not
+7497, stop immediately.
+
+> `--transmit` and `--dry-run` together are refused rather than resolved by
+> precedence. A config file still works — `--config path.json` with
+> `"transmit": true` — but the flag is preferred because the intent is visible
+> in the command line and in the log.
+
+## 7.2 — three things to check deliberately on the first session
 
 These are `PHASE2_PLAN.md` §6 assumptions that no amount of offline work can
 settle. Check them on purpose; do not wait to notice them.
@@ -601,7 +805,7 @@ absolutely.
 Leave everything running overnight. On Tuesday morning check the engine
 reconnected and that `fills` and `stop_outs` for Monday did not double-count.
 
-## 7.2 — what a normal result looks like
+## 7.3 — what a normal result looks like
 
 **Plan on ~40 bp/ON-day for SOXL and ~30 for SOXS.** A run at 20–40 bp is
 consistent with the evidence and is **not** a sign the engine is broken.
@@ -611,6 +815,59 @@ sleeve. **A single week proves nothing.** Investigate structural breaks — fill
 counts or ON-day rates off by >20% for a month — not noise.
 
 The first ~3 sessions are shakedown and are excluded from the evidence set.
+
+---
+
+# §7.4 · The watchdog — run it alongside the engine
+
+**A second terminal, every session, started before the engine.** It is the only
+thing that makes the flatten guarantee independent of the engine being correct.
+
+```bash
+cd ~/TradingModel
+source .venv-live/bin/activate
+python3 band_lab/live/watchdog.py
+```
+
+It sits silent and does nothing until one of two things is true:
+
+| Trigger | Covers |
+|---|---|
+| No engine heartbeat for **>2 minutes** during RTH | crash, hang, killed terminal, slept machine |
+| Past **15:58** and still holding a position or a working order | an engine that is alive, heartbeating, and wrong — which is what happened on 2026-08-05, -06 and -07 |
+
+Then it does exactly one thing: `reqGlobalCancel`, then market orders to flat.
+It cannot open a position — it has no code path that places a limit or a stop.
+
+Expected output on a normal day:
+
+```
+11:01:02 [watchdog info    ] watching | port 7497 clientId=12 | stale>120s or past 15:58 while exposed
+11:11:04 [watchdog info    ] ok — engine alive (18s), 1 position(s)
+```
+
+And when it earns its keep:
+
+```
+15:58:01 [watchdog critical] INTERVENING — past 15:58 and still exposed ({'SOXS': 1680.0}, 3 working) — §1 forbids holding overnight
+15:58:01 [watchdog info    ] global cancel sent
+15:58:01 [watchdog critical] SOXS watchdog flatten SELL 1680
+15:58:04 [watchdog info    ] FLAT after 1 flatten pass(es)
+```
+
+> **It uses clientId 12**, never the engine's 11. If you change `client_id` in a
+> config file, change `watchdog_client_id` too — two processes on one id will
+> fight.
+
+`--once` runs a single check and exits, which is what to use to confirm it can
+reach TWS before you rely on it:
+
+```bash
+python3 band_lab/live/watchdog.py --once      # prints its verdict, changes nothing
+```
+
+If it ever prints `HUMAN INTERVENTION REQUIRED`, it tried five times and failed —
+go to TWS immediately.
 
 ---
 
@@ -626,6 +883,48 @@ The first ~3 sessions are shakedown and are excluded from the evidence set.
 | 15:55 | Confirm `all sleeves flat` |
 | 16:10 | Confirm `EOD reconcile: AGREES`; save the day's notes |
 | 23:00 | TWS auto-restarts; engine reconnects by itself |
+
+## 8.1 Can it be left unattended?
+
+**Dry run (`--dry-run`): yes.** `IBBroker` refuses to transmit at the adapter, so
+nothing can reach the market. The worst outcome is losing a day's observations.
+Start it any time before 09:30 — before the open the feed correctly returns
+nothing rather than consuming the prior session — and read the log afterwards.
+
+**Transmit ON: no, not yet.** Not caution; four specific things are missing:
+
+| Missing | Consequence unattended |
+|---|---|
+| Alerting | None exists — no push, email or desktop. The console is the only monitor |
+| `watchdog.py` | Engine hangs holding a position → nothing independently flattens it |
+| Service supervision | Process dies → the day ends silently, possibly with a position open |
+| §6.1 unverified | Whether the protective stop survives the engine dying is *still an open question*. Until confirmed, an unattended crash mid-position has no proven protection |
+
+`IMPLEMENTATION_SPEC.md` §7 requires attended operation for the first 3–6 months
+regardless. Unattended becomes reasonable after Stage 7 — see
+`PROJECT_STATUS.md` §5F. Until then, be at the machine from 11:00 to 16:00, and
+confirm flat with your own eyes in TWS at 15:55.
+
+## 8.2 Keeping the process alive on Windows
+
+- **`Win+L` (lock) is fine — the engine keeps running. Signing out kills it.**
+- Closing the PowerShell window kills it. Leave it open.
+- Sleep kills it; §4.7's `powercfg` settings prevent that.
+
+**Log to a file** so nothing is lost to scrollback:
+
+```powershell
+mkdir logs -Force
+python -u band_lab\live\run.py --dry-run 2>&1 |
+    Tee-Object -FilePath "logs\$(Get-Date -f yyyyMMdd)-dryrun.log"
+```
+
+`-u` forces unbuffered output so the file stays current while the session runs.
+
+**If it crashes, just restart it.** State is established by reconciling with the
+broker, never from memory, so starting at 13:00 after a crash produces the same
+state as having run since 09:30 (§5 restart safety). Check TWS for orphaned
+orders first.
 
 > There is **no alerting** — no push, no email, no desktop notification, in any
 > form. Watching the console window is the only monitoring that exists today.
@@ -653,6 +952,9 @@ Orders**. Do this in TWS, not through the engine.
 
 | Symptom | Cause / fix |
 |---|---|
+| **Error 10089** "requires additional subscription for API… Delayed market data is available" | The account has **no live L1 entitlement for API use**. §4 makes delayed data a refusal-to-trade condition, so the sleeve stands down at 11:00. Subscribe in Client Portal → Settings → Market Data Subscriptions, then share to paper (§4.4). **This blocks the paper run, not just the dry run** |
+| **Error 162** "Trading TWS session is connected from a **different IP address**" | The same IBKR login is active somewhere else — Client Portal in a browser, the mobile app, a second TWS, or an API connector. IBKR serves market data to one location at a time and rejects historical requests here. **Log out everywhere else, then restart the engine.** Not an entitlement problem. **This includes the Client Portal tab you used to buy the market-data subscription** — it recurred that way on 2026-08-03 |
+| `feature history is insufficient or stale — refusing to start` | The broker top-up returned nothing (usually error 162 above), so ATR5/thr80 would come from the CSV's last session. §2.2 forbids trading on stale data, so the run is refused outright. Fix the top-up and re-run — do **not** work around it |
 | `replay.py` fails loading CSVs | LFS files are still pointers — re-run §2's `git lfs pull` |
 | `pytest band_lab\live` collects nothing | Run from `C:\TradingModel`; `conftest.py` sets `sys.path` |
 | `ZoneInfoNotFoundError` | `pip install tzdata` — Windows ships no IANA database |

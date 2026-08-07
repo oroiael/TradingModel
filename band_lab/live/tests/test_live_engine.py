@@ -49,11 +49,12 @@ def _history(range_pct=10.0, or30=3.0, n=130) -> FeatureHistory:
     return h
 
 
-def _engine(tmp_path, range_pct=10.0, or30=3.0, equity=150_000.0):
+def _engine(tmp_path, range_pct=10.0, or30=3.0, equity=150_000.0,
+            symbols=("SOXL",)):
     ib = FakeIB(equity=equity)
     store = Store(str(tmp_path / "e.db"))
-    eng = Engine(ib, store, symbols=("SOXL",), on_event=lambda l, m: None)
-    feats = {"SOXL": _history(range_pct, or30)}
+    eng = Engine(ib, store, symbols=symbols, on_event=lambda l, m: None)
+    feats = {s: _history(range_pct, or30) for s in symbols}
     return eng, ib, store, feats
 
 
@@ -140,8 +141,36 @@ def test_activation_refuses_delayed_market_data(tmp_path):
     ib.market_data_type = 3          # delayed
     for b in _session_bars(n=START_IDX):
         eng.on_bar("SOXL", b)
-    with pytest.raises(NotLiveDataError):
-        eng.on_bar("SOXL", Bar(START_IDX, 100.0, 100.0, 100.0, 100.0, 1.0))
+    eng.on_bar("SOXL", Bar(START_IDX, 100.0, 100.0, 100.0, 100.0, 1.0))
+    rt = eng.sleeves["SOXL"]
+    assert rt.dormant and rt.dormant_reason == "not_live_data"
+    assert not rt.activated, "a delayed feed must never arm"
+    assert not ib.working_orders("SOXL"), "and must place no order"
+
+
+def test_one_sleeve_losing_its_feed_does_not_end_the_session(tmp_path):
+    """Entitlements are per contract.
+
+    On 2026-08-06 a NotLiveDataError on SOXL propagated out of `on_bar`, broke
+    the runner's session loop and flattened both sleeves. It is contained now.
+    """
+    eng, ib, store, feats = _engine(tmp_path, symbols=("SOXL", "SOXS"))
+    eng.pre_open(DAY, feats)
+
+    real = ib.assert_live_data
+    def only_soxl_is_delayed(symbol=None):
+        if symbol == "SOXL":
+            raise NotLiveDataError("SOXL: delayed")
+        return real(symbol)
+    ib.assert_live_data = only_soxl_is_delayed
+
+    for b in _session_bars(n=START_IDX + 1):
+        eng.on_bar("SOXL", b)
+        eng.on_bar("SOXS", b)
+
+    assert eng.sleeves["SOXL"].dormant, "the affected sleeve stands down"
+    assert not eng.sleeves["SOXS"].dormant, "the healthy sleeve keeps trading"
+    assert eng.sleeves["SOXS"].activated
 
 
 def test_bar_gap_is_reported(tmp_path):
@@ -242,3 +271,30 @@ def test_bars_are_persisted(tmp_path):
     for b in _session_bars(n=6):
         eng.on_bar("SOXL", b)
     assert len(store.session_bars("SOXL", "20260803")) == 6
+
+
+def test_a_failed_flatten_does_not_book_a_fabricated_trade(tmp_path):
+    """`sm.flatten(price=0.0)` reported a real open position as -4018 bp.
+
+    It was called unconditionally on a comment asserting "not in a position
+    now" — false exactly when `ensure_flat` fails. Booking an exit at zero
+    prices the trade at `qty * (0 - entry) / capital`, which looks like a
+    catastrophic loss and buries the actual fault: shares about to be carried
+    overnight, which §1 forbids above everything else.
+    """
+    eng, ib, store, feats = _engine(tmp_path)
+    eng.pre_open(DAY, feats)
+    for b in _session_bars(n=START_IDX + 1):
+        eng.on_bar("SOXL", b)
+    entry = [o for o in ib.orders.values() if o.order_type == "LMT"][-1]
+    ib.fill(entry.order_id, price=100.0)
+    eng.poll(START_IDX + 1)
+    assert eng.sleeves["SOXL"].sm.in_position
+
+    ib.fill = lambda *a, **k: None            # the flatten cannot settle
+    flat = eng.flatten_all(settle=0)
+    assert flat["SOXL"] is False
+    sm = eng.sleeves["SOXL"].sm
+    assert sm.in_position, "the position is real and still open — say so"
+    assert not sm.trades, "no trade may be booked at a price nothing traded at"
+    assert sm.pnl == 0.0, "and the day's P&L must not be fabricated"

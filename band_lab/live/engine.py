@@ -185,7 +185,20 @@ class Engine:
             return
 
         if bar.idx >= START_IDX and not rt.activated:
-            self.broker.assert_live_data()      # never arm on delayed data
+            # Per symbol, and contained to that symbol: entitlements are per
+            # contract, so one sleeve losing its feed says nothing about the
+            # other. Letting this propagate stood the whole session down on
+            # 2026-08-06 when a single probe was inconclusive.
+            try:
+                self.broker.assert_live_data(symbol)   # never arm on delayed data
+            except NotLiveDataError as exc:
+                rt.dormant, rt.dormant_reason = True, "not_live_data"
+                self.on_event("critical", f"{symbol} NOT LIVE DATA: {exc} — "
+                                          f"this sleeve stands down; the other "
+                                          f"is unaffected")
+                self.store.daily(self.session, symbol, filter_ok=0,
+                                 filter_reason="not_live_data")
+                return
             rt.activated = True
         rt.sm.on_bar_open(bar.idx)
         rt.om.apply(rt.sm.drain_intents())
@@ -204,15 +217,36 @@ class Engine:
                 rt.om.on_executions(bar_idx)
 
     # ----------------------------------------------------------- 15:55
-    def flatten_all(self, bar_idx: int = FLATTEN_IDX) -> dict[str, bool]:
+    def flatten_all(self, bar_idx: int = FLATTEN_IDX,
+                    settle: float = 2.0) -> dict[str, bool]:
+        """15:55 — cancel everything, close any position (§2.8).
+
+        The flatten's own executions book the trade through the ordinary exit
+        path, at the price they actually filled at. `sm.flatten` is therefore
+        only needed to close the *session*, and it must never be handed a price.
+
+        It used to be called unconditionally with `price=0.0`, on a comment
+        asserting "not in a position now" — an assumption that is false exactly
+        when it matters. On 2026-08-06 `ensure_flat` failed, the sleeve was still
+        holding 541 shares, and booking an exit at zero reported the day as
+        **-4018 bp** against a real position that was merely still open. A
+        fabricated price is worse than no number: it looks like a catastrophic
+        loss and buries the real fault, which was that 541 shares were about to
+        be carried overnight.
+        """
         out = {}
         for symbol, rt in self.sleeves.items():
-            rt.om._cancel_entry()
-            rt.om._cancel_bracket()
-            flat = rt.om.ensure_flat()
-            # not in a position now, so this only cancels and closes the sleeve
-            rt.sm.flatten(price=0.0, bar_idx=bar_idx)
-            rt.om.apply(rt.sm.drain_intents())
+            flat = rt.om.ensure_flat(settle=settle)
+            if rt.sm.in_position and not flat:
+                pos = self.broker.position(symbol)
+                self.on_event("critical",
+                              f"{symbol} STILL HOLDS {pos:.0f} SHARES — not "
+                              f"booking a trade, because the position is real "
+                              f"and still open. Close it by hand now: §1's first "
+                              f"design priority is never holding overnight.")
+            else:
+                rt.sm.flatten(price=0.0, bar_idx=bar_idx)
+                rt.om.apply(rt.sm.drain_intents())
             out[symbol] = flat
         return out
 

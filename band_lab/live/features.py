@@ -108,14 +108,59 @@ def build(symbol: str, root: str, broker=None, today: Optional[datetime] = None,
                      from_csv, from_broker)
 
 
-def check(bootstraps: dict, on_event=None) -> bool:
-    """Pre-flight: every sleeve must have enough history to produce thr80."""
+#: How far back the newest feature session may sit before the history is stale.
+#: A normal Tuesday is 1 day; a Monday is 3; a Monday holiday makes Tuesday 4.
+#: 5 clears every ordinary US market calendar gap and nothing more.
+MAX_FEATURE_AGE_DAYS = 5
+
+
+def _as_date(value):
+    return value.date() if hasattr(value, "date") else value
+
+
+def check(bootstraps: dict, on_event=None, today=None) -> bool:
+    """Pre-flight: enough history to produce thr80, and recent enough to mean it.
+
+    §2.2 stands a sleeve down when "historical data required for ATR5/thr80 is
+    unavailable **or stale**", and §4 requires a pre-trade check that "the last
+    daily bar is the prior session". Only the first half was implemented: a
+    broker top-up that returned nothing left the engine computing ATR5 from
+    whatever the CSV happened to end on, silently.
+
+    That is not hypothetical. On 2026-08-03 IBKR error 162 killed both top-up
+    requests and the engine carried on with features ending 2026-07-21 — thirteen
+    days and one volatility regime out of date. It was after the close, so
+    nothing came of it; during a session it would have gated and armed on stale
+    inputs.
+
+    Staleness is now fatal to the run rather than a log line. Refusing costs a
+    trading day; trading a gate computed from the wrong fortnight does not
+    announce itself at all.
+    """
     ok = True
+
+    def say(level, msg):
+        if on_event:
+            on_event(level, msg)
+
     for symbol, b in bootstraps.items():
         if not b.sufficient:
             ok = False
-            msg = (f"{symbol}: only {b.sessions} sessions, thr80 needs "
-                   f"{OR_PCTL_MINOBS} — sleeve will stand down every day")
-            if on_event:
-                on_event("critical", msg)
+            say("critical", f"{symbol}: only {b.sessions} sessions, thr80 needs "
+                            f"{OR_PCTL_MINOBS} — sleeve will stand down every day")
+        if b.last_session is None:
+            ok = False
+            say("critical", f"{symbol}: no sessions at all")
+            continue
+        if today is None:
+            continue                              # caller opted out of the check
+        age = (_as_date(today) - _as_date(b.last_session)).days
+        if age > MAX_FEATURE_AGE_DAYS:
+            ok = False
+            say("critical",
+                f"{symbol}: newest feature session is {_as_date(b.last_session)}, "
+                f"{age} days before {_as_date(today)} — ATR5 and thr80 would be "
+                f"computed from stale history. §2.2 forbids trading on it. "
+                f"Fix the broker top-up (IBKR 162 means a second session holds "
+                f"the market-data connection) and re-run.")
     return ok

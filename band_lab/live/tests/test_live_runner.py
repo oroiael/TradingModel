@@ -7,7 +7,8 @@ These are what stand between "Stages 2-4 exist" and "Stage 4 can be attempted".
 
 from __future__ import annotations
 
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta
+from types import SimpleNamespace
 from zoneinfo import ZoneInfo
 
 import pytest
@@ -132,8 +133,19 @@ def _repo_root():
         os.path.abspath(__file__)))))
 
 
-def _runner(tmp_path, equity=150_000.0):
+def _runner(tmp_path, equity=150_000.0, top_up=True):
+    """A runner whose feature history is *fresh*, which is the healthy case.
+
+    The repository CSVs end 2026-07-21, so without a broker top-up every fixture
+    dated `DAY` is two weeks stale and `features.check` now refuses the run —
+    correctly. Supplying the sessions IBKR would have supplied keeps these tests
+    about the runner rather than about staleness, which has its own tests below.
+    """
     ib = FakeIB(equity=equity)
+    if top_up:
+        ib.sessions["SOXL"] = [(date(2026, 7, 30), _bars(78)),
+                               (date(2026, 7, 31), _bars(78))]
+        ib.sessions["SOXS"] = list(ib.sessions["SOXL"])
     store = Store(str(tmp_path / "r.db"))
     cfg = EngineConfig(symbols=("SOXL",), db_path=str(tmp_path / "r.db"))
     return Runner(cfg, broker=ib, store=store, root=_repo_root()), ib, store
@@ -228,3 +240,113 @@ def test_runner_day_skips_weekends_without_connecting(tmp_path):
     assert sunday.weekday() == 6
     assert r.day(sunday) == {}
     assert ib.connect_count == 0, "no reason to open a connection on a Sunday"
+
+
+# ------------------------------------------------------ stale feature history
+def test_a_stale_top_up_refuses_the_whole_run(tmp_path):
+    """§2.2: do not trade when ATR5/thr80 data is "unavailable **or stale**".
+
+    Observed 2026-08-03: IBKR error 162 killed both top-up requests and the
+    engine carried on with features ending 2026-07-21 — thirteen days and a
+    volatility regime out of date — announcing it only as a log line. Refusing
+    costs a trading day; gating and arming off the wrong fortnight is silent.
+    """
+    r, ib, store = _runner(tmp_path, top_up=False)     # as if 162 killed it
+    assert r.pre_open(DAY) is False, "must refuse, not proceed on stale features"
+    assert "SOXL" not in r.engine.sleeves, "no sleeve may be armed at all"
+
+
+def test_a_fresh_top_up_is_accepted(tmp_path):
+    r, ib, store = _runner(tmp_path)                   # top_up=True
+    r.pre_open(DAY)
+    assert "SOXL" in r.engine.sleeves
+
+
+def test_freshness_tolerates_a_long_weekend():
+    """Tuesday after a Monday holiday is 4 days off the last session."""
+    import features
+    from features import MAX_FEATURE_AGE_DAYS
+
+    def boot(last):
+        return SimpleNamespace(sessions=600, sufficient=True, last_session=last)
+
+    tue = date(2026, 8, 4)
+    assert features.check({"SOXL": boot(date(2026, 7, 31))}, None, today=tue)
+    assert MAX_FEATURE_AGE_DAYS >= 4
+    assert not features.check({"SOXL": boot(date(2026, 7, 21))}, None, today=tue)
+
+
+def test_freshness_is_skipped_when_no_date_is_supplied():
+    """`today=None` keeps the old contract for callers that only want size."""
+    import features
+    b = SimpleNamespace(sessions=600, sufficient=True, last_session=date(2020, 1, 2))
+    assert features.check({"SOXL": b}, None)
+
+
+# ------------------------------------------------------------ transmit flag
+def _main(argv):
+    """Run run.main() with argv, returning (exit_code, stdout)."""
+    import io, contextlib, sys as _sys
+    import run as run_mod
+    buf = io.StringIO()
+    old = _sys.argv
+    _sys.argv = ["run.py"] + argv
+    try:
+        with contextlib.redirect_stdout(buf):
+            rc = run_mod.main()
+    finally:
+        _sys.argv = old
+    return rc, buf.getvalue()
+
+
+def test_dry_run_and_transmit_together_are_refused():
+    """Contradictory intent must fail loudly, never be resolved by precedence."""
+    rc, out = _main(["--dry-run", "--transmit"])
+    assert rc == 2
+    assert "contradictory" in out.lower()
+
+
+def test_transmit_flag_turns_the_order_path_on():
+    from config import EngineConfig
+    cfg = EngineConfig()
+    assert cfg.transmit is False, "the default must stay OFF"
+    cfg.transmit = True
+    cfg.validate()                       # paper port 7497 — must not raise
+
+
+def test_transmit_is_still_refused_on_a_live_money_port():
+    """--transmit must not become a route around the Phase 2 paper-only rule."""
+    from config import EngineConfig
+    for port in (7496, 4001):
+        with pytest.raises(ConfigError):
+            EngineConfig(port=port, transmit=True).validate()
+
+
+# ------------------------------------------------------------------ heartbeat
+def test_heartbeat_reports_each_sleeve(tmp_path):
+    """Silence has two readings — "nothing yet" and "died an hour ago"."""
+    r, ib, store = _runner(tmp_path)
+    seen = []
+    r._event = lambda l, m: seen.append(m)
+    r.pre_open(DAY)
+    r.heartbeat()
+    assert seen and seen[-1].startswith("heartbeat |")
+    assert "SOXL" in seen[-1]
+
+
+def test_heartbeat_names_the_reason_a_sleeve_is_dormant(tmp_path):
+    r, ib, store = _runner(tmp_path)
+    r.pre_open(DAY)
+    seen = []
+    r._event = lambda l, m: seen.append(m)
+    rt = r.engine.sleeves["SOXL"]
+    rt.dormant, rt.dormant_reason = True, "stand_down_wide_or_weak_pos10"
+    r.heartbeat()
+    assert "dormant(stand_down_wide_or_weak_pos10)" in seen[-1]
+
+
+def test_heartbeat_can_be_disabled():
+    from config import EngineConfig
+    EngineConfig(heartbeat_seconds=0).validate()      # 0 disables, must not raise
+    with pytest.raises(ConfigError):
+        EngineConfig(heartbeat_seconds=-1).validate()

@@ -25,11 +25,11 @@ def _sm(symbol="SOXL", capital=75_000.0):
     return sm
 
 
-def _om(tmp_path, symbol="SOXL", sm=None, ib=None):
+def _om(tmp_path, symbol="SOXL", sm=None, ib=None, db=None):
     ib = ib or FakeIB()
     ib.connect()
     sm = sm or _sm(symbol)
-    store = Store(str(tmp_path / "t.db"))
+    store = Store(db or str(tmp_path / "t.db"))
     return OrderManager(broker=ib, symbol=symbol, session="20260803",
                         sm=sm, store=store), ib, sm
 
@@ -239,3 +239,283 @@ def test_ensure_flat_reports_critical_when_it_cannot_flatten(tmp_path):
     om.on_event = lambda lvl, msg: seen.append((lvl, msg))
     assert om.ensure_flat(attempts=2) is False
     assert any(lvl == "critical" for lvl, _ in seen)
+
+
+# --------------------------------------------------- the console must speak
+def test_the_live_order_path_reports_to_the_console(tmp_path):
+    """A live session was silent: orders and fills went to SQLite only.
+
+    Dry runs printed "DRY RUN — not sent" for every order while a real session
+    printed nothing at all, so the mode with consequences was the quiet one.
+    §1's fifth design priority is observability.
+    """
+    seen = []
+    ib = FakeIB(); ib.connect()
+    sm = _sm()
+    store = Store(str(tmp_path / "t.db"))
+    om = OrderManager(broker=ib, symbol="SOXL", session="20260806", sm=sm,
+                      store=store, on_event=lambda l, m: seen.append(m))
+    sm.on_bar_open(START_IDX - 1)
+    sm.on_bar_close(Bar(START_IDX - 1, 100.0, 100.0, 100.0, 100.0, 1.0))
+    sm.on_bar_open(START_IDX)
+    om.apply(sm.drain_intents())
+    assert any("ARM" in m for m in seen), "the arming must be visible"
+
+    entry = [o for o in ib.orders.values() if o.order_type == "LMT"][-1]
+    ib.fill(entry.order_id)
+    om.on_executions(START_IDX)
+    assert any("FILL" in m for m in seen), "every execution must be visible"
+    assert any("BRACKET" in m for m in seen), "the protective legs must be visible"
+
+    target = [o for o in ib.orders.values()
+              if o.action == "SELL" and o.order_type == "LMT"][-1]
+    ib.fill(target.order_id)
+    om.on_executions(START_IDX + 1)
+    assert any("EXIT TARGET" in m for m in seen), "the outcome must be visible"
+    assert any("ret=" in m for m in seen), "and so must the P&L"
+
+
+# --------------------------------------- one order, several executions (§4.1)
+def test_an_entry_settled_in_several_executions_is_one_fill(tmp_path):
+    """IBKR splits a fill across executions; the engine must not split the trade.
+
+    Observed live 2026-08-06: a 541-share entry came back as 300 + 210 + 31.
+    The first execution bracketed 300 and the next two raised
+    RuntimeError('entry fill in state IN_POSITION') — leaving 241 shares held
+    with no stop and no target, and a state machine that believed it held 300.
+    """
+    om, ib, sm = _armed(tmp_path, high=100.0)
+    entry = [o for o in ib.orders.values() if o.order_type == "LMT"][-1]
+    total = entry.qty
+
+    ib.fill(entry.order_id, qty=total * 0.55, price=99.0)   # first slice
+    om.on_executions(START_IDX)
+    assert sm.in_position
+    assert sm.fills == 1
+
+    ib.fill(entry.order_id, qty=total * 0.45, price=99.0)   # the remainder
+    om.on_executions(START_IDX)                              # must not raise
+
+    assert sm.fills == 1, "one order is one fill, however many executions"
+    stops = [o for o in ib.orders.values()
+             if o.order_type == "STP" and o.status in ("Submitted", "PreSubmitted")]
+    assert stops, "a protective stop must still be resting"
+    assert stops[-1].qty == pytest.approx(ib.position("SOXL")), \
+        "and it must cover every share held, not just the first execution"
+
+
+def test_the_bracket_is_resized_to_the_broker_position(tmp_path):
+    """§6.1 is 'a stop is always resting for what is held', not 'for part'."""
+    om, ib, sm = _armed(tmp_path, high=100.0)
+    entry = [o for o in ib.orders.values() if o.order_type == "LMT"][-1]
+    ib.fill(entry.order_id, qty=100, price=99.0)
+    om.on_executions(START_IDX)
+
+    ib.positions["SOXL"] = 250.0            # as if the rest settled unseen
+    assert om.cover_whole_position() is True
+    for otype in ("LMT", "STP"):
+        leg = [o for o in ib.orders.values()
+               if o.action == "SELL" and o.order_type == otype
+               and o.status in ("Submitted", "PreSubmitted")][-1]
+        assert leg.qty == pytest.approx(250.0), f"{otype} leg must cover 250"
+
+
+def test_cover_whole_position_is_a_no_op_when_already_covered(tmp_path):
+    om, ib, sm = _armed(tmp_path, high=100.0)
+    entry = [o for o in ib.orders.values() if o.order_type == "LMT"][-1]
+    ib.fill(entry.order_id)
+    om.on_executions(START_IDX)
+    before = len(ib.orders)
+    assert om.cover_whole_position() is False
+    assert len(ib.orders) == before, "no churn when the legs already match"
+
+
+# ------------------------------------------ idempotency across a *restart*
+def test_executions_already_handled_are_not_replayed_after_a_restart(tmp_path):
+    """IBKR replays the day's executions to every newly-connected client.
+
+    `seen_execs` lived only in memory, so a restart re-drained the morning's
+    fills as if new. On 2026-08-06 that replayed a 541-share entry (300+210+31)
+    into a fresh state machine that was still OBSERVING, raising three times and
+    aborting the bar loop with it.
+    """
+    db = str(tmp_path / "r.db")
+    ib = FakeIB(); ib.connect()
+
+    om1, _, sm1 = _armed(tmp_path, high=100.0, ib=ib, db=db)
+    entry = [o for o in ib.orders.values() if o.order_type == "LMT"][-1]
+    ib.fill(entry.order_id)
+    assert om1.on_executions(START_IDX), "the first process handles it"
+
+    # A restart: same broker and same db, brand-new OrderManager and state.
+    sm2 = _sm()
+    om2 = OrderManager(broker=ib, symbol="SOXL", session="20260803", sm=sm2,
+                       store=Store(db))
+    assert om2.on_executions(START_IDX) == [], \
+        "a restart must not re-process this morning's executions"
+    assert sm2.fills == 0, "and must not double-count them"
+
+
+def test_the_bracket_uses_the_volume_weighted_entry_price(tmp_path):
+    """§2.6 prices the bracket off `E`. Several executions have no single E.
+
+    Live 2026-08-06: 541 shares filled as 100/181/143/106/11 across 136.19 to
+    136.24. The bracket was priced off the *first* execution, putting the target
+    and the stop 2c low — 1.6 bp of error on a strategy whose whole edge is
+    ~40 bp/day, which the shadow-parity report would have read as fill quality.
+    """
+    om, ib, sm = _armed(tmp_path, high=100.0)
+    entry = [o for o in ib.orders.values() if o.order_type == "LMT"][-1]
+    total = entry.qty
+
+    ib.fill(entry.order_id, qty=total / 2, price=100.00)
+    om.on_executions(START_IDX)
+    ib.fill(entry.order_id, qty=total / 2, price=101.00)   # a worse half
+    om.on_executions(START_IDX)
+
+    from strategy_core import round_to_tick
+    vwap = 100.50                                  # (100.00 + 101.00) / 2
+    stop = [o for o in ib.orders.values()
+            if o.order_type == "STP" and o.status in ("Submitted", "PreSubmitted")][-1]
+    target = [o for o in ib.orders.values()
+              if o.action == "SELL" and o.order_type == "LMT"
+              and o.status in ("Submitted", "PreSubmitted")][-1]
+    assert stop.aux_px == pytest.approx(round_to_tick(vwap * 0.96, 0.01)), \
+        "the stop must sit 4% below the average paid, not below the first slice"
+    assert target.limit_px == pytest.approx(round_to_tick(vwap * 1.01, 0.01))
+    assert stop.qty == pytest.approx(ib.position("SOXL"))
+    assert stop.aux_px > round_to_tick(100.00 * 0.96, 0.01), \
+        "and strictly above where the first execution alone would have put it"
+
+
+# ------------------------------- an exit settles in slices too (2026-08-06)
+def test_a_split_exit_books_the_whole_trade_not_the_first_slice(tmp_path):
+    """Live: a +1% target reported `ret=+18.1bp` instead of +96.5.
+
+    541 shares were entered in five executions, so the state machine booked the
+    quantity as the first slice's 100. The exit then sold 100 + 441, booked on
+    the first of those, and re-armed §2.5's entry while 441 shares were still
+    being sold — a race that can leave two positions open at once.
+    """
+    om, ib, sm = _armed(tmp_path, high=100.0)
+    entry = [o for o in ib.orders.values() if o.order_type == "LMT"][-1]
+    total = entry.qty
+    ib.fill(entry.order_id, qty=total * 0.2, price=100.0)   # a thin first slice
+    om.on_executions(START_IDX)
+    ib.fill(entry.order_id, qty=total * 0.8, price=100.0)
+    om.on_executions(START_IDX)
+    assert sm._qty == pytest.approx(total), "the whole entry, not the first slice"
+
+    target = [o for o in ib.orders.values()
+              if o.action == "SELL" and o.order_type == "LMT"
+              and o.status in ("Submitted", "PreSubmitted")][-1]
+    ib.fill(target.order_id, qty=total * 0.2, price=101.0)   # exit slice 1
+    om.on_executions(START_IDX + 1)
+    assert sm.in_position, "must not book while shares are still held"
+    assert not sm.trades, "and must not re-arm into a half-sold position"
+
+    ib.fill(target.order_id, qty=total * 0.8, price=101.0)   # the rest
+    om.on_executions(START_IDX + 1)
+    assert sm.trades, "booked once flat"
+    t = sm.trades[-1]
+    assert t.qty == pytest.approx(total)
+    assert t.ret == pytest.approx(total * 1.0 / sm.cfg.sleeve_capital), \
+        "the return is on every share, not on the first slice"
+
+
+def test_amend_entry_is_inert_when_flat(tmp_path):
+    """It must never invent a position — replay depends on that."""
+    om, ib, sm = _om(tmp_path)
+    sm.amend_entry(123.45, 999)
+    assert sm._qty == 0.0 and not sm.in_position
+
+
+# ------------------------------------------- the 15:55 flatten (2026-08-06)
+def test_ensure_flat_never_stacks_duplicate_market_orders(tmp_path):
+    """Three sells of 541 against one long 541 is a short 1,082.
+
+    The loop re-sent a market order for the *whole* position on every attempt
+    with no pause between them, so on 2026-08-06 all three ran inside one second
+    against a position that could not possibly have settled yet. Failing to
+    flatten is bad; inverting the position is the one direction §11 forbids.
+    """
+    om, ib, sm = _armed(tmp_path, high=100.0)
+    ib.fill(om.entry_id, price=99.0)
+    om.on_executions(START_IDX)
+    held = ib.position("SOXL")
+    assert held > 0
+
+    ib.fill = lambda *a, **k: None          # nothing settles; every attempt sees the position
+    assert om.ensure_flat(attempts=3, settle=0) is False
+    sells = [o for o in ib.orders.values()
+             if o.order_type == "MKT" and o.action == "SELL"]
+    assert len(sells) == 1, \
+        f"one flatten order, re-used — not {len(sells)} stacked sells"
+    assert sells[0].qty == pytest.approx(held)
+
+
+def test_ensure_flat_returns_true_once_the_position_closes(tmp_path):
+    """A market order that behaves like one: sent, then filled."""
+    om, ib, sm = _armed(tmp_path, high=100.0)
+    ib.fill(om.entry_id, price=99.0)
+    om.on_executions(START_IDX)
+
+    real_place = ib.place_market
+    def place_and_fill(symbol, action, qty, order_ref):
+        oid = real_place(symbol, action, qty, order_ref)
+        ib.fill(oid, price=99.5)                  # as the market would
+        return oid
+    ib.place_market = place_and_fill
+
+    assert om.ensure_flat(attempts=3, settle=0) is True
+    assert abs(ib.position("SOXL")) < 1e-9
+    sells = [o for o in ib.orders.values()
+             if o.order_type == "MKT" and o.action == "SELL"]
+    assert len(sells) == 1, "one order was enough; no second attempt"
+
+
+def test_the_flatten_waits_for_the_bracket_to_actually_cancel(tmp_path):
+    """Cancelling is not the same as having cancelled.
+
+    2026-08-07: the flatten sent a market SELL for 1,680 about a millisecond
+    after asking IBKR to cancel the bracket, so the target and the stop were
+    still live. 1,680 shares were already committed to working sells, the
+    market order queued behind them, nothing filled, and the position went into
+    the weekend. `working: 3` in the reconcile line is the two bracket legs plus
+    the flatten.
+    """
+    om, ib, sm = _armed(tmp_path, high=100.0)
+    ib.fill(om.entry_id, price=99.0)
+    om.on_executions(START_IDX)
+    assert [o for o in ib.orders.values()
+            if o.action == "SELL" and o.status in ("Submitted", "PreSubmitted")], \
+        "the bracket is working before the flatten"
+
+    sent_while_working = []
+    real_place = ib.place_market
+    def place_and_check(symbol, action, qty, order_ref):
+        sent_while_working.append([
+            o for o in ib.orders.values()
+            if o.action == "SELL" and o.order_type in ("LMT", "STP")
+            and o.status in ("Submitted", "PreSubmitted")])
+        oid = real_place(symbol, action, qty, order_ref)
+        ib.fill(oid, price=99.5)
+        return oid
+    ib.place_market = place_and_check
+
+    assert om.ensure_flat(attempts=3, settle=0) is True
+    assert sent_while_working, "the flatten was sent"
+    assert sent_while_working[0] == [], \
+        "no bracket leg may still be working when the market order goes out"
+
+
+def test_clear_working_reports_what_it_could_not_cancel(tmp_path):
+    """A cancel that does not take must be named, not silently retried."""
+    said = []
+    om, ib, sm = _armed(tmp_path, high=100.0)
+    om.on_event = lambda l, m: said.append((l, m))
+    ib.fill(om.entry_id, price=99.0)
+    om.on_executions(START_IDX)
+    ib.cancel = lambda oid: None                 # cancels never take effect
+    assert om._clear_working(timeout=0.5) is False
+    assert any(l == "critical" and "still working" in m for l, m in said)

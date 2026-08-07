@@ -46,6 +46,12 @@ class EngineConfig:
     db_path: str = os.path.join(_HERE, "out", "live.db")
     capital_cap: float = CAPITAL_CAP
     bar_poll_seconds: float = 20.0
+    #: Status line every N seconds so silence is distinguishable from death.
+    heartbeat_seconds: float = 900.0
+    #: Touched every poll; `watchdog.py` reads its mtime as proof of life.
+    heartbeat_file: str = os.path.join(_HERE, "out", "heartbeat.json")
+    #: The watchdog connects with its own client id (§6.2).
+    watchdog_client_id: int = 12
     #: Stage 4 acceptance runs a whole session with this True: decisions are
     #: computed and logged, nothing reaches the market.
     transmit: bool = False
@@ -77,6 +83,8 @@ class EngineConfig:
             raise ConfigError("no symbols configured")
         if self.bar_poll_seconds <= 0:
             raise ConfigError("bar_poll_seconds must be positive")
+        if self.heartbeat_seconds < 0:
+            raise ConfigError("heartbeat_seconds must be >= 0 (0 disables)")
 
     # ---------------------------------------------------------------- I/O
     @classmethod
