@@ -818,6 +818,59 @@ The first ~3 sessions are shakedown and are excluded from the evidence set.
 
 ---
 
+# §7.4 · The watchdog — run it alongside the engine
+
+**A second terminal, every session, started before the engine.** It is the only
+thing that makes the flatten guarantee independent of the engine being correct.
+
+```bash
+cd ~/TradingModel
+source .venv-live/bin/activate
+python3 band_lab/live/watchdog.py
+```
+
+It sits silent and does nothing until one of two things is true:
+
+| Trigger | Covers |
+|---|---|
+| No engine heartbeat for **>2 minutes** during RTH | crash, hang, killed terminal, slept machine |
+| Past **15:58** and still holding a position or a working order | an engine that is alive, heartbeating, and wrong — which is what happened on 2026-08-05, -06 and -07 |
+
+Then it does exactly one thing: `reqGlobalCancel`, then market orders to flat.
+It cannot open a position — it has no code path that places a limit or a stop.
+
+Expected output on a normal day:
+
+```
+11:01:02 [watchdog info    ] watching | port 7497 clientId=12 | stale>120s or past 15:58 while exposed
+11:11:04 [watchdog info    ] ok — engine alive (18s), 1 position(s)
+```
+
+And when it earns its keep:
+
+```
+15:58:01 [watchdog critical] INTERVENING — past 15:58 and still exposed ({'SOXS': 1680.0}, 3 working) — §1 forbids holding overnight
+15:58:01 [watchdog info    ] global cancel sent
+15:58:01 [watchdog critical] SOXS watchdog flatten SELL 1680
+15:58:04 [watchdog info    ] FLAT after 1 flatten pass(es)
+```
+
+> **It uses clientId 12**, never the engine's 11. If you change `client_id` in a
+> config file, change `watchdog_client_id` too — two processes on one id will
+> fight.
+
+`--once` runs a single check and exits, which is what to use to confirm it can
+reach TWS before you rely on it:
+
+```bash
+python3 band_lab/live/watchdog.py --once      # prints its verdict, changes nothing
+```
+
+If it ever prints `HUMAN INTERVENTION REQUIRED`, it tried five times and failed —
+go to TWS immediately.
+
+---
+
 # §8 · Daily operation
 
 | Time (ET) | Action |

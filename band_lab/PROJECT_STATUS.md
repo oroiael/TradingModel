@@ -25,7 +25,7 @@ a command that was executed, not a claim carried forward.
 | Phase 2 · Stage 4 acceptance | One live session, transmit OFF | 🟡 **superseded** — the dry runs never reached 11:00 and `diagnose.py` now covers what they checked. See §4.6 |
 | Phase 2 · Stage 5 | Go live on paper, ≥4 weeks | 🟡 **underway — first real orders placed 2026-08-06.** Three more defects found, all fixed. See §4.7 |
 | Phase 2 · Stage 6 | `report.py` — daily shadow parity | ⬜ **not built** |
-| Phase 2 · Stage 7 | `risk.py`, `watchdog.py`, alerting, service supervision | ⬜ **not built** |
+| Phase 2 · Stage 7 | `risk.py`, alerting, service supervision | 🟡 **`watchdog.py` built 2026-08-07** (§6.2, 12 tests); `risk.py` and alerting still open |
 | Phase 3 | Live money at reduced size | ⬜ not started |
 
 **The step we are on: the paper run, session 1 complete.**
@@ -90,7 +90,7 @@ No §12 constant changed. Three re-test programmes tried and adopted nothing.
 | **No exit has ever filled against IBKR** | Entry, bracket and ratchet are proven live; no target or stop has executed, and the 15:55 flatten has never run against a real position. All three `PHASE2_PLAN.md` §6 assumptions remain open — above all §6.1, that a `STP` is broker-side and survives the engine dying | next sessions |
 | **`report.py` does not exist** (Stage 6) | There is no instrument to answer the S10/S11 question. Without it the paper run produces fills nobody diffs against the backtest, which is the *entire reason to launch* | Week 1 of the paper run |
 | **`risk.py` does not exist** (Stage 7) | `Engine.day_loss_breached()` measures the −8.5% condition and `run.py` breaks the session loop on it, but nothing enforces a dormant-until-cleared state | Before Phase 3 |
-| **`watchdog.py` does not exist** (Stage 7) | If the engine hangs while holding a position, nothing independent flattens it. On paper this risks no money; on real money it is the difference between −4% and unbounded | Before Phase 3 |
+| ~~`watchdog.py` does not exist~~ | ✅ Built 2026-08-07 after three consecutive sessions where the engine failed to flatten. Fires on a stale heartbeat (§6.2) **or** on still being exposed past 15:58 — the second trigger is the one that would have caught all three | done |
 | **No alerting** | `run.py` prints to the console and writes SQLite. There is no push, email or desktop notification of any kind, despite three documents describing them | Before unattended operation |
 | **No service supervision** | The engine is a foreground process started by hand. A reboot or a crash ends the trading day silently | Before unattended operation |
 | ~~Paper account not confirmed~~ | ✅ Resolved: NetLiquidation **$155,803** → `sleeve_capital` **$75,000**, the size the published cost rows assume | done 2026-08-03 |
@@ -427,7 +427,7 @@ difference between finding that at 08:30 and finding it at 11:00.
 ### F. Before Phase 3 (real money) — none of these is optional
 
 - [ ] `risk.py` — the −8.5% day-loss breaker, enforced not just measured
-- [ ] `watchdog.py` — separate process, heartbeat → `reqGlobalCancel` + flatten
+- [x] `watchdog.py` — separate process, heartbeat → `reqGlobalCancel` + flatten
 - [ ] Alerting (push / email / desktop) and service supervision
 - [ ] Acceptance tests §10.11, §10.12, §10.15, §10.16 green
 - [ ] Resolve the remaining `PHASE2_PLAN.md` §6 questions against IBKR docs
