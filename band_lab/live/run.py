@@ -18,6 +18,7 @@ re-fetches the session's bars rather than trusting memory, so starting at
 from __future__ import annotations
 
 import argparse
+import json
 import os
 import sys
 import time
@@ -110,6 +111,33 @@ class Runner:
         return any(not rt.dormant for rt in self.engine.sleeves.values())
 
     # --------------------------------------------------------- the session
+    def touch_heartbeat(self) -> None:
+        """Proof of life for `watchdog.py`, written every poll.
+
+        A file rather than the SQLite store: the watchdog must be able to tell
+        "the engine is alive" without taking a lock on the database the engine
+        is writing to, and an mtime is the cheapest possible statement of it.
+        """
+        path = self.cfg.heartbeat_file
+        if not path:
+            return
+        try:
+            os.makedirs(os.path.dirname(os.path.abspath(path)), exist_ok=True)
+            payload = {
+                "ts": datetime.now(NY).isoformat(),
+                "session": self.session,
+                "pid": os.getpid(),
+                "sleeves": {s: ("dormant" if rt.dormant else
+                                getattr(rt.sm.state, "name", "?"))
+                            for s, rt in self.engine.sleeves.items()},
+            }
+            tmp = f"{path}.tmp"
+            with open(tmp, "w") as fh:
+                json.dump(payload, fh)
+            os.replace(tmp, path)        # atomic; the watchdog never sees a partial
+        except Exception:                                   # noqa: BLE001
+            pass                         # a heartbeat must never kill the session
+
     def heartbeat(self) -> None:
         """Periodic proof of life.
 
@@ -160,6 +188,7 @@ class Runner:
                                         f"skipped; later bars still processed")
                 self.engine.poll(max((f.last_idx for f in self.feeds.values()),
                                      default=-1))
+                self.touch_heartbeat()
                 if self.engine.day_loss_breached():
                     self._event("critical", "day-loss condition — flattening early")
                     break
