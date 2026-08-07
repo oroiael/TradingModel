@@ -80,9 +80,40 @@ with the comment *"Bypasses buggy ThetaClient SDK"*. ThetaData returns
 split-adjusted stock bars and has the depth. That is the pattern
 `fas_1min_fetch.py` defaults to.
 
-I am inferring this, not reading it off a log. If you know the SOXL 1-minute
-file came from somewhere else, tell me and I'll retarget the script — the
-format and validation layers are source-independent.
+### Corroborated by UVXY_1min.csv
+
+`UVXY_1min.csv` was merged into this branch from `main` after the above was
+written, and it fits the same pattern exactly — which strengthens the case:
+
+| | SOXL_1min | SOXS_1min | UVXY_1min |
+|---|---|---|---|
+| starts | 2019-12-31 | 2019-12-31 | **2019-12-31** |
+| sessions | 1,653 | — | 1,654 |
+| bars/session | 390 / 210 | — | **390 / 210** |
+| split jumps | 0 | 0 | **0** |
+| first close | $17.94 | $5,160,020 | **$35,125** |
+| volume | integral | fractional | **fractional (68.5692)** |
+
+Three things follow:
+
+1. **All three start on exactly 2019-12-31.** IBKR walking backwards until it
+   runs out would give ragged, symbol-specific start dates. An identical start
+   across three unrelated tickers is a vendor with a fixed history depth.
+2. **Fractional share volume is the decisive tell.** UVXY's first bar reports
+   `68.5692` shares. IBKR returns integer share volume for stocks. A value like
+   that is raw volume divided by a cumulative split factor — i.e. a feed that
+   back-adjusts price *and* volume. UVXY traded near $12 in Dec 2019, not
+   $35,125, so the prices are scaled up for its reverse-split history, exactly
+   like SOXS.
+3. **`check_tws.py`, committed alongside UVXY_1min.csv, does not fetch bars.**
+   It connects, qualifies SOXL, prints the conId and NetLiquidation, and
+   disconnects — a TWS connectivity smoke test, most likely for the live engine
+   in `band_lab/live`, not the capture path.
+
+I am still inferring the specific vendor, not reading it off a log. If you know
+which tool produced these, tell me and I will retarget the default — the format
+and validation layers are source-independent, so only the fetch function
+changes.
 
 ## The exact spec being matched
 
@@ -144,6 +175,14 @@ notional of $528K against SPXL's $3.76M, and 348 zero-volume 5-minute bars
 versus SPXL's 22. Expect materially more zero-volume 1-minute bars than SOXL's
 1.26%, especially in 2020. That is real, not a capture defect — but if the rate
 is very high, per-minute fill assumptions built on this file need care.
+
+**Expect a volume mismatch if FAS turns out to be split-adjusted.** If FAS had
+a corporate action before 2020-07-23 and the 1-minute feed back-adjusts like
+SOXS and UVXY, then its volume will be scaled too, while `FAS_5min_6Years.csv`
+carries raw share counts. Step 5 of the verifier compares the two and will warn
+that "volume differs materially". On this evidence that is expected behaviour,
+not a defect — the return comparison in the same step is the check that decides
+whether the capture is sound.
 
 **Two sources in one file is a trap.** If you fetch part of the range from Theta
 and part from IBKR, you can end up with a split-basis seam mid-file. The verifier
