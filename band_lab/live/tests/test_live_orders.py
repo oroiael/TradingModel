@@ -472,3 +472,50 @@ def test_ensure_flat_returns_true_once_the_position_closes(tmp_path):
     sells = [o for o in ib.orders.values()
              if o.order_type == "MKT" and o.action == "SELL"]
     assert len(sells) == 1, "one order was enough; no second attempt"
+
+
+def test_the_flatten_waits_for_the_bracket_to_actually_cancel(tmp_path):
+    """Cancelling is not the same as having cancelled.
+
+    2026-08-07: the flatten sent a market SELL for 1,680 about a millisecond
+    after asking IBKR to cancel the bracket, so the target and the stop were
+    still live. 1,680 shares were already committed to working sells, the
+    market order queued behind them, nothing filled, and the position went into
+    the weekend. `working: 3` in the reconcile line is the two bracket legs plus
+    the flatten.
+    """
+    om, ib, sm = _armed(tmp_path, high=100.0)
+    ib.fill(om.entry_id, price=99.0)
+    om.on_executions(START_IDX)
+    assert [o for o in ib.orders.values()
+            if o.action == "SELL" and o.status in ("Submitted", "PreSubmitted")], \
+        "the bracket is working before the flatten"
+
+    sent_while_working = []
+    real_place = ib.place_market
+    def place_and_check(symbol, action, qty, order_ref):
+        sent_while_working.append([
+            o for o in ib.orders.values()
+            if o.action == "SELL" and o.order_type in ("LMT", "STP")
+            and o.status in ("Submitted", "PreSubmitted")])
+        oid = real_place(symbol, action, qty, order_ref)
+        ib.fill(oid, price=99.5)
+        return oid
+    ib.place_market = place_and_check
+
+    assert om.ensure_flat(attempts=3, settle=0) is True
+    assert sent_while_working, "the flatten was sent"
+    assert sent_while_working[0] == [], \
+        "no bracket leg may still be working when the market order goes out"
+
+
+def test_clear_working_reports_what_it_could_not_cancel(tmp_path):
+    """A cancel that does not take must be named, not silently retried."""
+    said = []
+    om, ib, sm = _armed(tmp_path, high=100.0)
+    om.on_event = lambda l, m: said.append((l, m))
+    ib.fill(om.entry_id, price=99.0)
+    om.on_executions(START_IDX)
+    ib.cancel = lambda oid: None                 # cancels never take effect
+    assert om._clear_working(timeout=0.5) is False
+    assert any(l == "critical" and "still working" in m for l, m in said)

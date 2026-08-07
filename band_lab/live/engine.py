@@ -236,8 +236,6 @@ class Engine:
         """
         out = {}
         for symbol, rt in self.sleeves.items():
-            rt.om._cancel_entry()
-            rt.om._cancel_bracket()
             flat = rt.om.ensure_flat(settle=settle)
             if rt.sm.in_position and not flat:
                 pos = self.broker.position(symbol)

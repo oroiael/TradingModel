@@ -456,7 +456,40 @@ class OrderManager:
                 out.append(w)
         return out
 
-    def ensure_flat(self, attempts: int = 3, settle: float = 2.0) -> bool:
+    def _clear_working(self, timeout: float = 5.0) -> bool:
+        """Cancel every non-flatten order and wait for the broker to confirm.
+
+        `cancel` is asynchronous. The first flatten sent a market SELL for the
+        whole position roughly a millisecond after asking IBKR to cancel the
+        bracket, so on 2026-08-07 the target and the stop were still live: 1,680
+        shares already committed to working sell orders, and a second sell for
+        the same 1,680 behind them. Nothing filled, and the position went into
+        the weekend.
+
+        Cancelling is not the same as *having cancelled*. This waits for the
+        difference.
+        """
+        self._cancel_bracket()
+        self._cancel_entry()
+        deadline = time.time() + timeout
+        while True:
+            stuck = [w for w in self.broker.working_orders(self.symbol)
+                     if not (parse_ref(w.order_ref)
+                             and parse_ref(w.order_ref)[2] == ROLE_FLAT)]
+            if not stuck:
+                return True
+            if time.time() >= deadline:
+                self.on_event("critical",
+                              f"{self.symbol} {len(stuck)} order(s) still working "
+                              f"after {timeout:.0f}s of cancel: "
+                              + ", ".join(f"{w.order_type} {w.action} "
+                                          f"{w.remaining:.0f} ({w.status})"
+                                          for w in stuck)
+                              + " — they hold the shares the flatten needs")
+                return False
+            time.sleep(0.25)
+
+    def ensure_flat(self, attempts: int = 5, settle: float = 3.0) -> bool:
         """§4.7 — re-send until flat; critical alert if not flat by 16:00.
 
         Two things this has to get right, and the first version got neither.
@@ -482,9 +515,11 @@ class OrderManager:
                               f"{self.symbol} flatten already working for "
                               f"{sum(w.remaining for w in already):.0f} — waiting, "
                               f"not re-sending")
+                # A flatten that is working but not filling is usually blocked by
+                # something else holding the shares, so keep clearing.
+                self._clear_working(timeout=2.0)
             else:
-                self._cancel_bracket()
-                self._cancel_entry()
+                self._clear_working()
                 ref = self._next_ref(ROLE_FLAT)
                 self.broker.place_market(self.symbol, "SELL" if pos > 0 else "BUY",
                                          abs(pos), ref)
