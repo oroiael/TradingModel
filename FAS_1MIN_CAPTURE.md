@@ -9,11 +9,36 @@ Three scripts, matching what exists for SOXL:
 | `fas_1min_selftest.py` | offline tests of the parser, formatter and resume logic |
 
 ```bash
-java -jar ThetaTerminalv3.jar          # in another shell
-python3 fas_1min_fetch.py --probe      # confirm the endpoint before a 6-year pull
-python3 fas_1min_fetch.py              # resumable; safe to Ctrl-C and rerun
-python3 fas_1min_verify.py             # integrity + cross-check vs the 5-min file
+pip install -r band_lab/live/requirements.txt   # see Dependencies below
+java -jar ThetaTerminalv3.jar                   # in another shell
+python3 fas_1min_fetch.py --probe               # confirm the endpoint first
+python3 fas_1min_fetch.py                       # resumable; safe to Ctrl-C
+python3 fas_1min_verify.py                      # integrity + cross-check
 ```
+
+## Dependencies
+
+`.venv-live` is built from `band_lab/live/requirements.txt`, which listed
+pandas, numpy, pytest, ib_async and tzdata — but **not `requests`**, so the
+first run of `--probe` died with `ModuleNotFoundError: No module named
+'requests'`. `local_fast_fetch.py` had the same latent dependency and would
+have failed the same way.
+
+Fixed two ways:
+
+- `requests>=2.31` is now listed in `band_lab/live/requirements.txt`.
+- `fas_1min_fetch.py` imports it softly. The ThetaData path needs it; the IBKR
+  path (ib_async) and `fas_1min_selftest.py` do not, so those still run without
+  it, and the Theta path prints an install instruction and exits 1 rather than
+  throwing a traceback:
+
+```
+[!] the ThetaData path needs the 'requests' package, which is not installed...
+    Install it:  python3 -m pip install requests
+    Or use the broker instead:  --source ibkr
+```
+
+Quick fix if you just want to get going: `pip install requests`.
 
 ---
 

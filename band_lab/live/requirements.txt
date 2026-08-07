@@ -11,6 +11,11 @@ numpy>=1.26
 pytest>=8.0
 ib_async>=2.0
 
+# The ThetaData REST fetchers (fas_1min_fetch.py, local_fast_fetch.py) talk to
+# the local Theta Terminal over HTTP. Both predate this file listing it, so a
+# venv built from here fails at `import requests` on first run.
+requests>=2.31
+
 # Windows has no system IANA database, so `ZoneInfo("America/New_York")` — which
 # every timestamp in the engine depends on — raises unless this is installed.
 # It arrives transitively via ib_async today; named here so it cannot vanish.

@@ -65,7 +65,15 @@ import time
 from datetime import date, datetime, timedelta
 
 import pandas as pd
-import requests
+
+# `requests` is only needed for the ThetaData path; the IBKR path uses
+# ib_async instead. Import it softly so `--source ibkr` and the offline
+# self-test still run in an environment that lacks it -- band_lab/live's
+# requirements.txt did not list it, which is exactly how this bit users.
+try:
+    import requests
+except ImportError:                                          # pragma: no cover
+    requests = None
 
 ROOT = os.path.dirname(os.path.abspath(__file__))
 COLUMNS = ["Date", "Open", "High", "Low", "Close", "Volume"]
@@ -121,6 +129,19 @@ def existing_span(path: str):
 
 
 # ---------------------------------------------------------------- ThetaData
+def require_requests() -> bool:
+    """Report a missing dependency as an instruction, not a traceback."""
+    if requests is not None:
+        return True
+    print("[!] the ThetaData path needs the 'requests' package, which is not "
+          "installed in this environment.\n"
+          f"    Install it:  {os.path.basename(sys.executable)} -m pip install requests\n"
+          "    (band_lab/live/requirements.txt now lists it, so you can also run:\n"
+          "     pip install -r band_lab/live/requirements.txt)\n"
+          "    Or use the broker instead:  --source ibkr")
+    return False
+
+
 def theta_get(path: str, params: dict, timeout: int = 60):
     """GET against the local Theta Terminal, following its pagination header."""
     url = f"{THETA_BASE}{path}"
@@ -185,6 +206,8 @@ def theta_frame(pages) -> pd.DataFrame:
 
 def fetch_theta(symbol: str, start: date, end: date, path: str,
                 pause: float, chunk_days: int) -> int:
+    if not require_requests():
+        return 1
     print(f"source: ThetaData local terminal at {THETA_BASE}")
     try:
         requests.get(THETA_BASE, timeout=4)
@@ -312,6 +335,8 @@ def fetch_ibkr(symbol: str, start: date, path: str, host: str, port: int,
 # ------------------------------------------------------------------- probe
 def probe(symbol: str) -> int:
     """Fetch one day and dump the raw payload, so the parser can be checked."""
+    if not require_requests():
+        return 1
     day = "20260701"
     print(f"probing Theta stock OHLC for {symbol} on {day}\n")
     try:
