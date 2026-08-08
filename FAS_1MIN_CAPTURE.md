@@ -9,11 +9,16 @@ Three scripts, matching what exists for SOXL:
 | `fas_1min_selftest.py` | offline tests of the parser, formatter and resume logic |
 
 ```bash
-pip install -r band_lab/live/requirements.txt   # see Dependencies below
-java -jar ThetaTerminalv3.jar                   # in another shell
-python3 fas_1min_fetch.py --probe               # confirm the endpoint first
-python3 fas_1min_fetch.py                       # resumable; safe to Ctrl-C
-python3 fas_1min_verify.py                      # integrity + cross-check
+# IBKR is the default source, matching the 5-minute ETF files.
+# Start TWS/Gateway first (paper port 7497), then:
+python3 check_tws.py                                 # connectivity smoke test
+python3 fas_1min_fetch.py --normalize-splits         # resumable; safe to Ctrl-C
+python3 fas_1min_verify.py                           # integrity + cross-check
+
+# ThetaData remains available if IBKR's 1-minute depth falls short:
+#   pip install -r band_lab/live/requirements.txt
+#   java -jar ThetaTerminalv3.jar
+#   python3 fas_1min_fetch.py --source theta --probe
 ```
 
 ## Dependencies
@@ -42,78 +47,82 @@ Quick fix if you just want to get going: `pip install requests`.
 
 ---
 
-## What I found about how `SOXL_1min.csv` was actually made
+## Source: IBKR — correcting an earlier claim
 
-You asked me to review the successful captures first. The answer is not what the
-repo's own scripts imply, and it changes the recommendation.
+**An earlier version of this document argued the 1-minute files came from
+ThetaData rather than IBKR. That was wrong, and the reasoning was wrong.**
 
-**`band_lab/live/fetch_1min.py` was almost certainly never run.**
-`band_lab/live/PHASE2_PARITY.md` says outright: *"Both 1-minute files are in, in
-git-lfs, and neither needed a fetch."* The commits that added them (`37bf746`
-"1min files", `075d54e` "soxs 1min") add only the CSVs — the one code change in
-`37bf746` is a single line in `ibkr_intraday_fetcher.py` flipping `SYMBOL` from
-SOXS to VXX, which belongs to the 5-minute VXX file added in the same commit.
+The claim rested on three things: the files are split-adjusted while the 5-minute
+files are raw; all three start on exactly 2019-12-31; and UVXY reports fractional
+share volume (68.5692), which I asserted "cannot come from IBKR". That last point
+is simply false — IBKR split-adjusts volume as well as price. UVXY's cumulative
+reverse-split factor is roughly 2,900x, so 68.5692 x 2,900 is about 200,000
+shares, an ordinary opening minute. The identical start dates are equally well
+explained by the same `--start` being passed each time.
 
-**The 1-minute files are not on the same price basis as the 5-minute files.**
-This is the important part:
+The decisive evidence is that the two SOXL files are the *same data*:
 
-| | `SOXL_5min_6Years.csv` | `SOXL_1min.csv` |
-|---|---|---|
-| built by | `ibkr_intraday_fetcher.py` (IBKR) | unknown |
-| starts | 2020-07-16 at $200.01 | 2019-12-31 at **$17.94** |
-| basis | **raw / unadjusted** (per `drift_lab/DATA_NOTES.md`) | **split-adjusted** |
+| | 2021-02-26 | 2021-03-01 | 2021-03-02 | 2021-03-03 |
+|---|---|---|---|---|
+| `SOXL_5min_6Years.csv` (IBKR) | 579.77 | **636.49** | 38.55 | 34.98 |
+| `SOXL_1min.csv` | 38.65 | **42.43** | 38.55 | 34.98 |
 
-SOXL traded near $269 on 2019-12-31. $269 / 15 = $17.9 — the 1-minute file has
-the 2021-03-02 15:1 split already applied. `fas_1min_verify.py` confirms this
-mechanically: aggregating `SOXL_1min.csv` to 5 minutes and dividing by
-`SOXL_5min_6Years.csv` gives a ratio of exactly 1.0 after 2021-03-02 and 1/15
-before it, with the step landing on **2021-03-02 09:30, factor 14.9925**.
+Identical after the 2021-03-02 split, and exactly 15x apart before it
+(636.49 / 15 = 42.43). One vendor, one dataset, two adjustment anchors.
 
-So the two files came from different pipelines. The 1-minute data also reaches
-2019-12-31, well beyond IBKR's usual 1-minute retention — `fetch_1min.py`'s own
-docstring warns it "may not reach 2022".
+IBKR adjusts historical bars for corporate actions relative to each request's
+`endDateTime`, not to today. `ibkr_intraday_fetcher.py` walks backwards in
+one-week chunks with `endDateTime` in the past, so pre-split chunks come back on
+the basis that was current then — which is precisely the visible 15:1 jump
+`drift_lab/DATA_NOTES.md` records. A fetch anchored differently returns the same
+data already adjusted. **The basis is a property of how the fetch was chunked,
+not of who supplied the data.**
 
-**Most likely source: ThetaData.** `.env` holds `THETADATA_USERNAME` /
-`THETADATA_PASSWORD`, several scripts here use it, and `local_fast_fetch.py`
-already talks to the local Theta Terminal REST server directly — deliberately,
-with the comment *"Bypasses buggy ThetaClient SDK"*. ThetaData returns
-split-adjusted stock bars and has the depth. That is the pattern
-`fas_1min_fetch.py` defaults to.
+So: `--source ibkr` is now the default, matching the 5-minute ETF files.
+ThetaData remains available as `--source theta` but is no longer the assumption.
 
-### Corroborated by UVXY_1min.csv
+## Getting a consistent basis, deliberately
 
-`UVXY_1min.csv` was merged into this branch from `main` after the above was
-written, and it fits the same pattern exactly — which strengthens the case:
+Since the anchor depends on chunking, the script no longer leaves it to chance.
+`--normalize-splits` re-anchors the finished file onto its most recent split era:
+it finds overnight jumps outside [0.60, 1.70], snaps each to a clean split factor
+(the observed ratio also contains that night's real price move, so it never lands
+exactly on 1/15), multiplies earlier prices by the factor and divides earlier
+volumes by it, preserving notional.
 
-| | SOXL_1min | SOXS_1min | UVXY_1min |
-|---|---|---|---|
-| starts | 2019-12-31 | 2019-12-31 | **2019-12-31** |
-| sessions | 1,653 | — | 1,654 |
-| bars/session | 390 / 210 | — | **390 / 210** |
-| split jumps | 0 | 0 | **0** |
-| first close | $17.94 | $5,160,020 | **$35,125** |
-| volume | integral | fractional | **fractional (68.5692)** |
+**Validated against the known-good pair.** Running the normalizer on the raw
+`SOXL_5min_6Years.csv` and comparing against `SOXL_1min.csv` aggregated to five
+minutes, over all 117,348 overlapping bars:
 
-Three things follow:
+```
+  2021-03-02: observed ratio 0.0675 -> snapped to 0.066667 (1-for-15)
 
-1. **All three start on exactly 2019-12-31.** IBKR walking backwards until it
-   runs out would give ragged, symbol-specific start dates. An identical start
-   across three unrelated tickers is a vendor with a fixed history depth.
-2. **Fractional share volume is the decisive tell.** UVXY's first bar reports
-   `68.5692` shares. IBKR returns integer share volume for stocks. A value like
-   that is raw volume divided by a cumulative split factor — i.e. a feed that
-   back-adjusts price *and* volume. UVXY traded near $12 in Dec 2019, not
-   $35,125, so the prices are scaled up for its reverse-split history, exactly
-   like SOXS.
-3. **`check_tws.py`, committed alongside UVXY_1min.csv, does not fetch bars.**
-   It connects, qualifies SOXL, prints the conId and NetLiquidation, and
-   disconnects — a TWS connectivity smoke test, most likely for the live engine
-   in `band_lab/live`, not the capture path.
+  close ratio: median 1.000000   min 0.999639   max 1.000350
+  pre-split  bars  12,174: ratio median 1.000000
+  post-split bars 105,174: ratio median 1.000000
+  max |ratio-1| across ALL bars: 0.000361
+  volume ratio: median 1.000000  (pre-split median 1.000000)
+```
 
-I am still inferring the specific vendor, not reading it off a log. If you know
-which tool produced these, tell me and I will retarget the default — the format
-and validation layers are source-independent, so only the fetch function
-changes.
+The normalizer turns the raw IBKR basis into exactly the `SOXL_1min.csv`
+convention, to within 0.036% — residual rounding from two-decimal source prices
+divided by 15.
+
+### Which basis to pick
+
+The repo already contains both conventions, and `band_lab/live/intrabar.py` has a
+`needs_split_adjustment()` heuristic that exists solely to paper over the
+mismatch. Two defensible choices:
+
+- **Match the other 1-minute files** (`--normalize-splits`): `FAS_1min.csv` lines
+  up with `SOXL_1min.csv`, `SOXS_1min.csv` and `UVXY_1min.csv`, which is what any
+  cross-sectional 1-minute work needs. **Recommended** — a 1-minute file's job is
+  to sit alongside the other 1-minute files.
+- **Match the 5-minute files** (omit the flag): raw, era-relative, consistent with
+  `FAS_5min_6Years.csv`, and split adjustment stays a read-time concern.
+
+Either way the verifier reports which basis you ended up on, so it is never a
+silent property.
 
 ## The exact spec being matched
 
