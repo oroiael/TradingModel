@@ -871,6 +871,39 @@ go to TWS immediately.
 
 ---
 
+# §7.5 · The report — run it after every close
+
+```bash
+python3 band_lab/live/report.py                    # today
+python3 band_lab/live/report.py --session 20260807
+python3 band_lab/live/report.py --weekly           # against the §8 baselines
+python3 band_lab/live/report.py --list             # what sessions exist
+```
+
+Read-only: it never writes to the store and never talks to a broker.
+
+It leads with **evidence quality**, because most sessions so far have not been
+usable evidence. A restart, a hand-placed order, a late start or a missing bar
+each makes the numbers describe that session rather than the strategy, and the
+report says so before it says anything else.
+
+Then, per sleeve:
+
+| Section | Question |
+|---|---|
+| LIVE | round trips walked out of the executions themselves — not out of the engine's own bookkeeping, since the point is to check that |
+| SHADOW | the same bars replayed through the same rules: what *should* have happened |
+| DIFFERENCE | live minus shadow, in bp. This is the fill-quality number |
+| §12.3 Q1 | entry fills below the prevailing ask. **If this is ever non-zero, IBKR's simulator is filling where the market did not trade, and paper cannot test assumption A1 at all** |
+| §12.3 Q2 | re-entry price against the price just sold. `PHASE2_PARITY.md` S11 predicts this is systematically positive — the backtest's re-entry being unachievable is the single largest open question in the project |
+
+`--weekly` puts the measured figures beside `IMPLEMENTATION_SPEC.md` §8 and the
+S11 planning numbers, and refuses to present a short sample as a measurement.
+The engine is ON ~52% of sessions, so four weeks yields only ~10–11 ON-days per
+sleeve; anything less is not yet data.
+
+---
+
 # §8 · Daily operation
 
 | Time (ET) | Action |

@@ -21,18 +21,22 @@ a command that was executed, not a claim carried forward.
 | Re-tests (V16–V18) | Re-sweep the churn parameters on 1-minute data | ✅ **complete** — nothing adopted, strategy unchanged |
 | Phase 1 | Clean-room backtest parity harness | ✅ **complete and PASSING** |
 | Phase 2 · Stage 1 | Live state machine proven equal to the backtest | ✅ **complete and PASSING** |
-| Phase 2 · Stages 2–4 | Broker adapter, store, orders, timetable, entrypoint | ✅ **code complete, 232 tests green**; trading against IBKR paper since 2026-08-06 |
+| Phase 2 · Stages 2–4 | Broker adapter, store, orders, timetable, entrypoint | ✅ **code complete, 265 tests green**; trading against IBKR paper since 2026-08-06 |
 | Phase 2 · Stage 4 acceptance | One live session, transmit OFF | 🟡 **superseded** — the dry runs never reached 11:00 and `diagnose.py` now covers what they checked. See §4.6 |
 | Phase 2 · Stage 5 | Go live on paper, ≥4 weeks | 🟡 **underway — first real orders placed 2026-08-06.** Three more defects found, all fixed. See §4.7 |
-| Phase 2 · Stage 6 | `report.py` — daily shadow parity | ⬜ **not built** |
+| Phase 2 · Stage 6 | `report.py` — daily shadow parity | ✅ **built 2026-08-07** — 12 tests, incl. §10.16's hand-computed fixture |
 | Phase 2 · Stage 7 | `risk.py`, alerting, service supervision | 🟡 **`watchdog.py` built 2026-08-07** (§6.2, 12 tests); `risk.py` and alerting still open |
 | Phase 3 | Live money at reduced size | ⬜ not started |
 
-**The step we are on: the paper run, session 1 complete.**
+**The step we are on: the paper run — two transmitting sessions so far, both
+shakedown.** 2026-08-06 and 2026-08-07. Attended, paper account, f=1.00 and
+w=0.50 per sleeve. `PHASE2_PLAN.md` Stage 5 excludes the first ~3 sessions, and
+both of these carry evidence-quality flags besides, so **the usable evidence
+about the strategy is still zero ON-days.**
 
-The engine placed its first real orders on 2026-08-06. It is attended, on a
-paper account, at f=1.00 and w=0.50 per sleeve, and the first ~3 sessions are
-shakedown and excluded from the evidence set.
+Stage 6 (`report.py`) and the watchdog were both built on 2026-08-07, out of
+plan order, because three consecutive failed closes made them the binding
+constraint rather than a Phase 3 prerequisite.
 
 **The single most important sentence in this document:** eight defects have been
 found in five live sessions, and every one of them was invisible to a test suite
@@ -88,7 +92,7 @@ No §12 constant changed. Three re-test programmes tried and adopted nothing.
 | Gap | Consequence | When it must exist |
 |---|---|---|
 | **No exit has ever filled against IBKR** | Entry, bracket and ratchet are proven live; no target or stop has executed, and the 15:55 flatten has never run against a real position. All three `PHASE2_PLAN.md` §6 assumptions remain open — above all §6.1, that a `STP` is broker-side and survives the engine dying | next sessions |
-| **`report.py` does not exist** (Stage 6) | There is no instrument to answer the S10/S11 question. Without it the paper run produces fills nobody diffs against the backtest, which is the *entire reason to launch* | Week 1 of the paper run |
+| ~~`report.py` does not exist~~ | ✅ Built 2026-08-07. Diffs live fills against the same bars replayed through the same rules, answers both §12.3 questions, and leads with evidence-quality flags because most sessions so far have not been usable evidence | done |
 | **`risk.py` does not exist** (Stage 7) | `Engine.day_loss_breached()` measures the −8.5% condition and `run.py` breaks the session loop on it, but nothing enforces a dormant-until-cleared state | Before Phase 3 |
 | ~~`watchdog.py` does not exist~~ | ✅ Built 2026-08-07 after three consecutive sessions where the engine failed to flatten. Fires on a stale heartbeat (§6.2) **or** on still being exposed past 15:58 — the second trigger is the one that would have caught all three | done |
 | **No alerting** | `run.py` prints to the console and writes SQLite. There is no push, email or desktop notification of any kind, despite three documents describing them | Before unattended operation |
@@ -102,8 +106,9 @@ No §12 constant changed. Three re-test programmes tried and adopted nothing.
 | 1–8, 13, 14 | ✅ pass in `band_lab/phase1` |
 | 9 (15:55 flatten reaches flat) | ✅ covered against `FakeIB`, ⬜ never against IBKR |
 | 10 (crash/restart reconcile) | 🟡 partially — reconnect idempotency and ratchet recovery are tested; the four named crash points are not |
-| 11 (disconnect → flatten), 12 (watchdog) | ⬜ open — Stage 7 |
-| 15 (session decision log), 16 (weekly report) | ⬜ open — Stage 6 |
+| 11 (disconnect → flatten) | ⬜ open — Stage 7 |
+| 12 (watchdog flattens independently) | ✅ covered against `FakeIB` by `watchdog.py`, ⬜ never fired against IBKR |
+| 15 (session decision log), 16 (weekly report) | ✅ covered by `report.py`, ⬜ never run on a clean session |
 
 The spec's own §10 table still shows 9 and 10 as fully open; that is now
 understated against `FakeIB`. It remains true that **none of 9–12 has completed
@@ -417,8 +422,7 @@ difference between finding that at 08:30 and finding it at 11:00.
 
 ### E. Week 1 of the paper run
 
-- [ ] **Build `report.py`** (Stage 6). This is the highest-priority remaining
-      work — without it the run generates fills nobody compares to the backtest
+- [x] **Build `report.py`** (Stage 6) — done 2026-08-07
 - [ ] Answer the two S10/S11 questions from the `fills` and `quotes` tables:
       did any fill occur without the quote reaching the limit, and on same-bar
       re-entries is the achieved price at or worse than the price just sold
