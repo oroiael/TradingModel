@@ -64,8 +64,17 @@ import sys
 import time
 from datetime import date, datetime, timedelta
 
+import numpy as np
 import pandas as pd
-import requests
+
+# `requests` is only needed for the ThetaData path; the IBKR path uses
+# ib_async instead. Import it softly so `--source ibkr` and the offline
+# self-test still run in an environment that lacks it -- band_lab/live's
+# requirements.txt did not list it, which is exactly how this bit users.
+try:
+    import requests
+except ImportError:                                          # pragma: no cover
+    requests = None
 
 ROOT = os.path.dirname(os.path.abspath(__file__))
 COLUMNS = ["Date", "Open", "High", "Low", "Close", "Volume"]
@@ -109,6 +118,63 @@ def merge_and_write(path: str, new: pd.DataFrame) -> int:
     return len(out)
 
 
+# Clean split factors to snap to. The observed overnight ratio also contains
+# that night's real price move, so it never lands exactly on 1/15 -- snapping
+# avoids baking that move into the adjustment.
+SPLIT_FACTORS = [1/n for n in (2, 3, 4, 5, 6, 7, 8, 10, 12, 15, 20, 25, 30, 40,
+                               50, 75, 100, 150, 200)]
+SPLIT_FACTORS += [1 / f for f in SPLIT_FACTORS]
+
+
+def detect_splits(daily_open: pd.Series, daily_close: pd.Series):
+    """Overnight jumps too large to be price moves, snapped to a clean factor."""
+    ratio = (daily_open / daily_close.shift(1)).dropna()
+    out = []
+    for dt_, r in ratio[(ratio < 0.6) | (ratio > 1.7)].items():
+        best = min(SPLIT_FACTORS, key=lambda f: abs(np.log(f) - np.log(r)))
+        out.append((dt_, best, float(r)))
+    return out
+
+
+def normalize_splits(path: str, verbose: bool = True) -> int:
+    """Re-anchor the whole file onto its most recent split era.
+
+    IBKR adjusts history relative to each request's endDateTime, so a backward
+    chunked fetch returns each era on the basis that was current at the time --
+    which is why SOXL_5min_6Years.csv still carries a visible 15:1 jump at
+    2021-03-02 while SOXL_1min.csv does not.  This makes the output basis a
+    deliberate choice rather than an artifact of how the fetch was chunked.
+
+    Prices before a split are multiplied by the factor and volumes divided,
+    which preserves notional traded.
+    """
+    df = pd.read_csv(path)
+    ts = pd.to_datetime(df["Date"].str.slice(0, 17), format="%Y%m%d %H:%M:%S")
+    day = ts.dt.normalize()
+    g = df.assign(_d=day).groupby("_d")
+    splits = detect_splits(g["Open"].first(), g["Close"].last())
+    if not splits:
+        if verbose:
+            print("no split discontinuity found -- file already on one basis")
+        return 0
+    for cut, factor, observed in splits:
+        pre = day < cut
+        for c in ("Open", "High", "Low", "Close"):
+            df.loc[pre, c] = df.loc[pre, c] * factor
+        df.loc[pre, "Volume"] = df.loc[pre, "Volume"] / factor
+        if verbose:
+            print(f"  {cut.date()}: observed ratio {observed:.4f} -> snapped to "
+                  f"{factor:.6f} (1-for-{1/factor:.0f})" if factor < 1 else
+                  f"  {cut.date()}: observed ratio {observed:.4f} -> snapped to "
+                  f"{factor:.6f} ({factor:.0f}-for-1)")
+    tmp = path + ".tmp"
+    df.to_csv(tmp, index=False)
+    os.replace(tmp, path)
+    if verbose:
+        print(f"  re-anchored {len(splits)} split(s); {path} now on one basis")
+    return len(splits)
+
+
 def existing_span(path: str):
     if not os.path.exists(path) or os.path.getsize(path) < 100:
         return None, None
@@ -121,6 +187,19 @@ def existing_span(path: str):
 
 
 # ---------------------------------------------------------------- ThetaData
+def require_requests() -> bool:
+    """Report a missing dependency as an instruction, not a traceback."""
+    if requests is not None:
+        return True
+    print("[!] the ThetaData path needs the 'requests' package, which is not "
+          "installed in this environment.\n"
+          f"    Install it:  {os.path.basename(sys.executable)} -m pip install requests\n"
+          "    (band_lab/live/requirements.txt now lists it, so you can also run:\n"
+          "     pip install -r band_lab/live/requirements.txt)\n"
+          "    Or use the broker instead:  --source ibkr")
+    return False
+
+
 def theta_get(path: str, params: dict, timeout: int = 60):
     """GET against the local Theta Terminal, following its pagination header."""
     url = f"{THETA_BASE}{path}"
@@ -185,6 +264,8 @@ def theta_frame(pages) -> pd.DataFrame:
 
 def fetch_theta(symbol: str, start: date, end: date, path: str,
                 pause: float, chunk_days: int) -> int:
+    if not require_requests():
+        return 1
     print(f"source: ThetaData local terminal at {THETA_BASE}")
     try:
         requests.get(THETA_BASE, timeout=4)
@@ -312,6 +393,8 @@ def fetch_ibkr(symbol: str, start: date, path: str, host: str, port: int,
 # ------------------------------------------------------------------- probe
 def probe(symbol: str) -> int:
     """Fetch one day and dump the raw payload, so the parser can be checked."""
+    if not require_requests():
+        return 1
     day = "20260701"
     print(f"probing Theta stock OHLC for {symbol} on {day}\n")
     try:
@@ -352,7 +435,8 @@ def main() -> int:
         epilog="Run --probe first. Then fas_1min_verify.py to validate output.")
     ap.add_argument("--symbol", default="FAS",
                     help="ticker (default FAS; works for any US equity/ETF)")
-    ap.add_argument("--source", default="theta", choices=("theta", "ibkr"))
+    ap.add_argument("--source", default="ibkr", choices=("ibkr", "theta"),
+                    help="default ibkr, matching the 5-minute ETF files")
     ap.add_argument("--start", default=DEFAULT_START,
                     help=f"earliest session YYYY-MM-DD (default {DEFAULT_START}, "
                          f"matching SOXL_1min.csv)")
@@ -364,6 +448,9 @@ def main() -> int:
                     help="days per Theta request (default 30)")
     ap.add_argument("--pause", type=float, default=0.4,
                     help="seconds between requests; use 11 for IBKR pacing")
+    ap.add_argument("--normalize-splits", action="store_true",
+                    help="after fetching, re-anchor the file onto its latest "
+                         "split era so it matches SOXL_1min.csv's convention")
     ap.add_argument("--probe", action="store_true",
                     help="fetch one day, print the raw payload, exit")
     ap.add_argument("--host", default="127.0.0.1")
@@ -387,11 +474,15 @@ def main() -> int:
     print(f"output: {out}\n")
 
     if args.source == "theta":
-        pause = args.pause
-        return fetch_theta(args.symbol, start, end, out, pause, args.chunk_days)
-    pause = args.pause if args.pause > 5 else 11.0     # IBKR pacing floor
-    return fetch_ibkr(args.symbol, start, out, args.host, args.port,
-                      args.client_id, args.duration, pause)
+        rc = fetch_theta(args.symbol, start, end, out, args.pause, args.chunk_days)
+    else:
+        pause = args.pause if args.pause > 5 else 11.0     # IBKR pacing floor
+        rc = fetch_ibkr(args.symbol, start, out, args.host, args.port,
+                        args.client_id, args.duration, pause)
+    if rc == 0 and args.normalize_splits and os.path.exists(out):
+        print("\nnormalizing split basis:")
+        normalize_splits(out)
+    return rc
 
 
 if __name__ == "__main__":
