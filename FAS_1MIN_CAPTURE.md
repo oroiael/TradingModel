@@ -12,7 +12,7 @@ Three scripts, matching what exists for SOXL:
 # IBKR is the default source, matching the 5-minute ETF files.
 # Start TWS/Gateway first (paper port 7497), then:
 python3 check_tws.py                                 # connectivity smoke test
-python3 fas_1min_fetch.py --normalize-splits         # resumable; safe to Ctrl-C
+python3 fas_1min_fetch.py --duration "1 W" --normalize-splits   # resumable
 python3 fas_1min_verify.py                           # integrity + cross-check
 
 # ThetaData remains available if IBKR's 1-minute depth falls short:
@@ -20,6 +20,33 @@ python3 fas_1min_verify.py                           # integrity + cross-check
 #   java -jar ThetaTerminalv3.jar
 #   python3 fas_1min_fetch.py --source theta --probe
 ```
+
+## Known failures fixed after first live run
+
+Two things broke on the first real run against TWS. Both are fixed and covered
+by `fas_1min_selftest.py` (34/34 passing).
+
+**1. `ModuleNotFoundError: No module named 'requests'`** — see Dependencies below.
+
+**2. `TypeError: can't compare offset-naive and offset-aware datetimes`**, after
+the first session came back cleanly (`20260807: +390 bars`). `ib_async` returns
+a timezone-**aware** datetime for intraday bars; my code only stripped a literal
+`" America/New_York"` *string* suffix, so the tzinfo survived into the loop
+cursor and the backwards-walk comparison blew up on the second iteration.
+
+Fixed with a single `bar_datetime()` funnel that normalizes every shape
+ib_async can return — tz-aware datetime, naive datetime, `date`, and the string
+forms — to naive New York wall-clock time, plus a defensive tz-strip on the
+DataFrame column. A UTC-stamped bar is *converted* to New York rather than
+merely stripped, which the tests check explicitly.
+
+The 390-bar first session is worth noting on its own: **IBKR's grid matches the
+`SOXL_1min.csv` spec exactly** (390 bars, 09:30–15:59), so the format assumption
+was right.
+
+**Speed.** The `1 D` default is one session per request: ~1,650 requests at 11s
+pacing is roughly 5 hours. `--duration "1 W"` is about 5x faster and generally
+works for 1-minute bars. Resume is safe, so interrupting costs at most one chunk.
 
 ## Dependencies
 

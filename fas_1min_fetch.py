@@ -13,47 +13,33 @@ Verified properties of the existing SOXL_1min.csv that this script reproduces:
   * the " America/New_York" suffix on every timestamp
   * volume written as a float, values integral
 
-WHICH SOURCE
-------------
-The repo's 5-minute files came from IBKR via ibkr_intraday_fetcher.py, and
-DATA_NOTES.md records them as RAW / unadjusted (SOXL opens at $200.01 in July
-2020, its true pre-split price).
+SOURCE
+------
+Defaults to IBKR, the same broker that produced the repository's 5-minute ETF
+files via ibkr_intraday_fetcher.py.  ThetaData is available as --source theta
+if IBKR's 1-minute retention does not reach the requested start.
 
-The 1-minute files are on a DIFFERENT basis: SOXL_1min.csv opens at $17.94 on
-2019-12-31, when SOXL actually traded near $269 -- i.e. it is SPLIT-ADJUSTED
-(269/15 = 17.9), and a discontinuity scan over it finds no split jump at all.
-It also reaches 2019-12-31, well past what IBKR normally retains for 1-minute
-bars, and band_lab/live/PHASE2_PARITY.md states the delivered 1-minute files
-"neither needed a fetch".
-
-So the 1-minute files did not come from the IBKR path in this repo.  The most
-likely source is ThetaData: .env carries THETADATA_* credentials, several
-scripts here use it, and local_fast_fetch.py already talks to the local Theta
-Terminal REST server directly (deliberately bypassing the Python SDK).  This
-script therefore defaults to that same proven local-REST pattern, with IBKR
-available as --source ibkr for the recent years.
-
-I could not verify the ThetaData stock endpoint from the environment this was
-written in, so the response parser maps columns BY NAME from the payload's own
-header rather than by position, and --probe fetches a single day and prints the
-raw response.  Run --probe first.
+A note on price basis, because it is not obvious: IBKR adjusts historical bars
+for corporate actions relative to each request's endDateTime, not to today.
+Walking backwards in chunks therefore returns each era on the basis that was
+current then -- which is why SOXL_5min_6Years.csv still carries a visible 15:1
+jump at 2021-03-02 while SOXL_1min.csv does not.  Use --normalize-splits to
+re-anchor the finished file onto one basis deliberately.
 
 USAGE
 -----
-    # 0. start the Theta Terminal in another shell (credentials from .env)
-    java -jar ThetaTerminalv3.jar
+    # start TWS / IB Gateway first (paper port 7497)
+    python3 check_tws.py                                  # connectivity
 
-    # 1. confirm the endpoint and payload shape before a six-year pull
-    python3 fas_1min_fetch.py --probe
+    # full fetch, resumable -- safe to Ctrl-C and rerun.
+    # "1 W" is ~5x faster than the "1 D" default and generally works.
+    python3 fas_1min_fetch.py --duration "1 W" --normalize-splits
 
-    # 2. full fetch, resumable -- safe to Ctrl-C and rerun
-    python3 fas_1min_fetch.py
-
-    # 3. validate the result (integrity + cross-check vs FAS_5min_6Years.csv)
+    # validate: integrity + cross-check against FAS_5min_6Years.csv
     python3 fas_1min_verify.py
 
-    # alternative source, if the Theta subscription does not cover stocks
-    python3 fas_1min_fetch.py --source ibkr --start 2020-08-01
+    # ThetaData alternative (needs the local terminal and `requests`)
+    python3 fas_1min_fetch.py --source theta --probe
 """
 
 from __future__ import annotations
@@ -63,6 +49,7 @@ import os
 import sys
 import time
 from datetime import date, datetime, timedelta
+from zoneinfo import ZoneInfo
 
 import numpy as np
 import pandas as pd
@@ -79,6 +66,7 @@ except ImportError:                                          # pragma: no cover
 ROOT = os.path.dirname(os.path.abspath(__file__))
 COLUMNS = ["Date", "Open", "High", "Low", "Close", "Volume"]
 ZONE = " America/New_York"
+NY = ZoneInfo("America/New_York")
 
 # SOXL_1min.csv starts here; matching it keeps the two files directly
 # comparable, which is the point of having both.
@@ -87,6 +75,41 @@ THETA_BASE = "http://127.0.0.1:25520"
 
 
 # ---------------------------------------------------------------- formatting
+def bar_datetime(value) -> datetime:
+    """Normalize any IBKR bar timestamp to NAIVE New York local time.
+
+    ib_async hands back a tz-AWARE datetime for intraday bars, a plain date for
+    daily bars, and a string under some configurations.  Letting an aware value
+    reach the cursor arithmetic raises
+
+        TypeError: can't compare offset-naive and offset-aware datetimes
+
+    which is exactly what happened after the first successful session.  Every
+    shape is funnelled through here so the rest of the module only ever sees
+    naive New York wall-clock time.
+    """
+    if isinstance(value, str):
+        txt = value.replace(ZONE, "").strip()
+        for fmt in ("%Y%m%d %H:%M:%S", "%Y%m%d  %H:%M:%S", "%Y%m%d-%H:%M:%S",
+                    "%Y-%m-%d %H:%M:%S", "%Y%m%d", "%Y-%m-%d"):
+            try:
+                return datetime.strptime(txt, fmt)
+            except ValueError:
+                continue
+        ts = pd.Timestamp(txt)                      # last resort
+        if ts.tzinfo is not None:
+            ts = ts.tz_convert(NY).tz_localize(None)
+        return ts.to_pydatetime()
+    # datetime must be tested before date -- datetime subclasses date
+    if isinstance(value, datetime):
+        if value.tzinfo is not None:
+            return value.astimezone(NY).replace(tzinfo=None)
+        return value
+    if isinstance(value, date):
+        return datetime(value.year, value.month, value.day)
+    raise TypeError(f"unhandled IBKR bar date {value!r} of type {type(value).__name__}")
+
+
 def to_rows(df: pd.DataFrame) -> pd.DataFrame:
     """Normalize any source frame to the repository's exact CSV shape."""
     out = pd.DataFrame({
@@ -371,13 +394,16 @@ def fetch_ibkr(symbol: str, start: date, path: str, host: str, port: int,
                 time.sleep(pause)
                 continue
             empty = 0
-            f = pd.DataFrame([{"ts": pd.to_datetime(str(b.date).replace(ZONE, "").strip()),
+            f = pd.DataFrame([{"ts": bar_datetime(b.date),
                                "Open": b.open, "High": b.high, "Low": b.low,
                                "Close": b.close, "Volume": b.volume} for b in bars])
+            if getattr(f["ts"].dt, "tz", None) is not None:      # defensive
+                f["ts"] = f["ts"].dt.tz_convert(NY).dt.tz_localize(None)
             total = merge_and_write(path, to_rows(f))
             oldest = f["ts"].min()
             print(f"  {oldest:%Y%m%d}: +{len(f)} bars  (file {total:,} rows)")
-            nxt = oldest.to_pydatetime().replace(hour=0, minute=0, second=0)
+            nxt = oldest.to_pydatetime().replace(hour=0, minute=0, second=0,
+                                                 microsecond=0)
             cursor = nxt if nxt < cursor else cursor - timedelta(days=1)
             time.sleep(pause)
 
@@ -456,7 +482,10 @@ def main() -> int:
     ap.add_argument("--host", default="127.0.0.1")
     ap.add_argument("--port", type=int, default=7497, help="IBKR: 7497 paper")
     ap.add_argument("--client-id", type=int, default=96)
-    ap.add_argument("--duration", default="1 D", help="IBKR per-request duration")
+    ap.add_argument("--duration", default="1 D",
+                    help='IBKR per-request duration. "1 D" is one session per\n'
+                         'request (~1650 requests, ~5h at 11s pacing). "1 W" is\n'
+                         'roughly 5x faster and generally works for 1-min bars.')
     args = ap.parse_args()
 
     if args.probe:

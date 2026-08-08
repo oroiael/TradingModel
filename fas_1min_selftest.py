@@ -21,7 +21,8 @@ import tempfile
 import pandas as pd
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from fas_1min_fetch import merge_and_write, theta_frame, to_rows  # noqa: E402
+from fas_1min_fetch import (bar_datetime, detect_splits, merge_and_write,  # noqa: E402
+                            theta_frame, to_rows)
 
 PASS, FAIL = [], []
 
@@ -121,6 +122,66 @@ with tempfile.TemporaryDirectory() as td:
 
     check("no .tmp left behind (atomic replace)",
           not os.path.exists(p + ".tmp"))
+
+# ------------------------------------------------------------------ ib dates
+print("\n4. IBKR bar-timestamp normalization")
+from datetime import datetime as _dt, date as _d, timezone as _tz, timedelta as _td
+from zoneinfo import ZoneInfo as _Z
+NY = _Z("America/New_York")
+
+# The exact shape that crashed the first live run: ib_async returns a tz-AWARE
+# datetime for intraday bars, which then could not be compared to a naive cursor.
+aware = _dt(2026, 8, 7, 9, 30, tzinfo=NY)
+got = bar_datetime(aware)
+check("tz-aware datetime -> naive", got.tzinfo is None, str(got))
+check("tz-aware wall clock preserved", got == _dt(2026, 8, 7, 9, 30), str(got))
+
+# A UTC-stamped bar must be converted to NY, not merely stripped.
+utc = _dt(2026, 8, 7, 13, 30, tzinfo=_tz.utc)          # 09:30 EDT
+got = bar_datetime(utc)
+check("UTC converted to New York (not just stripped)",
+      got == _dt(2026, 8, 7, 9, 30), str(got))
+
+check("naive datetime passes through",
+      bar_datetime(_dt(2026, 8, 7, 9, 30)) == _dt(2026, 8, 7, 9, 30))
+check("date -> midnight", bar_datetime(_d(2026, 8, 7)) == _dt(2026, 8, 7, 0, 0))
+check("string with zone suffix",
+      bar_datetime("20260807 09:30:00 America/New_York") == _dt(2026, 8, 7, 9, 30))
+check("string with double space",
+      bar_datetime("20260807  09:30:00") == _dt(2026, 8, 7, 9, 30))
+check("string date only", bar_datetime("20260807") == _dt(2026, 8, 7, 0, 0))
+check("ISO string", bar_datetime("2026-08-07 09:30:00") == _dt(2026, 8, 7, 9, 30))
+try:
+    bar_datetime(12345)
+    check("unknown type raises", False)
+except TypeError:
+    check("unknown type raises TypeError rather than corrupting the cursor", True)
+
+# the arithmetic that actually blew up
+cursor = _dt.now()
+oldest = pd.Series([bar_datetime(aware)]).min()
+nxt = oldest.to_pydatetime().replace(hour=0, minute=0, second=0, microsecond=0)
+try:
+    _ = nxt if nxt < cursor else cursor - _td(days=1)
+    check("cursor comparison no longer raises", True)
+except TypeError as e:
+    check("cursor comparison no longer raises", False, str(e))
+
+# ------------------------------------------------------------------ splits
+print("\n5. Split detection and snapping")
+idx = pd.to_datetime(["2021-02-26", "2021-03-01", "2021-03-02", "2021-03-03"])
+o = pd.Series([580.0, 600.0, 42.99, 35.0], index=idx)
+c = pd.Series([579.77, 636.49, 38.55, 34.98], index=idx)
+sp = detect_splits(o, c)
+check("detects the one split", len(sp) == 1, f"{len(sp)} found")
+if sp:
+    when, factor, observed = sp[0]
+    check("snaps to a clean 1-for-15", abs(factor - 1/15) < 1e-9,
+          f"factor={factor:.6f} from observed {observed:.4f}")
+    check("dates the split correctly", str(when.date()) == "2021-03-02", str(when))
+check("ordinary moves are not flagged",
+      len(detect_splits(pd.Series([100.0, 101.0], index=idx[:2]),
+                        pd.Series([100.0, 99.0], index=idx[:2]))) == 0)
 
 print("\n" + "=" * 72)
 print(f"{len(PASS)} passed, {len(FAIL)} failed")
