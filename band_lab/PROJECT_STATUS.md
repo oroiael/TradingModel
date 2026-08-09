@@ -459,6 +459,8 @@ document to read. This is the answer.
 | [`live/PHASE2_PLAN.md`](live/PHASE2_PLAN.md) | The build plan: stages, resolved spec gaps (§4), open IBKR questions (§6) |
 | [`live/PHASE2_PARITY.md`](live/PHASE2_PARITY.md) | **The one to read before deciding how much capital this deserves.** S10–S12, the 1-minute study |
 | [`live/DEPLOYMENT.md`](live/DEPLOYMENT.md) | macOS setup notes and background on TWS configuration. Superseded by `RUNBOOK.md` for the Windows machine |
+| [`AI_ROADMAP.md`](AI_ROADMAP.md) | **Planning only, nothing adopted.** Whether and how this becomes a learning system: why `report.py` comes before any model, why the first model is about execution rather than signal, and what §11 does and does not permit |
+| [`v2_dev/RESEARCH_AGENT_PRD.md`](v2_dev/RESEARCH_AGENT_PRD.md) | **Proposed, not built.** An agent that runs a v2_dev programme end to end and cannot adopt anything a human did not sign off |
 | [`phase1/PHASE1_PARITY.md`](phase1/PHASE1_PARITY.md) | The eight spec ambiguities the clean-room build found, and how each was resolved |
 | [`phase1/COST_MODEL.md`](phase1/COST_MODEL.md) | Commission and slippage arithmetic, by account size |
 | [`v2_dev/`](v2_dev/) | The development line. **Nothing here is approved for trading** |
