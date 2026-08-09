@@ -159,7 +159,7 @@ for every AI stage below.
 
 | stage | what it is | ML? | precondition | honest expected outcome |
 |---|---|---|---|---|
-| **0** | `report.py` — the measurement instrument | no | none | the training set for everything below |
+| **0** | `report.py` — the measurement instrument | no | none | ✅ **built 2026-08-09**; the training set for everything below starts accumulating on the next session |
 | **1** | invariants as code, then an ops agent | agent | Stage 0 | defect latency: one session → same session |
 | **2** | execution model (fill probability, sequencing) | **yes** | 4–8 weeks of fills | a calibrated number for "what does this earn" |
 | **3** | day-selection → **sizing multiplier**, not a gate | yes | Stages 0–2 | **most likely NOT ADOPTED** |
@@ -172,12 +172,17 @@ ahead reproduces the failure §1 describes.
 
 ## 5. Stage detail
 
-### Stage 0 — `report.py`. The prerequisite for everything.
+### Stage 0 — `report.py`. The prerequisite for everything. ✅ built 2026-08-09
 
-Already specified as Stage 6 of `live/PHASE2_PLAN.md` and already top of the
-Week 1 checklist. What matters for this roadmap is the *output shape*: a
+Specified as Stage 6 of `live/PHASE2_PLAN.md`; built and documented in
+`PROJECT_STATUS.md` §7. What matters for this roadmap is the *output shape*: a
 per-session, per-trade record of **what the backtest said** against **what the
-broker did**, joined on session and trade ordinal.
+broker did**, joined on session and trade ordinal — which
+`report.py --csv` now emits as `parity_<session>.csv` and
+`slippage_<session>.csv`.
+
+**It has not yet run on a real session**, so Stage 2 remains gated on fills,
+not on code.
 
 Deliverables:
 

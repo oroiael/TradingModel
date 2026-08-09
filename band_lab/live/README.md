@@ -40,7 +40,7 @@ every `PHASE2_PLAN.md` §6 assumption is still open. Step-by-step:
 | `config.py` | deployment config; delegates strategy numbers to §12 and refuses changes | 4 ✅ |
 | `features.py` | ATR5/thr80 bootstrap: CSV backbone + broker top-up, percentages only | 4 ✅ |
 | `feed.py` | 5-minute bar feed (polled historical), holds back the forming bar | 4 ✅ |
-| `report.py` | 16:10 reconcile, shadow parity, weekly §8 report | 6 |
+| `report.py` | shadow parity, S10/S11 fill quality, slippage, weekly §8 report | 6 ✅ |
 | `risk.py`, `watchdog.py` | day-loss breaker, kill switch, independent flatten | 7 |
 
 ## Run
@@ -51,6 +51,11 @@ python3 -m pytest band_lab/live -q        # all must pass
 python3 band_lab/live/run.py --dry-run     # Stage 4: a session with transmit OFF
 python3 band_lab/live/replay.py --sizing        # S9
 python3 band_lab/live/replay.py --fill-models   # S10
+
+# after a session — the diff the paper run exists to produce
+python3 band_lab/live/report.py                 # the latest session in live.db
+python3 band_lab/live/report.py --weekly        # §8, once the sample is long enough
+python3 band_lab/live/report.py --all --csv band_lab/live/out/
 
 # the 1-minute study — both files are in git-lfs, no fetch needed
 git lfs pull --include="SOXL_1min.csv,SOXS_1min.csv,SOXL_5min_6Years.csv,SOXS_5min_6Years.csv"
