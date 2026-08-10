@@ -16,6 +16,10 @@ band_lab/live/out/
 band_lab/live/config.local.toml
 band_lab/live/config.local.json
 
+# Session logs from run.py / watchdog.py — they carry balances, share counts
+# and fill prices. RUNBOOK_WINDOWS.md §G and RUNBOOK_MACOS.md §G write here.
+logs/
+
 # vix_lab: bulky regenerable logs (summary tables ARE committed)
 vix_lab/out/trades_*.csv
 vix_lab/out/*.txt
