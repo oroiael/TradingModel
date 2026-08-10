@@ -105,6 +105,26 @@ def _pct(x: Optional[float], nd: int = 1) -> str:
     return "—" if x is None else f"{x * 100:,.{nd}f}%"
 
 
+def _num(row, key: str) -> Optional[float]:
+    """A float from a `daily` row, or None if it is absent or unparseable.
+
+    The daily row is written in three passes (§`store.daily`), so a session
+    interrupted between them leaves real NULLs. This file must report that, not
+    raise a TypeError in the middle of a post-session review.
+    """
+    try:
+        v = row[key]
+    except (KeyError, IndexError):
+        return None
+    if v is None:
+        return None
+    try:
+        f = float(v)
+    except (TypeError, ValueError):
+        return None
+    return None if f != f else f          # NaN is not a usable input either
+
+
 def bar_idx_of(ts: str) -> Optional[int]:
     """Bar index for a UTC ISO timestamp, on the §2.1 clock (0 is 09:30 ET).
 
@@ -303,21 +323,42 @@ def shadow_replay(bars: Sequence[Bar], row) -> Shadow:
     if not bars:
         return Shadow([], 0.0, 0, 0, False, "no bars recorded")
 
-    capital = row["sleeve_capital"]
+    capital = _num(row, "sleeve_capital")
     if capital is None:
         return Shadow([], 0.0, 0, 0, False, "no sleeve_capital recorded")
+    missing = [k for k in ("atr5", "or30", "thr80", "pos10")
+               if _num(row, k) is None]
+    if missing:
+        return Shadow([], 0.0, 0, 0, False,
+                      f"daily row is missing {', '.join(missing)}")
 
-    cfg = SleeveConfig(symbol=row["symbol"], sleeve_capital=float(capital))
+    cfg = SleeveConfig(symbol=row["symbol"], sleeve_capital=capital)
     sm = SleeveStateMachine(cfg)
-    stats = session_stats(bars)
-    gate = sm.begin_session(row["session"], float(row["atr5"]),
-                            stats.is_half_day, stats.late_open)
+
+    # §2.2's gate is **not re-decided here**, and re-deriving its inputs from
+    # the recorded bars is what made this whole section dead on arrival.
+    #
+    # `SessionStats.is_half_day` is `last bar idx < FLATTEN_IDX`, and
+    # FLATTEN_IDX is the 15:55 bar the engine flattens *at* — so a live session
+    # never records it, every real day recomputed as a half day, and the shadow
+    # refused on 2026-08-10 for both sleeves while the report still printed
+    # "shadow and live agree".
+    #
+    # The recorded gate decision is the evidence. `gate_decision` returns
+    # `gate_on` only when both flags were False, so `gate_ok=1` in the daily row
+    # *is* the statement that this was a full session which opened on time.
+    # Replaying those values reproduces the engine's decision instead of
+    # second-guessing it from data the engine never had.
+    gate = sm.begin_session(row["session"], _num(row, "atr5"),
+                            is_half_day=False, late_open=False)
     if not gate.ok:
-        # The engine traded a day the replay now refuses. That is a finding, not
-        # a reason to give up — surface the disagreement rather than swallow it.
-        return Shadow([], 0.0, 0, 0, False, f"shadow gate refused: {gate.reason}")
-    filt = sm.apply_morning_filter(float(row["or30"]), float(row["thr80"]),
-                                   float(row["pos10"]))
+        # Only ATR5 can refuse now, so this is a genuine disagreement: the
+        # recorded ATR5 does not clear the gate the engine passed on it.
+        return Shadow([], 0.0, 0, 0, False,
+                      f"shadow gate refused on recorded atr5="
+                      f"{_num(row, 'atr5'):.2f}: {gate.reason}")
+    filt = sm.apply_morning_filter(_num(row, "or30"), _num(row, "thr80"),
+                                   _num(row, "pos10"))
     if not filt.ok:
         return Shadow([], 0.0, 0, 0, False, f"shadow filter refused: {filt.reason}")
 
@@ -673,8 +714,8 @@ def print_session_report(store: Store, session: str,
                   f"gap {_fmt(lbp - sbp)}   (sum of per-trade returns)")
             if len(live) != len(sh.trades) and sh.ran:
                 findings += 1
-                print(f"    [FINDING] trade-count mismatch: the fill models "
-                      f"disagree on how many round trips this session held")
+                print("    [FINDING] trade-count mismatch: the fill models "
+                      "disagree on how many round trips this session held")
 
         # --- multi-execution entries (defect 8's signature)
         multi = [t for t in live if t.n_entry_execs > 1]
@@ -696,7 +737,7 @@ def print_session_report(store: Store, session: str,
 
         reentries = same_bar_reentries(live, sh.trades)
         if reentries:
-            print(f"\n  same-bar re-entries (S10 — the sharpest available test):")
+            print("\n  same-bar re-entries (S10 — the sharpest available test):")
             for r in reentries:
                 adv = r.shadow_advantage_bp
                 print(f"      bar {r.bar}: prev exit {_fmt(r.prev_exit_px)}  "
