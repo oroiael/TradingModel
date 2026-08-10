@@ -7,9 +7,9 @@ it worked*; it contains no instructions.
 The instructions live in exactly one place: **[`live/RUNBOOK.md`](live/RUNBOOK.md)**
 — what to type, in what order. §0M is macOS, §0 is Windows.
 
-Last reviewed: **2026-08-06** — QA/QC pass (§4.1–4.5), the first live IBKR
-sessions (§4.6), and the first transmitting session (§4.7). Every PASS in §2 is
-a command that was executed, not a claim carried forward.
+Last reviewed: **2026-08-09** — QA/QC pass (§4.1–4.5), the first live IBKR
+sessions (§4.6), the first transmitting session (§4.7), and `report.py` (§7).
+Every PASS in §2 is a command that was executed, not a claim carried forward.
 
 ---
 
@@ -24,7 +24,7 @@ a command that was executed, not a claim carried forward.
 | Phase 2 · Stages 2–4 | Broker adapter, store, orders, timetable, entrypoint | ✅ **code complete, 232 tests green**; trading against IBKR paper since 2026-08-06 |
 | Phase 2 · Stage 4 acceptance | One live session, transmit OFF | 🟡 **superseded** — the dry runs never reached 11:00 and `diagnose.py` now covers what they checked. See §4.6 |
 | Phase 2 · Stage 5 | Go live on paper, ≥4 weeks | 🟡 **underway — first real orders placed 2026-08-06.** Three more defects found, all fixed. See §4.7 |
-| Phase 2 · Stage 6 | `report.py` — daily shadow parity | ⬜ **not built** |
+| Phase 2 · Stage 6 | `report.py` — daily shadow parity | 🟡 **built 2026-08-09, 42 tests** — never yet run on a real session's database |
 | Phase 2 · Stage 7 | `risk.py`, alerting, service supervision | 🟡 **`watchdog.py` built 2026-08-07** (§6.2, 12 tests); `risk.py` and alerting still open |
 | Phase 3 | Live money at reduced size | ⬜ not started |
 
@@ -88,7 +88,7 @@ No §12 constant changed. Three re-test programmes tried and adopted nothing.
 | Gap | Consequence | When it must exist |
 |---|---|---|
 | **No exit has ever filled against IBKR** | Entry, bracket and ratchet are proven live; no target or stop has executed, and the 15:55 flatten has never run against a real position. All three `PHASE2_PLAN.md` §6 assumptions remain open — above all §6.1, that a `STP` is broker-side and survives the engine dying | next sessions |
-| **`report.py` does not exist** (Stage 6) | There is no instrument to answer the S10/S11 question. Without it the paper run produces fills nobody diffs against the backtest, which is the *entire reason to launch* | Week 1 of the paper run |
+| ~~`report.py` does not exist~~ | ✅ Built 2026-08-09 (§7). Shadow parity, the two S10/S11 questions, per-fill slippage and the §8 comparison. **It has never been run against a real session's database** — every test drives it from fixtures, which is precisely the condition under which eight defects survived a green suite. Read its first real output with that in mind | done — first real use is the next session |
 | **`risk.py` does not exist** (Stage 7) | `Engine.day_loss_breached()` measures the −8.5% condition and `run.py` breaks the session loop on it, but nothing enforces a dormant-until-cleared state | Before Phase 3 |
 | ~~`watchdog.py` does not exist~~ | ✅ Built 2026-08-07 after three consecutive sessions where the engine failed to flatten. Fires on a stale heartbeat (§6.2) **or** on still being exposed past 15:58 — the second trigger is the one that would have caught all three | done |
 | **No alerting** | `run.py` prints to the console and writes SQLite. There is no push, email or desktop notification of any kind, despite three documents describing them | Before unattended operation |
@@ -103,7 +103,8 @@ No §12 constant changed. Three re-test programmes tried and adopted nothing.
 | 9 (15:55 flatten reaches flat) | ✅ covered against `FakeIB`, ⬜ never against IBKR |
 | 10 (crash/restart reconcile) | 🟡 partially — reconnect idempotency and ratchet recovery are tested; the four named crash points are not |
 | 11 (disconnect → flatten), 12 (watchdog) | ⬜ open — Stage 7 |
-| 15 (session decision log), 16 (weekly report) | ⬜ open — Stage 6 |
+| 15 (session decision log) | 🟡 the log is written; `report.py` renders it, not yet read on a real session |
+| 16 (weekly report matches hand-computed values) | ✅ `test_weekly_matches_hand_computed` — a fixture week computed by hand, §7 |
 
 The spec's own §10 table still shows 9 and 10 as fully open; that is now
 understated against `FakeIB`. It remains true that **none of 9–12 has completed
@@ -417,11 +418,13 @@ difference between finding that at 08:30 and finding it at 11:00.
 
 ### E. Week 1 of the paper run
 
-- [ ] **Build `report.py`** (Stage 6). This is the highest-priority remaining
-      work — without it the run generates fills nobody compares to the backtest
+- [x] **Build `report.py`** (Stage 6) — done 2026-08-09, §7
+- [ ] **Run it on a real session** and read the output critically. Fixtures are
+      not evidence; §4.6 is the standing proof of that
 - [ ] Answer the two S10/S11 questions from the `fills` and `quotes` tables:
       did any fill occur without the quote reaching the limit, and on same-bar
-      re-entries is the achieved price at or worse than the price just sold
+      re-entries is the achieved price at or worse than the price just sold —
+      `report.py` computes both; they need real fills to be meaningful
 - [ ] Make feature staleness an automatic refusal (§4.4 item 1)
 
 ### F. Before Phase 3 (real money) — none of these is optional
@@ -459,6 +462,8 @@ document to read. This is the answer.
 | [`live/PHASE2_PLAN.md`](live/PHASE2_PLAN.md) | The build plan: stages, resolved spec gaps (§4), open IBKR questions (§6) |
 | [`live/PHASE2_PARITY.md`](live/PHASE2_PARITY.md) | **The one to read before deciding how much capital this deserves.** S10–S12, the 1-minute study |
 | [`live/DEPLOYMENT.md`](live/DEPLOYMENT.md) | macOS setup notes and background on TWS configuration. Superseded by `RUNBOOK.md` for the Windows machine |
+| [`AI_ROADMAP.md`](AI_ROADMAP.md) | **Planning only, nothing adopted.** Whether and how this becomes a learning system: why `report.py` comes before any model, why the first model is about execution rather than signal, and what §11 does and does not permit |
+| [`v2_dev/RESEARCH_AGENT_PRD.md`](v2_dev/RESEARCH_AGENT_PRD.md) | **Proposed, not built.** An agent that runs a v2_dev programme end to end and cannot adopt anything a human did not sign off |
 | [`phase1/PHASE1_PARITY.md`](phase1/PHASE1_PARITY.md) | The eight spec ambiguities the clean-room build found, and how each was resolved |
 | [`phase1/COST_MODEL.md`](phase1/COST_MODEL.md) | Commission and slippage arithmetic, by account size |
 | [`v2_dev/`](v2_dev/) | The development line. **Nothing here is approved for trading** |
@@ -468,3 +473,44 @@ document to read. This is the answer.
 `band_lab/phase1/` is the reference implementation and must not be modified.
 `band_lab/live/` is the engine. `band_lab/v2_dev/` is research. The top level of
 `band_lab/` is the original research plus the specifications.
+
+---
+
+## 7. `report.py` — built 2026-08-09
+
+Stage 6. `band_lab/live/report.py`, 42 tests in
+`live/tests/test_live_report.py`. Read-only over `live.db`, no broker, no
+`ib_async` import; it cannot affect a trading decision, which keeps
+`store.py`'s rule that the broker is the only source of state.
+
+| section | what it answers |
+|---|---|
+| feature parity | recomputes §2.1's OR30 and pos10 from the *recorded* bars and diffs them against what the engine recorded. This is the §4.6 timezone defect caught for free, at no session's cost |
+| shadow parity | replays the session's own bars through `sleeve.py` with the backtest's fill rules and diffs trade by trade. Since `replay.py` already proves the state machine and the backtest agree exactly, any gap here is **execution** |
+| S10/S11 | §5's two questions — fills without a quote reaching the limit, and whether same-bar re-entries achieved a price at or worse than the one just sold — plus the shadow's price advantage on shared events |
+| slippage | per execution, against the resting limit and against the mid, signed so positive is always adverse |
+| §8 weekly | the published baselines from `phase1/out/monitoring_expectations.csv`, with the >20% rule |
+
+Three decisions worth knowing, each taken because of a specific past defect:
+
+1. **Trades are rebuilt from executions, not orders.** Defect 8 was exactly the
+   mistake of reading one order as one fill (541 shares settled as 300+210+31).
+   A report that walked orders would reproduce the bug it exists to detect;
+   this one walks executions and closes a round trip when the position returns
+   to flat, so any split is handled and a partial exit correctly leaves the
+   trade open.
+2. **The §8 break rule needs 20 sessions before it fires.** §8 says *a month*,
+   and on a three-session sample every metric deviates by more than 20%. A
+   report that opened every week crying wolf would be defects 6 and 7 again —
+   "a safety check that fires on healthy days is not a safety feature".
+3. **The fill-without-quote check requires positive evidence.** With no quotes
+   recorded it reports nothing rather than asserting a problem, for the same
+   reason.
+
+**What it does not do, and what that costs.** It has only ever run against
+fixtures. Every defect in §4 survived a green suite because it lived where a
+fixture cannot reach, and this file is not exempt from that: the first run
+against a real `live.db` is the real test, and the numbers it prints should be
+read sceptically until they have been checked by hand once. It also does not
+write to the store, does not run automatically at 16:10, and has no alerting —
+it is a command you run, which is the smallest thing that closes the loop.

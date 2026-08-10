@@ -62,6 +62,19 @@ so the production path cannot silently drift.
 | [V17_TRADE_CAP_TEST.md](V17_TRADE_CAP_TEST.md) | V7 trade cap, tested at the margin | **complete — NOT ADOPTED** |
 | [V18_VOL_GATE_TEST.md](V18_VOL_GATE_TEST.md) | V10 vol gate: cutoff × lookback | **complete — NOT ADOPTED** |
 
+## Tooling
+
+[**RESEARCH_AGENT_PRD.md**](RESEARCH_AGENT_PRD.md) — **proposed, not built.** An
+agent that runs a programme through phases P2–P5 of this discipline. Its
+integrity model exists for one reason: an agent that both writes the adoption
+bar and grades results against it will rationalise, so the bar is hash-committed
+before execution and the role that sees the results never sees the bar. It has
+no mechanism to adopt anything. Acceptance is reproducing V18's published
+NOT ADOPTED from its framing alone.
+
+Wider context — where this sits relative to models, agents and retrieval:
+[`../AI_ROADMAP.md`](../AI_ROADMAP.md).
+
 ## Run
 
 ```bash
