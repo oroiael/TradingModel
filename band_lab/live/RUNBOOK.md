@@ -15,6 +15,20 @@ Two rules while working through this:
 
 | | |
 |---|---|
+| **Windows 11 — the primary trading machine** | **[`RUNBOOK_WINDOWS.md`](RUNBOOK_WINDOWS.md)** — the whole path, start to finish, every stage |
+| **macOS — coding and backup trading** | **[`RUNBOOK_MACOS.md`](RUNBOOK_MACOS.md)** — the whole path, plus the failover procedure |
+
+Those two are the current, per-machine manuals: one-time setup, every stage's
+commands, the daily session, and the checks. **Use them.** This file remains as
+the combined reference they were built from — the platform-independent material
+here (the TWS settings in §4, the timeline in §7.0, the checks in §5.3 and §7.2,
+the troubleshooting in §9) is the same material, and nothing here contradicts
+them.
+
+Within this file:
+
+| | |
+|---|---|
 | **macOS** | **[§0M](#0m--macos--the-whole-path-start-to-finish)** — the whole path, start to finish |
 | **Windows 11** | [§0](#0--windows-if-the-machine-is-already-set-up--the-short-path) if already set up, otherwise §1 |
 
