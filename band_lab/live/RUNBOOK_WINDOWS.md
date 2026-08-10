@@ -23,8 +23,12 @@ All times are **America/New_York (ET)**.
 **The paper port is 7497** — everywhere in this document, without exception.
 7496 and 4001 are live-money ports and `EngineConfig.validate()` refuses them.
 
-Shell is **PowerShell**. The repo lives at **`C:\TradingModel`**. Python is
-invoked as **`python`** (not `python3`).
+Shell is **PowerShell — not Command Prompt.** See [§B.0](#b0-powershell-not-command-prompt);
+it is the first thing that goes wrong on a fresh box.
+
+The repo lives at **`C:\Users\churc\Documents\TradingModel`**. If you move it,
+substitute your location everywhere below. Python is invoked as **`python`**,
+never `python3`.
 
 | Section | Use it when |
 |---|---|
@@ -63,7 +67,32 @@ are the entire monitoring stack.
 # §B · One-time machine setup
 
 Skip to [§C](#c--the-fast-path--an-already-set-up-box) if `python --version`,
-`git --version` and `git lfs version` all already answer.
+`git --version` and `git lfs version` all already answer — but read §B.0 first
+even then.
+
+### B.0 PowerShell, not Command Prompt
+
+Windows ships two shells that look almost identical and are not
+interchangeable. **Every command in this document is PowerShell.** Command
+Prompt cannot run `.ps1` scripts at all — it reports
+`The system cannot find the path specified.`, which reads like a missing file
+rather than the wrong shell.
+
+**Tell them apart by the prompt:**
+
+| Shell | Prompt looks like | Use it? |
+|---|---|---|
+| **PowerShell** | `PS C:\Users\churc\Documents\TradingModel>` | ✅ **yes** — note the leading `PS` |
+| Command Prompt (cmd.exe) | `C:\Users\churc\Documents\TradingModel>` | ❌ no |
+
+To open PowerShell: **Win** → type `powershell` → **Windows PowerShell**. Or in
+an open Command Prompt, type `powershell` and press Enter — the prompt gains its
+`PS` prefix in place.
+
+> **If you must use Command Prompt**, the venv activator is a different file:
+> `.venv-live\Scripts\activate.bat` (no leading `.\`, no `.ps1`). Everything
+> after activation is the same, except `$LASTEXITCODE` and `Tee-Object`, which
+> are PowerShell-only. Don't — just open PowerShell.
 
 ### B.1 Install the tooling
 
@@ -101,9 +130,9 @@ Set-ExecutionPolicy -Scope CurrentUser RemoteSigned
 ### B.2 Get the code and the data
 
 ```powershell
-cd C:\
+cd C:\Users\churc\Documents
 git clone https://github.com/oroiael/TradingModel.git
-cd C:\TradingModel
+cd C:\Users\churc\Documents\TradingModel
 git checkout main
 git pull
 git log --oneline -1
@@ -120,7 +149,7 @@ The price files are stored in Git LFS and arrive as 132-byte pointer files
 otherwise. Nothing downstream works until they are real:
 
 ```powershell
-cd C:\TradingModel
+cd C:\Users\churc\Documents\TradingModel
 git lfs pull --include="SOXL_5min_6Years.csv,SOXS_5min_6Years.csv,SOXL_1min.csv,SOXS_1min.csv"
 ```
 
@@ -147,20 +176,37 @@ required only for the S10/S11 study (§F.4) and the `v2_dev` re-tests (§F.2).
 ### B.3 Build the Python environment
 
 ```powershell
-cd C:\TradingModel
+cd C:\Users\churc\Documents\TradingModel
 python -m venv .venv-live
 .\.venv-live\Scripts\Activate.ps1
 python -m pip install -U pip
 pip install -r band_lab\live\requirements.txt
 ```
 
+The activator is spelled **`Activate.ps1`** — capital A, and `Activate`, not
+`Active`. A typo here reports `The system cannot find the path specified.`,
+identically to the venv not existing at all. To tell those two apart:
+
+```powershell
+Get-ChildItem .\.venv-live\Scripts\Activate.ps1
+```
+
+Found → you mistyped it. `Cannot find path` → the venv was never created; run
+`python -m venv .venv-live` above.
+
 That installs `pandas`, `numpy`, `pytest`, `ib_async`, `requests` and
 **`tzdata`**. The last one matters on Windows specifically: Windows ships no
 IANA time-zone database, and every timestamp in the engine goes through
 `ZoneInfo("America/New_York")`.
 
-The prompt should now start with `(.venv-live)`. **Every command in this
-document assumes the venv is active.**
+**The prompt must now start with `(.venv-live)`:**
+
+```
+(.venv-live) PS C:\Users\churc\Documents\TradingModel>
+```
+
+If it does not, activation did not take and every later command runs against
+the wrong Python. **Every command in this document assumes the venv is active.**
 
 ### B.4 Stop the machine sleeping
 
@@ -182,7 +228,7 @@ cover 09:00–17:00 so it does not reboot mid-session.
 
 ### B.5 Keep session logs out of git
 
-The launch commands below write to `C:\TradingModel\logs\`. That directory is
+The launch commands below write to `C:\Users\churc\Documents\TradingModel\logs\`. That directory is
 gitignored — leave it that way. Session logs carry account balances, share
 counts and fill prices.
 
@@ -196,7 +242,7 @@ happen before the session.
 ### C.1 🔴 `git pull` — mandatory, every session
 
 ```powershell
-cd C:\TradingModel
+cd C:\Users\churc\Documents\TradingModel
 git checkout main
 git pull
 git log --oneline -1
@@ -210,7 +256,7 @@ Even on a working clone these arrive as 132-byte pointers unless someone ran
 `git lfs pull`:
 
 ```powershell
-cd C:\TradingModel
+cd C:\Users\churc\Documents\TradingModel
 git lfs pull --include="SOXL_5min_6Years.csv,SOXS_5min_6Years.csv"
 Get-ChildItem SOXL_5min_6Years.csv, SOXS_5min_6Years.csv |
     Select-Object Name, @{n='MB';e={[math]::Round($_.Length/1MB,1)}}
@@ -221,7 +267,7 @@ Must read **7.4 MB** and **8.3 MB**. If either says `0`, stop and fix it.
 ### C.3 Reinstall requirements — the file changes
 
 ```powershell
-cd C:\TradingModel
+cd C:\Users\churc\Documents\TradingModel
 .\.venv-live\Scripts\Activate.ps1
 pip install -r band_lab\live\requirements.txt
 ```
@@ -237,7 +283,7 @@ Not a formality — it is what proves the pull landed cleanly.
 **Run this whole block every time before a trading session**, not just once.
 
 ```powershell
-cd C:\TradingModel
+cd C:\Users\churc\Documents\TradingModel
 .\.venv-live\Scripts\Activate.ps1
 
 python -m pytest band_lab\phase1 -q
@@ -387,7 +433,7 @@ published number by hand.
 All commands assume:
 
 ```powershell
-cd C:\TradingModel
+cd C:\Users\churc\Documents\TradingModel
 .\.venv-live\Scripts\Activate.ps1
 ```
 
@@ -627,7 +673,7 @@ live will miss fills the backtest books, never the reverse.**
 ## G.1 08:00 — prepare
 
 ```powershell
-cd C:\TradingModel
+cd C:\Users\churc\Documents\TradingModel
 git checkout main
 git pull
 git log --oneline -1                # must be 014e9b4 or later
@@ -648,7 +694,7 @@ session anywhere — including the Mac and any Client Portal browser tab.
 ## G.2 08:30 — pre-flight
 
 ```powershell
-cd C:\TradingModel
+cd C:\Users\churc\Documents\TradingModel
 .\.venv-live\Scripts\Activate.ps1
 python band_lab\live\diagnose.py
 ```
@@ -662,7 +708,7 @@ finding error 162 at 08:30 and finding it at 11:00.
 guarantee independent of the engine being correct.
 
 ```powershell
-cd C:\TradingModel
+cd C:\Users\churc\Documents\TradingModel
 .\.venv-live\Scripts\Activate.ps1
 python band_lab\live\watchdog.py --once      # confirm it can reach TWS
 
@@ -707,7 +753,7 @@ If it ever prints `HUMAN INTERVENTION REQUIRED`, it tried five times and failed
 ## G.4 by 09:25 — terminal 1: the engine
 
 ```powershell
-cd C:\TradingModel
+cd C:\Users\churc\Documents\TradingModel
 .\.venv-live\Scripts\Activate.ps1
 
 mkdir logs -Force
@@ -922,7 +968,7 @@ is also why you look.
 ## I.2 Save the evidence
 
 ```powershell
-cd C:\TradingModel
+cd C:\Users\churc\Documents\TradingModel
 $d = Get-Date -f yyyyMMdd
 Copy-Item band_lab\live\out\live.db "$env:USERPROFILE\Desktop\live-$d.db"
 ```
@@ -1025,9 +1071,12 @@ Orders**. Do this **in TWS**, not through the engine.
 | `feature history is insufficient or stale — refusing to start` | The broker top-up returned nothing (usually error 162), so ATR5/thr80 would come from the CSV's last session. §2.2 forbids trading on stale data. Fix the top-up and re-run — do **not** work around it |
 | `+0 from broker` in the pre-open line | Same cause. Features are stale to 2026-07-21. Do not trade the session |
 | `replay.py` fails loading CSVs | LFS files are still pointers — re-run §C.2's `git lfs pull` |
-| `pytest band_lab\live` collects nothing | Run from `C:\TradingModel`; `conftest.py` sets `sys.path` |
+| `pytest band_lab\live` collects nothing | Run from `C:\Users\churc\Documents\TradingModel`; `conftest.py` sets `sys.path` |
 | `ZoneInfoNotFoundError` | `pip install tzdata` — Windows ships no IANA database. §B.3 |
-| `Activate.ps1 cannot be loaded` | `Set-ExecutionPolicy -Scope CurrentUser RemoteSigned`, once |
+| **`The system cannot find the path specified.`** on `.\.venv-live\Scripts\Activate.ps1` | Three causes, in the order they actually happen. **1.** You are in **Command Prompt**, not PowerShell — the prompt has no `PS` prefix, and cmd cannot run `.ps1` at all. §B.0. **2.** Typo: the file is `Activate.ps1`, not `Active.ps1`. **3.** The venv does not exist — `python -m venv .venv-live` (§B.3). `Get-ChildItem .\.venv-live\Scripts\Activate.ps1` separates 2 from 3 |
+| `'.\.venv-live\Scripts\Activate.ps1' is not recognized as an internal or external command` | Command Prompt again, wording differs by Windows build. §B.0 |
+| `Activate.ps1 cannot be loaded` / "running scripts is disabled on this system" | `Set-ExecutionPolicy -Scope CurrentUser RemoteSigned`, once. §B.1 |
+| Prompt does not show `(.venv-live)` | Activation did not take. Everything after this runs against the wrong Python and `pandas` will be missing. Re-run §B.3 |
 | `python` opens the Microsoft Store | Python is not on PATH — reinstall with "Add python.exe to PATH" |
 | Connection refused | Port 7497 vs 7496; trusted IP 127.0.0.1; TWS actually logged into **paper** |
 | `NotLiveDataError` | Market data is delayed — §E.4 |
@@ -1046,7 +1095,7 @@ Orders**. Do this **in TWS**, not through the engine.
 Prefix every line with:
 
 ```powershell
-cd C:\TradingModel ; .\.venv-live\Scripts\Activate.ps1
+cd C:\Users\churc\Documents\TradingModel ; .\.venv-live\Scripts\Activate.ps1
 ```
 
 | Stage | File | Command | Expected |
