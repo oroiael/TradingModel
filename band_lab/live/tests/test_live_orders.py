@@ -935,3 +935,51 @@ def test_a_broker_error_on_modify_does_not_kill_the_session(tmp_path):
     om.on_event = lambda lvl, msg: events.append((lvl, msg))
     _ratchet_to(om, sm, START_IDX, 110.0)              # must not raise
     assert any(lvl == "error" and "refused" in m for lvl, m in events), events
+
+
+# ------------- reconcile counts round trips, not executions (fix #6)
+def test_reconcile_agrees_when_one_entry_settles_in_many_executions(tmp_path):
+    """2026-08-10 reported MISMATCH on both sleeves, every session.
+
+    `broker_fills` counted executions (7 on SOXL, 31 on SOXS) against
+    `sm_fills`, which counts §2.7 round trips (1 and 3). Both numbers were
+    right about different things. SOXS reconciled perfectly — position 0, not
+    in position — and was still reported as a mismatch.
+    """
+    om, ib, sm = _armed(tmp_path, high=100.0)
+    eid = om.entry_id
+    full = ib.orders[eid].qty
+    for frac in (0.05, 0.20, 0.15, 0.25, 0.35):
+        ib.fill(eid, qty=full * frac, price=99.0)
+    om.on_executions(START_IDX)
+
+    r = om.reconcile()
+    assert r["broker_entry_execs"] == 5, "five executions really did arrive"
+    assert r["broker_fills"] == 1, "but they are one entry"
+    assert r["sm_fills"] == 1
+    assert r["agrees"] is True, r
+
+
+def test_reconcile_still_catches_a_real_disagreement(tmp_path):
+    """The check must keep its teeth: a position the state machine denies."""
+    om, ib, sm = _armed(tmp_path, high=100.0)
+    ib.positions["SOXL"] = 500.0          # held, with no fill ever seen
+    r = om.reconcile()
+    assert r["agrees"] is False
+    assert r["sm_in_position"] is False and r["position"] == pytest.approx(500.0)
+
+
+def test_reconcile_counts_two_separate_entries_as_two(tmp_path):
+    """Two round trips are two, however many executions each took."""
+    om, ib, sm = _armed(tmp_path, high=100.0)
+    for _ in range(2):
+        eid = om.entry_id
+        ib.fill(eid, qty=ib.orders[eid].qty * 0.5, price=99.0)
+        ib.fill(eid, price=99.0)
+        om.on_executions(START_IDX)
+        target = next(o for o in ib.orders.values()
+                      if o.order_type == "LMT" and o.action == "SELL"
+                      and is_working(o.status))
+        ib.fill(target.order_id, price=99.99)
+        om.on_executions(START_IDX)
+    assert om.reconcile()["broker_fills"] == 2 == sm.fills

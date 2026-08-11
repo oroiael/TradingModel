@@ -509,13 +509,24 @@ class OrderManager:
         pos = self.broker.position(self.symbol)
         working = self.broker.working_orders(self.symbol)
         execs = self.broker.executions(self.symbol)
-        entries = [e for e in execs
-                   if (parse_ref(e.order_ref) or ("", "", "", 0))[2] == ROLE_ENTRY]
-        stops = [e for e in execs
-                 if (parse_ref(e.order_ref) or ("", "", "", 0))[2] == ROLE_STOP]
+
+        def _role(e) -> str:
+            return (parse_ref(e.order_ref) or ("", "", "", 0))[2]
+
+        # Count *orders*, not executions. `sm.fills` and `sm.stop_outs` are
+        # §2.7 counters over logical round trips; IBKR settles one order in as
+        # many executions as the book requires, so comparing the two is a units
+        # error. On 2026-08-10 it read 7 executions against 1 fill on SOXL and
+        # 31 against 3 on SOXS, and reported MISMATCH on both — including SOXS,
+        # whose position reconciled perfectly at 0. A check that fires on every
+        # healthy session is one the operator learns to ignore, which is how
+        # defects 6 and 7 cost a session each.
+        entries = {e.order_ref for e in execs if _role(e) == ROLE_ENTRY}
+        stops = {e.order_ref for e in execs if _role(e) == ROLE_STOP}
         summary = dict(
             position=pos, working=len(working),
             broker_fills=len(entries), broker_stop_outs=len(stops),
+            broker_entry_execs=len([e for e in execs if _role(e) == ROLE_ENTRY]),
             sm_fills=self.sm.fills, sm_stop_outs=self.sm.stop_outs,
             sm_in_position=self.sm.in_position,
             agrees=(len(entries) == self.sm.fills
