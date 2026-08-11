@@ -86,6 +86,20 @@ def write_bars(store: Store, bars, symbol="SOXL", session=SESSION):
         store.bar(symbol, session, b.idx, b.open, b.high, b.low, b.close, b.volume)
 
 
+def write_session(store: Store, bars, symbol="SOXL", session=SESSION, **kw):
+    """Bars plus a daily row whose features are derived from those bars.
+
+    A real engine records what it decided on, so `or30` and `pos10` in the row
+    always agree with the stored bars. A fixture that declares them independently
+    trips `feature_parity` for a reason that has nothing to do with the test.
+    """
+    st = session_stats(bars)
+    kw.setdefault("or30", st.or30)
+    kw.setdefault("pos10", st.pos10)
+    write_bars(store, bars, symbol=symbol, session=session)
+    write_daily(store, symbol=symbol, session=session, **kw)
+
+
 def write_fill(store: Store, exec_id, role, side, qty, price, hh, mm,
                symbol="SOXL", session=SESSION, bid=None, ask=None):
     # `Store.fill` stamps its own `ts`, so the timestamp is set directly to keep
@@ -534,6 +548,92 @@ def test_baselines_load_from_the_parity_output():
 
 
 # ---------------------------------------------------------------- end to end
+# ------------------------------------------------- the sign-off (#2)
+def test_signoff_never_claims_agreement_when_the_shadow_did_not_run(store, capsys):
+    """The 2026-08-10 failure, as a test.
+
+    Both sleeves traded, the shadow refused on both, and the report signed off
+    "No findings. Shadow and live agree." Nothing had been compared.
+    """
+    write_session(store, flat_session_bars(76), atr5=2.0)   # gate_ok=1, ATR5 refuses
+    write_fill(store, "e1", "E", "BOT", 100, 99.0, 11, 5)
+    write_fill(store, "x1", "T", "SLD", 100, 100.0, 12, 0)
+
+    findings = report.print_session_report(store, SESSION, ["SOXL"])
+    out = capsys.readouterr().out
+    assert findings >= 1, "a traded sleeve with no shadow is a finding"
+    assert "NOT VERIFIED" in out
+    assert "Nothing was compared" in out
+    assert "agree" not in out.replace("No agreement is claimed", "")
+
+
+def test_signoff_flags_a_truncated_bar_record(store, capsys):
+    """A shadow force-flattened early is not a clean comparison. 76 bars is
+    what the engine records, and it is 1 short of the last holding bar."""
+    write_session(store, traded_session_bars(76))
+    write_fill(store, "e1", "E", "BOT", 757, 99.00, 11, 10)   # bar 20
+    write_fill(store, "x1", "T", "SLD", 757, 100.00, 11, 15)  # bar 21
+    assert report.print_session_report(store, SESSION, ["SOXL"]) == 0
+    out = capsys.readouterr().out
+    assert "PARTIALLY VERIFIED" in out
+    assert "force-flatten" in out
+    assert "No findings. Shadow and live agree" not in out
+
+
+def test_signoff_claims_agreement_only_on_a_complete_session(store, capsys):
+    """With the full tradable session recorded, the claim is earned."""
+    write_session(store, traded_session_bars(78))
+    write_fill(store, "e1", "E", "BOT", 757, 99.00, 11, 10)   # bar 20
+    write_fill(store, "x1", "T", "SLD", 757, 100.00, 11, 15)  # bar 21
+    assert report.print_session_report(store, SESSION, ["SOXL"]) == 0
+    out = capsys.readouterr().out
+    assert "Shadow and live agree" in out
+    assert "complete tradable session" in out
+    assert "NOT VERIFIED" not in out and "PARTIALLY VERIFIED" not in out
+
+
+def test_signoff_does_not_call_a_quiet_day_an_agreement(store, capsys):
+    """A sleeve that stood down was not compared and must not be reported as
+    though it had been."""
+    write_daily(store, gate=0, filter_ok=0)
+    report.print_session_report(store, SESSION, ["SOXL"])
+    out = capsys.readouterr().out
+    assert "nothing to compare" in out
+    assert "Shadow and live agree" not in out
+
+
+def test_a_stood_down_sleeve_is_not_a_finding(store, capsys):
+    """Standing down is the strategy working. It must not raise a finding."""
+    write_session(store, flat_session_bars(76), filter_ok=0)
+    assert report.print_session_report(store, SESSION, ["SOXL"]) == 0
+    assert "NOT VERIFIED" not in capsys.readouterr().out
+
+
+@pytest.mark.parametrize("n_bars,complete,missing", [
+    (78, True, 0),      # full session
+    (77, True, 0),      # through the last holding bar
+    (76, False, 1),     # what the engine actually records
+    (70, False, 7),
+    (0, False, 77),
+])
+def test_bar_coverage(n_bars, complete, missing):
+    cov = report.bar_coverage(flat_session_bars(n_bars))
+    assert cov.complete is complete
+    assert cov.missing == missing
+
+
+def test_truncation_understates_the_shadow(store):
+    """The 68 bp SOXS gap on 2026-08-10, in miniature: the same session
+    compared at 76 and 78 bars must differ, and the short one must be worse."""
+    write_daily(store)
+    row = report.daily_row(store, "SOXL", SESSION)
+    short = shadow_replay(traded_session_bars(76), row)
+    full = shadow_replay(traded_session_bars(78), row)
+    assert short.ran and full.ran
+    assert not report.bar_coverage(traded_session_bars(76)).complete
+    assert report.bar_coverage(traded_session_bars(78)).complete
+
+
 def test_session_report_runs_on_an_empty_database(store, capsys):
     assert report.print_session_report(store, "20260806") == 0
     assert "No sleeves recorded" in capsys.readouterr().out
