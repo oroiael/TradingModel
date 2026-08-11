@@ -61,7 +61,9 @@ for _p in (_HERE, os.path.join(_BAND_LAB, "phase1")):
         sys.path.insert(0, _p)
 
 from replay import replay_session                              # noqa: E402
-from sleeve import SleeveConfig, SleeveStateMachine, Trade     # noqa: E402
+from sleeve import (                                           # noqa: E402
+    LAST_HOLDING_IDX, SleeveConfig, SleeveStateMachine, Trade,
+)
 from store import Store                                        # noqa: E402
 from strategy_core import Bar, session_stats                   # noqa: E402
 from spec_constants import (                                   # noqa: E402
@@ -103,6 +105,26 @@ def _fmt(x: Optional[float], nd: int = 2, dash: str = "—") -> str:
 
 def _pct(x: Optional[float], nd: int = 1) -> str:
     return "—" if x is None else f"{x * 100:,.{nd}f}%"
+
+
+def _num(row, key: str) -> Optional[float]:
+    """A float from a `daily` row, or None if it is absent or unparseable.
+
+    The daily row is written in three passes (§`store.daily`), so a session
+    interrupted between them leaves real NULLs. This file must report that, not
+    raise a TypeError in the middle of a post-session review.
+    """
+    try:
+        v = row[key]
+    except (KeyError, IndexError):
+        return None
+    if v is None:
+        return None
+    try:
+        f = float(v)
+    except (TypeError, ValueError):
+        return None
+    return None if f != f else f          # NaN is not a usable input either
 
 
 def bar_idx_of(ts: str) -> Optional[int]:
@@ -303,26 +325,77 @@ def shadow_replay(bars: Sequence[Bar], row) -> Shadow:
     if not bars:
         return Shadow([], 0.0, 0, 0, False, "no bars recorded")
 
-    capital = row["sleeve_capital"]
+    capital = _num(row, "sleeve_capital")
     if capital is None:
         return Shadow([], 0.0, 0, 0, False, "no sleeve_capital recorded")
+    missing = [k for k in ("atr5", "or30", "thr80", "pos10")
+               if _num(row, k) is None]
+    if missing:
+        return Shadow([], 0.0, 0, 0, False,
+                      f"daily row is missing {', '.join(missing)}")
 
-    cfg = SleeveConfig(symbol=row["symbol"], sleeve_capital=float(capital))
+    cfg = SleeveConfig(symbol=row["symbol"], sleeve_capital=capital)
     sm = SleeveStateMachine(cfg)
-    stats = session_stats(bars)
-    gate = sm.begin_session(row["session"], float(row["atr5"]),
-                            stats.is_half_day, stats.late_open)
+
+    # §2.2's gate is **not re-decided here**, and re-deriving its inputs from
+    # the recorded bars is what made this whole section dead on arrival.
+    #
+    # `SessionStats.is_half_day` is `last bar idx < FLATTEN_IDX`, and
+    # FLATTEN_IDX is the 15:55 bar the engine flattens *at* — so a live session
+    # never records it, every real day recomputed as a half day, and the shadow
+    # refused on 2026-08-10 for both sleeves while the report still printed
+    # "shadow and live agree".
+    #
+    # The recorded gate decision is the evidence. `gate_decision` returns
+    # `gate_on` only when both flags were False, so `gate_ok=1` in the daily row
+    # *is* the statement that this was a full session which opened on time.
+    # Replaying those values reproduces the engine's decision instead of
+    # second-guessing it from data the engine never had.
+    gate = sm.begin_session(row["session"], _num(row, "atr5"),
+                            is_half_day=False, late_open=False)
     if not gate.ok:
-        # The engine traded a day the replay now refuses. That is a finding, not
-        # a reason to give up — surface the disagreement rather than swallow it.
-        return Shadow([], 0.0, 0, 0, False, f"shadow gate refused: {gate.reason}")
-    filt = sm.apply_morning_filter(float(row["or30"]), float(row["thr80"]),
-                                   float(row["pos10"]))
+        # Only ATR5 can refuse now, so this is a genuine disagreement: the
+        # recorded ATR5 does not clear the gate the engine passed on it.
+        return Shadow([], 0.0, 0, 0, False,
+                      f"shadow gate refused on recorded atr5="
+                      f"{_num(row, 'atr5'):.2f}: {gate.reason}")
+    filt = sm.apply_morning_filter(_num(row, "or30"), _num(row, "thr80"),
+                                   _num(row, "pos10"))
     if not filt.ok:
         return Shadow([], 0.0, 0, 0, False, f"shadow filter refused: {filt.reason}")
 
     replay_session(list(bars), sm, fill_model="spec")
     return Shadow(sm.trades, sm.pnl, sm.fills, sm.stop_outs, True)
+
+
+@dataclass
+class Coverage:
+    """How much of the tradable session the recorded bars actually span.
+
+    The engine flattens *at* FLATTEN_IDX and stops, so on 2026-08-10 it
+    recorded 76 bars — idx 0..75 — while `LAST_HOLDING_IDX` is 76. The shadow
+    is therefore force-flattened at bar 75 by `replay_session`'s tail rule,
+    while the live session went on trading in bar 76. On that session it cost
+    the comparison **68 bp on SOXS alone** (233.04 against 301.44 with the full
+    session), all of it in the one trade that exited after the record ended.
+
+    A comparison drawn against a truncated record is not wrong so much as
+    *unearned*, and the report has to say which it is.
+    """
+    n_bars: int
+    last_idx: Optional[int]
+    missing: int
+
+    @property
+    def complete(self) -> bool:
+        return self.last_idx is not None and self.last_idx >= LAST_HOLDING_IDX
+
+
+def bar_coverage(bars: Sequence[Bar]) -> Coverage:
+    if not bars:
+        return Coverage(0, None, LAST_HOLDING_IDX + 1)
+    last = max(b.idx for b in bars)
+    return Coverage(len(bars), last, max(0, LAST_HOLDING_IDX - last))
 
 
 # ------------------------------------------------------------ feature parity
@@ -611,6 +684,9 @@ def print_session_report(store: Store, session: str,
                          symbols: Optional[Sequence[str]] = None) -> int:
     """The daily report. Returns the number of findings that need a human."""
     findings = 0
+    compared: list[str] = []                    # traded, shadow ran, bars complete
+    unverified: list[tuple[str, str]] = []      # traded, shadow did not run
+    truncated: list[tuple[str, Coverage]] = []  # traded, shadow ran, bars short
     syms = list(symbols or symbols_in(store, session))
     print(_rule())
     print(f"SESSION {session_label(session)} — shadow parity and fill quality")
@@ -644,7 +720,29 @@ def print_session_report(store: Store, session: str,
                       f"recomputed from the recorded bars {_fmt(c.recomputed, 4)}")
 
         # --- 2. shadow parity
-        print(f"\n  shadow: {'ran' if sh.ran else 'did not run — ' + sh.reason}")
+        #
+        # A sleeve the engine actually traded and the shadow did not reproduce
+        # is a FINDING, not a footnote. On 2026-08-10 both sleeves landed here
+        # and the report still signed off "shadow and live agree" — the failure
+        # this section exists to make impossible.
+        traded = bool(row is not None and row["gate_ok"] and row["filter_ok"])
+        cov = bar_coverage(bars)
+        if traded and not sh.ran:
+            findings += 1
+            unverified.append((sym, sh.reason))
+            print(f"\n  [FINDING] shadow: did not run — {sh.reason}")
+            print("            this sleeve traded, so NOTHING was compared for it")
+        else:
+            print(f"\n  shadow: {'ran' if sh.ran else 'did not run — ' + sh.reason}")
+        if traded and sh.ran:
+            if cov.complete:
+                compared.append(sym)
+            else:
+                truncated.append((sym, cov))
+                print(f"  [WARN] bars recorded end at idx {cov.last_idx}, "
+                      f"{cov.missing} short of the last holding bar "
+                      f"({LAST_HOLDING_IDX}) — the shadow is force-flattened "
+                      f"early and understates itself")
         if sh.ran or live:
             print(f"    {'':<4} {'LIVE':<38}{'SHADOW (backtest fills)':<38}")
             print(f"    {'#':<4} {'bars':<9} {'entry':>8} {'exit':>8}  {'out':<9}"
@@ -673,8 +771,8 @@ def print_session_report(store: Store, session: str,
                   f"gap {_fmt(lbp - sbp)}   (sum of per-trade returns)")
             if len(live) != len(sh.trades) and sh.ran:
                 findings += 1
-                print(f"    [FINDING] trade-count mismatch: the fill models "
-                      f"disagree on how many round trips this session held")
+                print("    [FINDING] trade-count mismatch: the fill models "
+                      "disagree on how many round trips this session held")
 
         # --- multi-execution entries (defect 8's signature)
         multi = [t for t in live if t.n_entry_execs > 1]
@@ -696,7 +794,7 @@ def print_session_report(store: Store, session: str,
 
         reentries = same_bar_reentries(live, sh.trades)
         if reentries:
-            print(f"\n  same-bar re-entries (S10 — the sharpest available test):")
+            print("\n  same-bar re-entries (S10 — the sharpest available test):")
             for r in reentries:
                 adv = r.shadow_advantage_bp
                 print(f"      bar {r.bar}: prev exit {_fmt(r.prev_exit_px)}  "
@@ -732,9 +830,30 @@ def print_session_report(store: Store, session: str,
                   f"execution(s), mean {_fmt(avg)} bp, {worse} adverse "
                   f"(positive == worse than the limit)")
 
+    # ------------------------------------------------------------- sign-off
+    #
+    # This line is the one a human reads when they read nothing else, so it may
+    # only claim what was actually established. The 2026-08-10 report printed
+    # "Shadow and live agree" having compared nothing at all on either sleeve.
+    # Every clause below is now conditioned on a comparison having happened.
     print(f"\n{_rule()}")
-    print(f"{findings} finding(s) needing a human." if findings
-          else "No findings. Shadow and live agree, and no fill-quality flag fired.")
+    if findings:
+        print(f"{findings} finding(s) needing a human.")
+    if unverified:
+        print("NOT VERIFIED — the shadow did not run on: "
+              + ", ".join(f"{s} ({why})" for s, why in unverified))
+        print("  No agreement is claimed for those sleeves. Nothing was compared.")
+    if truncated:
+        print("PARTIALLY VERIFIED — bar record ends before the last holding bar on: "
+              + ", ".join(f"{s} (short {c.missing})" for s, c in truncated))
+        print("  Those shadows force-flatten early, so the live-vs-shadow gap on "
+              "them is overstated in live's favour.")
+    if compared and not findings and not truncated:
+        print(f"No findings. Shadow and live agree on "
+              f"{', '.join(compared)}, over the complete tradable session.")
+    elif not findings and not unverified and not truncated:
+        # Nothing traded — a real and ordinary outcome, and not an agreement.
+        print("No findings. No sleeve traded, so there was nothing to compare.")
     print(_rule())
     return findings
 

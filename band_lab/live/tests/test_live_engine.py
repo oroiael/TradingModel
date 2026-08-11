@@ -298,3 +298,75 @@ def test_a_failed_flatten_does_not_book_a_fabricated_trade(tmp_path):
     assert sm.in_position, "the position is real and still open — say so"
     assert not sm.trades, "no trade may be booked at a price nothing traded at"
     assert sm.pnl == 0.0, "and the day's P&L must not be fabricated"
+
+
+# ----------------------------- the flatten deadline (2026-08-10, fix #4)
+@pytest.mark.parametrize("hhmm,expected", [
+    ("15:55", 5 * 60 - 20),      # on time: five minutes, less the margin
+    ("15:58", 2 * 60 - 20),      # late start still gets what is left
+    ("15:59:50", 0.0),           # inside the margin — floored, never negative
+    ("16:05", 0.0),              # already past the hard deadline
+])
+def test_hard_flat_budget_counts_down_to_the_1600_deadline(tmp_path, hhmm, expected):
+    """§12 puts the flatten at 15:55 and the hard deadline at 16:00.
+
+    On 2026-08-10 the flatten used 23 seconds of those five minutes and carried
+    524 shares overnight. The budget is what stops that recurring.
+    """
+    eng, ib, store, feats = _engine(tmp_path)
+    parts = [int(v) for v in hhmm.split(":")] + [0]
+    now = datetime(2026, 8, 10, parts[0], parts[1], parts[2], tzinfo=ZoneInfo("America/New_York"))
+    assert eng.hard_flat_budget(now) == pytest.approx(expected, abs=0.5)
+
+
+def test_hard_flat_budget_is_never_negative(tmp_path):
+    eng, ib, store, feats = _engine(tmp_path)
+    late = datetime(2026, 8, 10, 23, 0, tzinfo=ZoneInfo("America/New_York"))
+    assert eng.hard_flat_budget(late) == 0.0
+
+
+def test_flatten_shares_the_budget_between_sleeves_that_still_hold(tmp_path):
+    """One stuck sleeve must not spend the other's deadline.
+
+    `flatten_all` runs sleeves sequentially, so an un-shared budget would let
+    the first burn all five minutes and leave the second with none — turning
+    one overnight position into two.
+    """
+    eng, ib, store, feats = _engine(tmp_path, symbols=("SOXL", "SOXS"))
+    day = datetime(2026, 8, 10, 6, 0, tzinfo=ZoneInfo("America/New_York"))
+    eng.pre_open(day, feats)
+
+    seen = {}
+    for sym, rt in eng.sleeves.items():
+        rt.om.ensure_flat = (lambda s: (lambda **kw: seen.__setitem__(s, kw.get("budget")) or True))(sym)
+    eng.flatten_all(budget=100.0)
+
+    # Neither sleeve holds anything, so `max(1, holding)` keeps the share finite
+    # and both are offered time rather than the first taking it all.
+    assert set(seen) == {"SOXL", "SOXS"}
+    assert all(v is not None and v > 0 for v in seen.values()), seen
+
+
+def test_flatten_gives_a_holding_sleeve_a_real_share(tmp_path):
+    eng, ib, store, feats = _engine(tmp_path, symbols=("SOXL", "SOXS"))
+    day = datetime(2026, 8, 10, 6, 0, tzinfo=ZoneInfo("America/New_York"))
+    eng.pre_open(day, feats)
+    ib.positions["SOXL"] = 500.0
+    ib.positions["SOXS"] = 500.0
+
+    seen = {}
+    for sym, rt in eng.sleeves.items():
+        rt.om.ensure_flat = (lambda s: (lambda **kw: seen.__setitem__(s, kw.get("budget")) or True))(sym)
+    eng.flatten_all(budget=100.0)
+
+    # Two sleeves holding: each is offered about half, not all-then-nothing.
+    assert seen["SOXL"] == pytest.approx(50.0, abs=5.0), seen
+    assert seen["SOXS"] > 0, seen
+
+
+def test_hard_flat_budget_is_capped_at_the_1555_to_1600_window(tmp_path):
+    """Found by review: a disconnect path calling `flatten_all` at 09:00 would
+    otherwise be handed seven hours, and `ensure_flat` would spend them."""
+    eng, ib, store, feats = _engine(tmp_path)
+    morning = datetime(2026, 8, 10, 9, 0, tzinfo=ZoneInfo("America/New_York"))
+    assert eng.hard_flat_budget(morning) == pytest.approx(300.0)   # 15:55 -> 16:00
