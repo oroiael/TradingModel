@@ -33,7 +33,9 @@ _HERE = os.path.dirname(os.path.abspath(__file__))
 if _HERE not in sys.path:
     sys.path.insert(0, _HERE)
 
-from broker import Broker, Execution, Quote, WorkingOrder  # noqa: E402
+from broker import (                                        # noqa: E402
+    Broker, BrokerError, Execution, Quote, WorkingOrder,
+)
 from sleeve import Intent, IntentKind, SleeveStateMachine  # noqa: E402
 from spec_constants import round_to_tick                   # noqa: E402
 
@@ -170,15 +172,89 @@ class OrderManager:
         self.on_event("info", f"{self.symbol} ARM  buy limit {qty:.0f} @ {px:.2f} "
                               f"({self.entry_ref})")
 
+    def _working_entry(self):
+        """The entry order the *broker* actually has, or None."""
+        for w in self.broker.working_orders(self.symbol):
+            p = parse_ref(w.order_ref)
+            if p and p[2] == ROLE_ENTRY and w.remaining > 0:
+                return w
+        return None
+
+    def _resync_entry(self):
+        """Adopt the broker's entry order before reasoning about it.
+
+        A modify that IBKR rejects does not roll back. `IBBroker.modify_limit`
+        mutates the local `Order` and then calls `placeOrder`, which `ib_async`
+        treats as a modification of the existing trade; if IBKR refuses it —
+        `Error 103, Duplicate order id` on 2026-08-10 — the rejection arrives
+        asynchronously, by which time the client's copy already carries the new
+        price and quantity. The engine believed `43.78 x1701`; the broker still
+        had `43.71 x1703`, and the fill proves the broker won: 1,703 shares.
+
+        `self.entry_limit` is therefore a belief, not a fact, and every ratchet
+        starts by replacing it with what the broker reports.
+        """
+        w = self._working_entry()
+        if w is None:
+            return None
+        drifted = (self.entry_id != w.order_id
+                   or abs(self.entry_limit - w.limit_px) >= self.tick / 2)
+        if drifted:
+            self.on_event("warn",
+                          f"{self.symbol} entry drifted from the broker: engine "
+                          f"had {self.entry_limit:.2f} on id {self.entry_id}, "
+                          f"broker has {w.limit_px:.2f} x{w.remaining:.0f} on id "
+                          f"{w.order_id} — adopting the broker")
+        self.entry_id, self.entry_ref = w.order_id, w.order_ref
+        self.entry_limit = w.limit_px
+        return w
+
     def _modify_entry(self, it: Intent) -> None:
         px, qty = self._px(it.limit_px), it.qty
         if self.entry_id is None:
             return self._place_entry(it)
+
+        working = self._resync_entry()
+        if working is None:
+            # The engine thinks it is armed and the broker shows nothing. It is
+            # NOT safe to re-arm here: a rejected modify leaves `ib_async`'s copy
+            # marked Cancelled — `openTrades` drops it, since Cancelled is a
+            # DoneState — while the original order is still live at IBKR. That
+            # is exactly what happened on 2026-08-10, and re-placing would have
+            # put a second buy limit behind one that then filled 1,703 shares.
+            # A missed ratchet costs basis points; a duplicate position costs
+            # control of the sleeve, which §11 ranks far higher.
+            self.on_event("critical",
+                          f"{self.symbol} believes it is armed on id "
+                          f"{self.entry_id} at {self.entry_limit:.2f}, but the "
+                          f"broker reports no working entry. NOT re-arming — the "
+                          f"order may still be live at IBKR. Check TWS.")
+            return
+        if working.status == "PendingSubmit":
+            # Inference, not documented behaviour: on 2026-08-10 the arm and the
+            # ratchet were 2 ms apart and IBKR answered `Error 103`. Modifying
+            # an order it has not acknowledged is at best untestable from here,
+            # so the ratchet waits a bar. The anchor does not decay, and §2.5's
+            # invariant is that the limit never moves *down*.
+            self.on_event("info",
+                          f"{self.symbol} ratchet deferred — entry "
+                          f"{working.order_id} is not acknowledged yet "
+                          f"({working.status})")
+            return
+
         self._assert_ratchet(px)
         if abs(px - self.entry_limit) < self.tick / 2 and qty == 0:
             return
         was = self.entry_limit
-        self.broker.modify_limit(self.entry_id, px, qty)
+        try:
+            self.broker.modify_limit(self.entry_id, px, qty)
+        except BrokerError as exc:
+            self.on_event("error",
+                          f"{self.symbol} ratchet {was:.2f} -> {px:.2f} refused: "
+                          f"{exc} — leaving the resting order alone")
+            return
+        # Optimistic, and deliberately so: the acceptance is asynchronous. The
+        # next bar's `_resync_entry` is what makes it true or corrects it.
         self.entry_limit = px
         self._log_order(self.entry_ref, ROLE_ENTRY, "BUY", "LMT", "modified",
                         order_id=self.entry_id, qty=qty, limit_px=px)
@@ -433,13 +509,24 @@ class OrderManager:
         pos = self.broker.position(self.symbol)
         working = self.broker.working_orders(self.symbol)
         execs = self.broker.executions(self.symbol)
-        entries = [e for e in execs
-                   if (parse_ref(e.order_ref) or ("", "", "", 0))[2] == ROLE_ENTRY]
-        stops = [e for e in execs
-                 if (parse_ref(e.order_ref) or ("", "", "", 0))[2] == ROLE_STOP]
+
+        def _role(e) -> str:
+            return (parse_ref(e.order_ref) or ("", "", "", 0))[2]
+
+        # Count *orders*, not executions. `sm.fills` and `sm.stop_outs` are
+        # §2.7 counters over logical round trips; IBKR settles one order in as
+        # many executions as the book requires, so comparing the two is a units
+        # error. On 2026-08-10 it read 7 executions against 1 fill on SOXL and
+        # 31 against 3 on SOXS, and reported MISMATCH on both — including SOXS,
+        # whose position reconciled perfectly at 0. A check that fires on every
+        # healthy session is one the operator learns to ignore, which is how
+        # defects 6 and 7 cost a session each.
+        entries = {e.order_ref for e in execs if _role(e) == ROLE_ENTRY}
+        stops = {e.order_ref for e in execs if _role(e) == ROLE_STOP}
         summary = dict(
             position=pos, working=len(working),
             broker_fills=len(entries), broker_stop_outs=len(stops),
+            broker_entry_execs=len([e for e in execs if _role(e) == ROLE_ENTRY]),
             sm_fills=self.sm.fills, sm_stop_outs=self.sm.stop_outs,
             sm_in_position=self.sm.in_position,
             agrees=(len(entries) == self.sm.fills

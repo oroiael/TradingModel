@@ -15,7 +15,7 @@ from zoneinfo import ZoneInfo
 
 import pytest
 
-from broker import IBBroker, NotLiveDataError, bar_time_et
+from broker import FakeIB, IBBroker, NotLiveDataError, bar_time_et
 
 NY = ZoneInfo("America/New_York")
 
@@ -262,3 +262,69 @@ def test_historical_sessions_still_spans_days():
     days = b.historical_sessions("SOXL", datetime(2026, 8, 3, 6, 0, tzinfo=NY),
                                  "5 D", "5 mins")
     assert [d for d, _ in days] == [date(2026, 7, 31), date(2026, 8, 3)]
+
+
+# ------------------- the double must model the states the broker reports
+def test_fake_and_real_agree_on_what_counts_as_working():
+    """The divergence that made a green suite meaningless.
+
+    `IBBroker.working_orders` reports whatever `IB.openTrades()` returns, which
+    `ib_async` defines as every trade whose status is not a `DoneState` —
+    `PendingCancel` included. `FakeIB` filtered to `Submitted`/`PreSubmitted`,
+    so the state that carried 524 shares overnight on 2026-08-10 could not be
+    represented in a test at all.
+    """
+    from broker import ACTIVE_STATES, DONE_STATES, is_working
+
+    # Transcribed from the installed ib_async, and asserted against it so a
+    # package upgrade that moves a state cannot pass silently.
+    from ib_async.order import OrderStatus
+    assert DONE_STATES == set(OrderStatus.DoneStates)
+    assert ACTIVE_STATES == set(OrderStatus.ActiveStates)
+
+    # PendingCancel is in neither set, and is therefore still working.
+    assert OrderStatus.PendingCancel not in DONE_STATES
+    assert OrderStatus.PendingCancel not in ACTIVE_STATES
+    assert is_working(OrderStatus.PendingCancel)
+
+
+def test_fake_reports_a_pending_cancel_as_working():
+    ib = FakeIB()
+    ib.connect()
+    ib.stall_cancels = True
+    oid = ib.place_limit("SOXL", "BUY", 100, 99.0, "20260803-SOXL-E-1")
+    assert [w.order_id for w in ib.working_orders("SOXL")] == [oid]
+
+    ib.cancel(oid)
+    still = ib.working_orders("SOXL")
+    assert [w.order_id for w in still] == [oid], \
+        "a cancel TWS has not confirmed still holds the shares"
+    assert still[0].status == "PendingCancel"
+
+    assert ib.confirm_cancels("SOXL") == 1
+    assert ib.working_orders("SOXL") == []
+
+
+def test_a_confirmed_cancel_is_the_default():
+    """The ordinary case stays one step, so the happy path stays fast."""
+    ib = FakeIB()
+    ib.connect()
+    oid = ib.place_limit("SOXL", "BUY", 100, 99.0, "20260803-SOXL-E-1")
+    ib.cancel(oid)
+    assert ib.working_orders("SOXL") == []
+
+
+def test_global_cancel_clears_a_stalled_cancel():
+    """§6.7's escape hatch, against the state it exists for.
+
+    NOT verified against IBKR: whether a real `reqGlobalCancel` frees an OCA leg
+    stuck in PendingCancel is the open question this models optimistically.
+    """
+    ib = FakeIB()
+    ib.connect()
+    ib.stall_cancels = True
+    oid = ib.place_limit("SOXL", "SELL", 100, 99.0, "20260803-SOXL-T-1")
+    ib.cancel(oid)
+    assert ib.working_orders("SOXL")
+    ib.cancel_all()
+    assert ib.working_orders("SOXL") == []

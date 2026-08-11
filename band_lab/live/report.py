@@ -443,17 +443,41 @@ class SlipRow:
     limit_px: Optional[float]
     mid: Optional[float]
 
+    #: A buy filling further below its limit than this is not price improvement
+    #: — it is evidence the limit was never near the market. §2.5 prices the
+    #: entry 1% below a *rolling session high*, so once price has fallen away
+    #: from that high the limit is marketable and the fill has nothing to do
+    #: with it. SOXL on 2026-08-10: limit 142.02 off a 09:30 high of 143.45,
+    #: filled at 135.69, and the report called −445.71 bp "0 adverse".
+    GAP_THROUGH_BP = 100.0
+
+    @property
+    def gap_through(self) -> bool:
+        """Did this fill happen far away from the limit that was resting?"""
+        raw = self._raw_vs_limit()
+        return raw is not None and raw < -self.GAP_THROUGH_BP
+
+    def _raw_vs_limit(self) -> Optional[float]:
+        if self.limit_px in (None, 0):
+            return None
+        raw = (self.price / self.limit_px - 1.0) * 1e4
+        return raw if self.side == "BOT" else -raw
+
     @property
     def vs_limit(self) -> Optional[float]:
         """Signed, in basis points, positive == worse than the limit.
 
         A BUY filling above its limit and a SELL filling below it are both
         adverse, so the sign is flipped on the sell side.
+
+        **None for a gap-through.** Comparing the fill to a limit the market
+        had already run past measures the distance travelled since the session
+        high, not execution quality, and averaging it in buries the fills that
+        say something. Those are reported separately, and `vs_mid` — the quote
+        while the order was actually working — is the honest execution number.
         """
-        if self.limit_px in (None, 0):
-            return None
-        raw = (self.price / self.limit_px - 1.0) * 1e4
-        return raw if self.side == "BOT" else -raw
+        raw = self._raw_vs_limit()
+        return None if raw is None or self.gap_through else raw
 
     @property
     def vs_mid(self) -> Optional[float]:
@@ -829,6 +853,23 @@ def print_session_report(store: Store, session: str,
             print(f"\n  slippage vs the resting limit: {len(graded)} entry "
                   f"execution(s), mean {_fmt(avg)} bp, {worse} adverse "
                   f"(positive == worse than the limit)")
+        gaps = [s for s in slips if s.gap_through]
+        if gaps:
+            worst = min(s._raw_vs_limit() for s in gaps)
+            print(f"\n  gap-through entries: {len(gaps)} execution(s) filled far "
+                  f"below the resting limit (worst {_fmt(worst)} bp)")
+            print(f"      Not slippage. §2.5 prices the entry 1% under a rolling "
+                  f"session high, so once price falls away from that high the "
+                  f"limit is marketable and the fill is unrelated to it.")
+            print(f"      The backtest models this — it fills a gap-through at "
+                  f"the bar open — so the shadow above is the check that matters, "
+                  f"not this number.")
+        mids = [s for s in slips if s.role == "E" and s.vs_mid is not None]
+        if mids:
+            m = sum(s.vs_mid for s in mids) / len(mids)
+            print(f"\n  entry fills vs the quote while the order worked: "
+                  f"{len(mids)} execution(s), mean {_fmt(m)} bp "
+                  f"(the honest execution number)")
 
     # ------------------------------------------------------------- sign-off
     #

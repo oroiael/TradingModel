@@ -46,8 +46,8 @@ from strategy_core import (                                 # noqa: E402
     Bar, FeatureHistory, session_stats,
 )
 from spec_constants import (                                # noqa: E402
-    DAY_LOSS_KILL, F_SIZE, FLATTEN_TIME, HARD_FLAT_BY, TIMEZONE,
-    W_PER_SLEEVE, _minutes, bar_index,
+    DAY_LOSS_KILL, F_SIZE, FLATTEN_TIME, HARD_FLAT_BY, START_TIME,
+    TIMEZONE, W_PER_SLEEVE, _minutes, bar_index,
 )
 
 NY = ZoneInfo("America/New_York")
@@ -57,6 +57,12 @@ FLATTEN_IDX = bar_index("15:55")
 
 #: §2 of the plan — capital basis is capped, so the published cost rows apply.
 CAPITAL_CAP = 150_000.0
+
+
+def _at_time(day: datetime, hhmm: str) -> datetime:
+    """`day` at the given exchange wall-clock time."""
+    h, m = (int(v) for v in hhmm.split(":"))
+    return day.replace(hour=h, minute=m, second=0, microsecond=0)
 
 
 @dataclass
@@ -218,6 +224,64 @@ class Engine:
             if not rt.dormant:
                 rt.om.on_executions(bar_idx)
 
+    # ----------------------------------------------------------- 11:00
+    def activate_due(self, now: datetime) -> list[str]:
+        """§2.5's activation is a **clock** event. Fire it on the clock.
+
+        `SleeveStateMachine.on_bar_open` already says so — "at 11:00 the limit
+        goes live priced off the bars completed before it" — and the backtest
+        does exactly that: `replay.py` opens bar 18 and then lets bar 18 trade
+        against the resting limit.
+
+        The live runner could not. It only ever learns of a bar once the feed
+        reports it *completed*, so the bar labelled 11:00 arrived at 11:05 and
+        the limit was armed after that bar had already traded. Every session,
+        five minutes late.
+
+        Measured against the 2020-07 -> 2026-07 sample by running the reference
+        engine at `start_idx=19` instead of 18:
+
+            SOXL  65.93 -> 62.02 bp/ON-day   (-3.91)
+            SOXS  61.18 -> 57.72 bp/ON-day   (-3.46)
+
+        — about 6% of the edge, given away structurally rather than to the
+        market. The anchor needs nothing that is not already in hand at 11:00:
+        §2.5 prices off *prior* bars, and bars 0..17 have all closed by then.
+
+        Refuses to arm on an incomplete record, because an anchor built from a
+        gapped session understates the session high, which is the one input the
+        whole strategy ratchets from.
+        """
+        fired = []
+        if now < _at_time(now, START_TIME):
+            return fired
+        for symbol, rt in self.sleeves.items():
+            if rt.dormant or rt.activated or not rt.filtered:
+                continue
+            have = set(rt.session_bars)
+            missing = [i for i in range(START_IDX) if i not in have]
+            if missing:
+                self.on_event("warn",
+                              f"{symbol} 11:00 reached but bars {missing[:5]}"
+                              f"{'...' if len(missing) > 5 else ''} are missing "
+                              f"— not arming on an understated session high")
+                continue
+            try:
+                self.broker.assert_live_data(symbol)
+            except NotLiveDataError as exc:
+                rt.dormant, rt.dormant_reason = True, "not_live_data"
+                self.on_event("critical", f"{symbol} NOT LIVE DATA: {exc} — "
+                                          f"this sleeve stands down")
+                self.store.daily(self.session, symbol, filter_ok=0,
+                                 filter_reason="not_live_data")
+                continue
+            rt.activated = True
+            rt.sm.on_bar_open(START_IDX)
+            rt.om.apply(rt.sm.drain_intents())
+            fired.append(symbol)
+            self.on_event("info", f"{symbol} 11:00 activation on the clock")
+        return fired
+
     # ----------------------------------------------------------- 15:55
     def hard_flat_budget(self, now: Optional[datetime] = None,
                          margin: float = 20.0) -> float:
@@ -261,7 +325,14 @@ class Engine:
         loss and buries the real fault, which was that 541 shares were about to
         be carried overnight.
         """
-        budget = self.hard_flat_budget(now) if budget is None else budget
+        # The deadline is only in force when the caller supplies the clock.
+        # Reading `datetime.now()` here made the flatten's duration depend on
+        # what time of day the process happened to run: the same call returned a
+        # 0-second budget after 16:00 and a 300-second one in the morning, which
+        # is how a 300-second spin got through a green suite. `run.py` owns the
+        # wall clock and passes it; everything else keeps the attempt-based path.
+        if budget is None and now is not None:
+            budget = self.hard_flat_budget(now)
         started = time.monotonic()
         out = {}
         for symbol, rt in self.sleeves.items():
@@ -301,6 +372,50 @@ class Engine:
         if ok:
             self.on_event("info", "all sleeves flat")
         return ok
+
+    # ----------------------------------------------------------- 16:00
+    def record_session_tail(self, day: Optional[datetime] = None) -> dict[str, int]:
+        """Store the bars the session loop never saw. **Writes, decides nothing.**
+
+        `run_session` polls until 15:55 and stops, so the bar labelled 15:50
+        (`LAST_HOLDING_IDX`) and the one labelled 15:55 (`FLATTEN_IDX`) are
+        never recorded — a real session leaves 76 bars, idx 0..75. Nothing in
+        the *trading* path needs them: the sleeve is flat by then.
+
+        `report.py` does. Its shadow replays the recorded bars, and
+        `replay_session`'s tail rule force-flattens at the last bar it is given
+        — so the shadow closed its last trade at bar 75 while the live session
+        went on trading in bar 76. On 2026-08-10 that understated the SOXS
+        shadow by 68 bp (233.04 against 301.44) and made the live session look
+        like it had beaten the backtest.
+
+        This is deliberately not on the trading path and deliberately not
+        idempotency-critical: `store.bar` is INSERT OR REPLACE on
+        (symbol, session, bar_idx, source).
+        """
+        day = day or datetime.now(NY)
+        out: dict[str, int] = {}
+        for symbol in self.symbols:
+            n = 0
+            try:
+                bars = self.broker.historical_bars(symbol, day, "1 D", "5 mins")
+            except Exception as exc:                            # noqa: BLE001
+                # The record is evidence, not control. Failing to complete it
+                # must never affect the reconcile that follows.
+                self.on_event("warn", f"{symbol} tail bars unavailable: {exc!r}")
+                out[symbol] = 0
+                continue
+            for b in bars:
+                if b.idx > FLATTEN_IDX:
+                    continue
+                self.store.bar(symbol, self.session, b.idx, b.open, b.high,
+                               b.low, b.close, b.volume)
+                n += 1
+            out[symbol] = n
+            self.on_event("info", f"{symbol} session record completed to bar "
+                                  f"{max((b.idx for b in bars), default=-1)} "
+                                  f"({n} bars)")
+        return out
 
     # ----------------------------------------------------------- 16:10
     def reconcile(self) -> dict[str, dict]:

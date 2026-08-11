@@ -370,3 +370,175 @@ def test_hard_flat_budget_is_capped_at_the_1555_to_1600_window(tmp_path):
     eng, ib, store, feats = _engine(tmp_path)
     morning = datetime(2026, 8, 10, 9, 0, tzinfo=ZoneInfo("America/New_York"))
     assert eng.hard_flat_budget(morning) == pytest.approx(300.0)   # 15:55 -> 16:00
+
+
+def test_flatten_without_a_clock_does_not_invent_a_deadline(tmp_path):
+    """Found by a 6x slowdown in the suite, not by a failing assertion.
+
+    `flatten_all` used to read `datetime.now()` itself, so the same call
+    returned a 0-second budget after 16:00 and a 300-second one in the morning.
+    The suite passed either way; it just took five minutes longer before lunch.
+    A test that is only fast by time of day is not a passing test.
+    """
+    import time as _t
+    eng, ib, store, feats = _engine(tmp_path)
+    day = datetime(2026, 8, 10, 6, 0, tzinfo=ZoneInfo("America/New_York"))
+    eng.pre_open(day, feats)
+    ib.positions["SOXL"] = 100.0          # never settles: the worst case
+
+    t0 = _t.time()
+    eng.flatten_all(settle=0)             # no clock given -> no deadline
+    assert _t.time() - t0 < 30, "flatten_all invented a wall-clock budget"
+
+
+def test_flatten_honours_a_clock_when_it_is_given(tmp_path):
+    """The other half: with a clock, the §12 deadline is in force."""
+    eng, ib, store, feats = _engine(tmp_path, symbols=("SOXL",))
+    day = datetime(2026, 8, 10, 6, 0, tzinfo=ZoneInfo("America/New_York"))
+    eng.pre_open(day, feats)
+    seen = {}
+    eng.sleeves["SOXL"].om.ensure_flat = lambda **kw: seen.update(kw) or True
+    eng.flatten_all(now=datetime(2026, 8, 10, 15, 55,
+                                 tzinfo=ZoneInfo("America/New_York")))
+    assert seen.get("budget") == pytest.approx(5 * 60 - 20, abs=1.0)
+
+
+# ------------------ completing the bar record (fix: bar 76/77 truncation)
+def test_the_session_record_is_completed_after_the_flatten(tmp_path):
+    """`run_session` stops at 15:55, so bars 76 and 77 are never recorded.
+
+    `report.py`'s shadow replays what was stored and `replay_session`
+    force-flattens at the last bar it is given, so the comparison closed its
+    final trade a bar early. On 2026-08-10 that understated the SOXS shadow by
+    68 bp and read as live outperformance.
+    """
+    eng, ib, store, feats = _engine(tmp_path)
+    day = datetime(2026, 8, 10, 6, 0, tzinfo=ZoneInfo("America/New_York"))
+    eng.pre_open(day, feats)
+    ib.bars["SOXL"] = _session_bars(high=100.0, n=FLATTEN_IDX + 1)   # 0..77
+
+    # what the live loop managed to record
+    for b in ib.bars["SOXL"][:76]:
+        store.bar("SOXL", eng.session, b.idx, b.open, b.high, b.low, b.close, b.volume)
+    recorded = store.session_bars("SOXL", eng.session)
+    assert max(r["bar_idx"] for r in recorded) == 75
+
+    eng.record_session_tail(day)
+
+    recorded = store.session_bars("SOXL", eng.session)
+    assert max(r["bar_idx"] for r in recorded) == FLATTEN_IDX
+    from sleeve import LAST_HOLDING_IDX
+    assert LAST_HOLDING_IDX in {r["bar_idx"] for r in recorded}
+
+
+def test_completing_the_record_is_idempotent(tmp_path):
+    eng, ib, store, feats = _engine(tmp_path)
+    day = datetime(2026, 8, 10, 6, 0, tzinfo=ZoneInfo("America/New_York"))
+    eng.pre_open(day, feats)
+    ib.bars["SOXL"] = _session_bars(high=100.0, n=FLATTEN_IDX + 1)
+    eng.record_session_tail(day)
+    first = len(store.session_bars("SOXL", eng.session))
+    eng.record_session_tail(day)
+    assert len(store.session_bars("SOXL", eng.session)) == first
+
+
+def test_a_failed_tail_fetch_never_blocks_the_reconcile(tmp_path):
+    """The record is evidence, not control."""
+    eng, ib, store, feats = _engine(tmp_path)
+    day = datetime(2026, 8, 10, 6, 0, tzinfo=ZoneInfo("America/New_York"))
+    eng.pre_open(day, feats)
+    def boom(*a, **kw):
+        raise RuntimeError("no data")
+    ib.historical_bars = boom
+    assert eng.record_session_tail(day) == {"SOXL": 0}      # no raise
+    eng.reconcile()                                          # still works
+
+
+# ------------------- §2.5's activation is a clock event (fix: 11:05 arming)
+def _at_1100(day=None):
+    d = day or DAY
+    return d.replace(hour=11, minute=0, second=0, microsecond=0)
+
+
+def _observed_to_1100(eng, symbol="SOXL"):
+    """Everything the engine knows at 11:00: bars 0..17, filter applied."""
+    for b in _session_bars(n=START_IDX):
+        eng.on_bar(symbol, b)
+
+
+def test_the_limit_is_armed_at_1100_not_when_bar_18_completes(tmp_path):
+    """The engine armed five minutes late, every session.
+
+    The feed only reports *completed* bars, so the bar labelled 11:00 arrived
+    at 11:05 and the limit went live after that bar had already traded. The
+    backtest opens bar 18 and then lets it trade against the resting limit —
+    `sleeve.on_bar_open` says so in as many words. Measured on the reference
+    engine at start_idx 19 instead of 18: SOXL 65.93 -> 62.02 bp/ON-day,
+    SOXS 61.18 -> 57.72.
+    """
+    eng, ib, store, feats = _engine(tmp_path)
+    eng.pre_open(DAY, feats)
+    _observed_to_1100(eng)
+    assert not [o for o in ib.orders.values() if o.action == "BUY"]
+
+    assert eng.activate_due(_at_1100()) == ["SOXL"]
+    buys = [o for o in ib.orders.values() if o.action == "BUY"]
+    assert buys, "the limit must be resting before bar 18 trades"
+    assert buys[0].limit_px == pytest.approx(99.0)
+
+
+def test_the_clock_activation_does_not_fire_early(tmp_path):
+    eng, ib, store, feats = _engine(tmp_path)
+    eng.pre_open(DAY, feats)
+    _observed_to_1100(eng)
+    assert eng.activate_due(_at_1100().replace(hour=10, minute=59)) == []
+    assert not [o for o in ib.orders.values() if o.action == "BUY"]
+
+
+def test_the_clock_activation_refuses_an_incomplete_bar_record(tmp_path):
+    """A gapped session understates the session high, which is the one input
+    the whole strategy ratchets from."""
+    eng, ib, store, feats = _engine(tmp_path)
+    eng.pre_open(DAY, feats)
+    for b in _session_bars(n=START_IDX):
+        if b.idx == 12:
+            continue                      # a bar the feed never delivered
+        eng.on_bar("SOXL", b)
+    assert eng.activate_due(_at_1100()) == []
+    assert not [o for o in ib.orders.values() if o.action == "BUY"]
+
+
+def test_the_clock_activation_does_not_double_arm(tmp_path):
+    """`on_bar` still activates when bar 18 lands; it must be a no-op by then."""
+    eng, ib, store, feats = _engine(tmp_path)
+    eng.pre_open(DAY, feats)
+    _observed_to_1100(eng)
+    eng.activate_due(_at_1100())
+    before = len([o for o in ib.orders.values() if o.action == "BUY"])
+
+    eng.on_bar("SOXL", Bar(START_IDX, 100.0, 100.0, 100.0, 100.0, 1.0))
+    after = len([o for o in ib.orders.values() if o.action == "BUY"])
+    assert after == before, "bar 18 armed a second entry order"
+
+
+def test_the_clock_activation_still_refuses_delayed_data(tmp_path):
+    """§2's refusal must not be bypassed by moving the trigger to the clock."""
+    eng, ib, store, feats = _engine(tmp_path)
+    eng.pre_open(DAY, feats)
+    _observed_to_1100(eng)
+    def boom(symbol=None):
+        raise NotLiveDataError("delayed")
+    ib.assert_live_data = boom
+    assert eng.activate_due(_at_1100()) == []
+    assert eng.sleeves["SOXL"].dormant
+    assert not [o for o in ib.orders.values() if o.action == "BUY"]
+
+
+def test_a_stood_down_sleeve_is_not_armed_by_the_clock(tmp_path):
+    # §2.3: a wide opening range with the 10:00 print low in it.
+    eng, ib, store, feats = _engine(tmp_path, or30=1.0)
+    eng.pre_open(DAY, feats)
+    for i in range(START_IDX):
+        eng.on_bar("SOXL", Bar(i, 100.0, 108.0, 100.0, 100.5, 1.0))
+    assert eng.sleeves["SOXL"].dormant
+    assert eng.activate_due(_at_1100()) == []

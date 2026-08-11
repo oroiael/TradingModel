@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import pytest
 
-from broker import FakeIB
+from broker import BrokerError, FakeIB, WorkingOrder, is_working
 from orders import OrderManager, RatchetViolation, order_ref, parse_ref
 from sleeve import Bar, SleeveConfig, SleeveStateMachine, START_IDX
 from store import Store
@@ -523,31 +523,23 @@ def test_clear_working_reports_what_it_could_not_cancel(tmp_path):
 
 # ------------------------------- the 15:55 flatten deadline (2026-08-10, #4)
 class StuckCancelIB(FakeIB):
-    """A broker whose protective legs refuse to cancel.
+    """Cancels TWS never confirms — the 2026-08-10 state, as the broker models it.
 
-    On 2026-08-10 the SOXL bracket's `LMT SELL 524` and `STP SELL 524` went to
-    `PendingCancel` and stayed there. IBKR holds the shares against a working
-    sell, so the flatten's market order could not be filled — and every
-    individual `cancelOrder` was ignored. Only `reqGlobalCancel` releases this.
+    Built on `FakeIB`'s own two-phase cancel rather than on a bespoke no-op:
+    `stall_cancels` leaves the legs in `PendingCancel`, which is exactly what
+    `IBBroker` reported for `LMT SELL 524` and `STP SELL 524` at 15:55. Before
+    the double carried that state, this class had to fake the stall by ignoring
+    `cancel` outright, which left the orders `Submitted` — behaviourally similar
+    and mechanically wrong.
     """
 
-    def __init__(self, *a, stuck_roles=("T", "S"), **kw):
+    def __init__(self, *a, **kw):
         super().__init__(*a, **kw)
-        self.stuck_roles = stuck_roles
-        self.honour_cancel = False
+        self.stall_cancels = True
 
-    def _is_stuck(self, o) -> bool:
-        p = parse_ref(o.order_ref or "")
-        return bool(p and p[2] in self.stuck_roles) and not self.honour_cancel
-
-    def cancel(self, order_id) -> None:
-        o = self.orders.get(order_id)
-        if o is not None and self._is_stuck(o):
-            return                       # PendingCancel: acknowledged, never done
-        super().cancel(order_id)
-
-    def cancel_all(self) -> None:        # reqGlobalCancel is the bigger hammer
-        self.honour_cancel = True
+    def cancel_all(self) -> None:
+        # §6.7's hammer resolves the stall; ordinary cancels work again after.
+        self.stall_cancels = False
         super().cancel_all()
 
 
@@ -670,10 +662,12 @@ class BlockedMarketIB(StuckCancelIB):
 
     def place_market(self, symbol, action, qty, order_ref):
         oid = super().place_market(symbol, action, qty, order_ref)
+        # `is_working`, not a hand-written status list — the same mistake this
+        # whole change exists to remove. A leg in PendingCancel still holds the
+        # shares, which is the entire mechanism of 2026-08-10.
         blocked = [o for o in self.orders.values()
                    if o.symbol == symbol and o.action == "SELL"
-                   and o.order_type in ("LMT", "STP")
-                   and o.status in ("Submitted", "PreSubmitted")]
+                   and o.order_type in ("LMT", "STP") and is_working(o.status)]
         if not blocked:
             self.fill(oid, price=99.5)
         return oid
@@ -812,3 +806,180 @@ def test_a_later_execution_that_moves_the_vwap_reprices_the_bracket(tmp_path):
     assert stop[0].aux_px == pytest.approx(round(100.00 * 0.96, 2)), \
         "the stop is still priced off the first execution, not the vwap"
     assert stop[0].qty == pytest.approx(full)
+
+
+# --------------- the ratchet race and Error 103 (2026-08-10, fix #7)
+class RejectModifyIB(FakeIB):
+    """IBKR answers `Error 103, Duplicate order id` and keeps the original.
+
+    `IBBroker.modify_limit` mutates the local `Order` and then calls
+    `placeOrder`, which `ib_async` treats as a modification of the existing
+    trade. The rejection arrives asynchronously, so by the time it lands the
+    client's copy already carries the new price. On 2026-08-10 the engine
+    believed `43.78 x1701` while the broker still had `43.71 x1703` — and the
+    fill proved the broker won, settling 1,703 shares.
+    """
+
+    def modify_limit(self, order_id, limit_px, qty) -> None:
+        return                            # accepted locally, refused upstream
+
+
+class PendingSubmitIB(FakeIB):
+    """An order TWS has not acknowledged yet."""
+
+    def _add(self, *a, **kw) -> int:
+        oid = super()._add(*a, **kw)
+        self.orders[oid].status = "PendingSubmit"
+        return oid
+
+    def working_orders(self, symbol):
+        return [WorkingOrder(o.order_ref, o.order_id, 0, o.symbol, o.action,
+                             o.order_type, o.qty, o.filled, o.limit_px,
+                             o.aux_px, o.oca_group, o.status)
+                for o in self.orders.values()
+                if o.symbol == symbol
+                and o.status in ("Submitted", "PreSubmitted", "PendingSubmit")]
+
+
+def _ratchet_to(om, sm, idx, high):
+    sm.on_bar_close(Bar(idx, high, high, high, high))
+    sm.on_bar_open(idx + 1)
+    om.apply(sm.drain_intents())
+
+
+def test_a_refused_ratchet_is_corrected_from_the_broker_next_bar(tmp_path):
+    """The engine's limit is a belief; the broker's is the fact."""
+    om, ib, sm = _armed(tmp_path, high=100.0, ib=RejectModifyIB())
+    assert om.entry_limit == pytest.approx(99.00)
+    original = ib.orders[om.entry_id].limit_px
+
+    _ratchet_to(om, sm, START_IDX, 110.0)              # asks for 108.90
+    assert om.entry_limit == pytest.approx(108.90), "optimistic in the moment"
+    assert ib.orders[om.entry_id].limit_px == pytest.approx(original), \
+        "the broker refused it"
+
+    events = []
+    om.on_event = lambda lvl, msg: events.append((lvl, msg))
+    _ratchet_to(om, sm, START_IDX + 1, 111.0)
+    assert any(lvl == "warn" and "drifted from the broker" in m
+               for lvl, m in events), events
+
+
+def test_the_engine_never_believes_a_price_the_broker_refused(tmp_path):
+    """The resync replaces the belief with the fact.
+
+    Asserting this *after* a ratchet would not show it: the engine adopts the
+    broker's price and then optimistically writes the newly-requested one, so
+    the end state is always the optimistic value. The correction is what
+    `_resync_entry` does, and that is what is asserted.
+    """
+    om, ib, sm = _armed(tmp_path, high=100.0, ib=RejectModifyIB())
+    _ratchet_to(om, sm, START_IDX, 110.0)
+    assert om.entry_limit == pytest.approx(108.90)          # believed
+    assert ib.orders[om.entry_id].limit_px == pytest.approx(99.00)   # actual
+
+    assert om._resync_entry() is not None
+    assert om.entry_limit == pytest.approx(99.00), \
+        "the engine is still carrying a price the broker refused"
+
+
+def test_a_vanished_entry_order_is_never_silently_re_armed(tmp_path):
+    """The dangerous half of Error 103.
+
+    A rejected modify leaves `ib_async`'s copy marked Cancelled — `openTrades`
+    drops it, because Cancelled is a DoneState — while the original order is
+    still live at IBKR. Re-arming there would put a second buy limit behind one
+    that then filled 1,703 shares. A missed ratchet costs basis points; a
+    duplicate position costs control of the sleeve.
+    """
+    om, ib, sm = _armed(tmp_path, high=100.0)
+    before = len([o for o in ib.orders.values() if o.action == "BUY"])
+    ib.orders[om.entry_id].status = "Cancelled"        # gone, locally
+
+    events = []
+    om.on_event = lambda lvl, msg: events.append((lvl, msg))
+    _ratchet_to(om, sm, START_IDX, 110.0)
+
+    after = len([o for o in ib.orders.values() if o.action == "BUY"])
+    assert after == before, "a second entry order was placed"
+    assert any(lvl == "critical" and "NOT re-arming" in m for lvl, m in events), \
+        events
+
+
+def test_the_ratchet_waits_for_an_unacknowledged_order(tmp_path):
+    """2026-08-10: the arm and the ratchet were 2 ms apart, and IBKR answered
+    Error 103. Modifying an order it has not acknowledged is deferred a bar."""
+    om, ib, sm = _armed(tmp_path, high=100.0, ib=PendingSubmitIB())
+    at_arm = ib.orders[om.entry_id].limit_px
+
+    events = []
+    om.on_event = lambda lvl, msg: events.append((lvl, msg))
+    _ratchet_to(om, sm, START_IDX, 110.0)
+
+    assert ib.orders[om.entry_id].limit_px == pytest.approx(at_arm), \
+        "modified an order TWS had not acknowledged"
+    assert any("ratchet deferred" in m for _, m in events), events
+    # Once acknowledged, the ratchet proceeds normally. The high must actually
+    # rise — an unchanged session high emits no intent at all.
+    ib.orders[om.entry_id].status = "Submitted"
+    _ratchet_to(om, sm, START_IDX + 1, 120.0)
+    assert ib.orders[om.entry_id].limit_px == pytest.approx(118.80)
+
+
+def test_a_broker_error_on_modify_does_not_kill_the_session(tmp_path):
+    om, ib, sm = _armed(tmp_path, high=100.0)
+    def boom(order_id, limit_px, qty):
+        raise BrokerError("no")
+    ib.modify_limit = boom
+    events = []
+    om.on_event = lambda lvl, msg: events.append((lvl, msg))
+    _ratchet_to(om, sm, START_IDX, 110.0)              # must not raise
+    assert any(lvl == "error" and "refused" in m for lvl, m in events), events
+
+
+# ------------- reconcile counts round trips, not executions (fix #6)
+def test_reconcile_agrees_when_one_entry_settles_in_many_executions(tmp_path):
+    """2026-08-10 reported MISMATCH on both sleeves, every session.
+
+    `broker_fills` counted executions (7 on SOXL, 31 on SOXS) against
+    `sm_fills`, which counts §2.7 round trips (1 and 3). Both numbers were
+    right about different things. SOXS reconciled perfectly — position 0, not
+    in position — and was still reported as a mismatch.
+    """
+    om, ib, sm = _armed(tmp_path, high=100.0)
+    eid = om.entry_id
+    full = ib.orders[eid].qty
+    for frac in (0.05, 0.20, 0.15, 0.25, 0.35):
+        ib.fill(eid, qty=full * frac, price=99.0)
+    om.on_executions(START_IDX)
+
+    r = om.reconcile()
+    assert r["broker_entry_execs"] == 5, "five executions really did arrive"
+    assert r["broker_fills"] == 1, "but they are one entry"
+    assert r["sm_fills"] == 1
+    assert r["agrees"] is True, r
+
+
+def test_reconcile_still_catches_a_real_disagreement(tmp_path):
+    """The check must keep its teeth: a position the state machine denies."""
+    om, ib, sm = _armed(tmp_path, high=100.0)
+    ib.positions["SOXL"] = 500.0          # held, with no fill ever seen
+    r = om.reconcile()
+    assert r["agrees"] is False
+    assert r["sm_in_position"] is False and r["position"] == pytest.approx(500.0)
+
+
+def test_reconcile_counts_two_separate_entries_as_two(tmp_path):
+    """Two round trips are two, however many executions each took."""
+    om, ib, sm = _armed(tmp_path, high=100.0)
+    for _ in range(2):
+        eid = om.entry_id
+        ib.fill(eid, qty=ib.orders[eid].qty * 0.5, price=99.0)
+        ib.fill(eid, price=99.0)
+        om.on_executions(START_IDX)
+        target = next(o for o in ib.orders.values()
+                      if o.order_type == "LMT" and o.action == "SELL"
+                      and is_working(o.status))
+        ib.fill(target.order_id, price=99.99)
+        om.on_executions(START_IDX)
+    assert om.reconcile()["broker_fills"] == 2 == sm.fills

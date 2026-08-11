@@ -186,6 +186,10 @@ class Runner:
                             self._event("error",
                                         f"{symbol} bar {bar.idx}: {exc!r} — "
                                         f"skipped; later bars still processed")
+                # §2.5's activation is a clock event, not a bar event: the
+                # feed only reports *completed* bars, so waiting for bar 18
+                # armed at 11:05 and cost ~6% of the edge every session.
+                self.engine.activate_due(datetime.now(NY))
                 self.engine.poll(max((f.last_idx for f in self.feeds.values()),
                                      default=-1))
                 self.touch_heartbeat()
@@ -208,14 +212,20 @@ class Runner:
             time.sleep(sleep)
 
     # ------------------------------------------------------ 15:55 / 16:10
-    def close_out(self) -> dict:
+    def close_out(self, now: Optional[datetime] = None) -> dict:
         self._event("info", "15:55 flatten")
-        flat = self.engine.flatten_all()
+        # §12's HARD_FLAT_BY is a wall-clock deadline, so the flatten needs the
+        # wall clock. The engine does not read it for itself — see flatten_all.
+        flat = self.engine.flatten_all(now=now or datetime.now(NY))
         for symbol, ok in flat.items():
             if not ok:
                 self._event("critical", f"{symbol} did not flatten on the first pass")
         if not self.engine.verify_flat():
             self._event("critical", "NOT FLAT — manual intervention required")
+        # Complete the bar record before the daily row is written: the session
+        # loop stops at 15:55, and `report.py`'s shadow is force-flattened early
+        # without the last two bars. Evidence only — no decision follows it.
+        self.engine.record_session_tail(now or datetime.now(NY))
         return self.engine.reconcile()
 
     # ------------------------------------------------------------ helpers
