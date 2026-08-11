@@ -1,0 +1,148 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<Project ToolsVersion="12.0" DefaultTargets="Build" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <Import Project="$(MSBuildExtensionsPath)\$(MSBuildToolsVersion)\Microsoft.Common.props" Condition="Exists('$(MSBuildExtensionsPath)\$(MSBuildToolsVersion)\Microsoft.Common.props')" />
+  <PropertyGroup>
+    <Configuration Condition=" '$(Configuration)' == '' ">Debug</Configuration>
+    <Platform Condition=" '$(Platform)' == '' ">AnyCPU</Platform>
+    <ProjectGuid>{44541143-0CA2-43A9-92A6-ACC174CE7061}</ProjectGuid>
+    <OutputType>Library</OutputType>
+    <AppDesignerFolder>Properties</AppDesignerFolder>
+    <RootNamespace>TWSLib</RootNamespace>
+    <AssemblyName>TWSLib</AssemblyName>
+    <TargetFrameworkVersion>v4.8</TargetFrameworkVersion>
+    <FileAlignment>512</FileAlignment>
+    <TargetFrameworkProfile>
+    </TargetFrameworkProfile>
+  </PropertyGroup>
+  <PropertyGroup Condition=" '$(Configuration)|$(Platform)' == 'Debug|AnyCPU' ">
+    <DebugSymbols>true</DebugSymbols>
+    <DebugType>full</DebugType>
+    <Optimize>false</Optimize>
+    <OutputPath>bin\Debug\</OutputPath>
+    <DefineConstants>DEBUG;TRACE</DefineConstants>
+    <ErrorReport>prompt</ErrorReport>
+    <WarningLevel>4</WarningLevel>
+    <RegisterForComInterop>true</RegisterForComInterop>
+    <Prefer32Bit>false</Prefer32Bit>
+  </PropertyGroup>
+  <PropertyGroup Condition=" '$(Configuration)|$(Platform)' == 'Release|AnyCPU' ">
+    <DebugType>pdbonly</DebugType>
+    <Optimize>true</Optimize>
+    <OutputPath>bin\Release\</OutputPath>
+    <DefineConstants>TRACE</DefineConstants>
+    <ErrorReport>prompt</ErrorReport>
+    <WarningLevel>4</WarningLevel>
+    <RegisterForComInterop>true</RegisterForComInterop>
+    <Prefer32Bit>false</Prefer32Bit>
+  </PropertyGroup>
+  <ItemGroup>
+    <Reference Include="System" />
+    <Reference Include="System.Core" />
+    <Reference Include="System.Windows.Forms" />
+    <Reference Include="System.Xml.Linq" />
+    <Reference Include="System.Data.DataSetExtensions" />
+    <Reference Include="Microsoft.CSharp" />
+    <Reference Include="System.Data" />
+    <Reference Include="System.Xml" />
+  </ItemGroup>
+  <ItemGroup>
+    <Compile Include="ComWrappers\comComboLeg.cs" />
+    <Compile Include="ComWrappers\comCommissionAndFeesReport.cs" />
+    <Compile Include="ComWrappers\comContract.cs" />
+    <Compile Include="ComWrappers\ComContractDescription.cs" />
+    <Compile Include="ComWrappers\comContractDetails.cs" />
+    <Compile Include="ComWrappers\comDeltaNeutralContract.cs" />
+    <Compile Include="ComWrappers\comExecution.cs" />
+    <Compile Include="ComWrappers\comExecutionFilter.cs" />
+    <Compile Include="ComWrappers\ComFamilyCode.cs" />
+    <Compile Include="ComWrappers\ComHistogramEntry.cs" />
+    <Compile Include="ComWrappers\ComHistoricalSession.cs" />
+    <Compile Include="ComWrappers\ComList.cs" />
+    <Compile Include="ComWrappers\ComNewsProvider.cs" />
+    <Compile Include="ComWrappers\comOrderCancel.cs" />
+    <Compile Include="ComWrappers\comOrder.cs" />
+    <Compile Include="ComWrappers\comOrderAllocation.cs" />
+    <Compile Include="ComWrappers\comOrderComboLeg.cs" />
+    <Compile Include="ComWrappers\comOrderState.cs" />
+    <Compile Include="ComWrappers\comScannerSubscription.cs" />
+    <Compile Include="ComWrappers\ComSoftDollarTier.cs" />
+    <Compile Include="ComWrappers\ComIneligibilityReason.cs" />
+    <Compile Include="ComWrappers\ComTagValue.cs" />
+    <Compile Include="ComWrappers\ComWrapper.cs" />
+    <Compile Include="ComWrappers\ComDepthMktDataDescription.cs" />
+    <Compile Include="ComWrappers\ComPriceIncrement.cs" />
+    <Compile Include="ComWrappers\ComTickAttrib.cs" />
+    <Compile Include="ComWrappers\ComHistoricalTickLast.cs" />
+    <Compile Include="ComWrappers\ComHistoricalTickBidAsk.cs" />
+    <Compile Include="ComWrappers\ComHistoricalTick.cs" />
+    <Compile Include="ComWrappers\ComTickAttribLast.cs" />
+    <Compile Include="ComWrappers\ComTickAttribBidAsk.cs" />
+    <Compile Include="ComWrappers\ComSmartComponent.cs" />
+    <Compile Include="ComWrappers\ComSmartComponentList.cs" />
+    <Compile Include="ComWrappers\ComWshEventData.cs" />
+    <Compile Include="ControlImpl\IComList.cs" />
+    <Compile Include="ControlImpl\IHistoricalSession.cs" />
+    <Compile Include="ControlImpl\IHistoricalSessionList.cs" />
+    <Compile Include="ControlImpl\IOrderCancel.cs" />
+    <Compile Include="ControlImpl\IOrderAllocation.cs" />
+    <Compile Include="ControlImpl\IOrderAllocationList.cs" />
+    <Compile Include="ControlImpl\ISoftDollarTier.cs" />
+    <Compile Include="ComWrappers\ComSoftDollarTierList.cs" />
+    <Compile Include="ControlImpl\IIneligibilityReason.cs" />
+    <Compile Include="ControlImpl\IIneligibilityReasonList.cs" />
+    <Compile Include="ControlImpl\IIntegerList.cs" />
+    <Compile Include="ControlImpl\ITickAtrribBidAsk.cs" />
+    <Compile Include="ControlImpl\ITickAtrribLast.cs" />
+    <Compile Include="ControlImpl\IHistoricalTickList.cs" />
+    <Compile Include="ControlImpl\IHistoricalTick.cs" />
+    <Compile Include="ControlImpl\IHistoricalTickBidAskList.cs" />
+    <Compile Include="ControlImpl\IHistoricalTickBidAsk.cs" />
+    <Compile Include="ControlImpl\IHistoricalTickLastList.cs" />
+    <Compile Include="ControlImpl\IHistoricalTickLast.cs" />
+    <Compile Include="ControlImpl\ITickAtrrib.cs" />
+    <Compile Include="ControlImpl\IPriceIncrementList.cs" />
+    <Compile Include="ControlImpl\IPriceIncrement.cs" />
+    <Compile Include="ControlImpl\IDepthMktDataDescriptionList.cs" />
+    <Compile Include="ControlImpl\IDepthMktDataDescription.cs" />
+    <Compile Include="ControlImpl\IComboLeg.cs" />
+    <Compile Include="ControlImpl\IComboLegList.cs" />
+    <Compile Include="ControlImpl\ICommissionAndFeesReport.cs" />
+    <Compile Include="ControlImpl\IContract.cs" />
+    <Compile Include="ControlImpl\IContractDescription.cs" />
+    <Compile Include="ControlImpl\IContractDescriptionList.cs" />
+    <Compile Include="ControlImpl\IContractDetails.cs" />
+    <Compile Include="ControlImpl\IDeltaNeutralContract.cs" />
+    <Compile Include="ControlImpl\IExecution.cs" />
+    <Compile Include="ControlImpl\IExecutionFilter.cs" />
+    <Compile Include="ControlImpl\IFamilyCodeList.cs" />
+    <Compile Include="ControlImpl\IFamilyCode.cs" />
+    <Compile Include="ControlImpl\INewsProvider.cs" />
+    <Compile Include="ControlImpl\INewsProviderList.cs" />
+    <Compile Include="ControlImpl\IOrder.cs" />
+    <Compile Include="ControlImpl\IOrderComboLeg.cs" />
+    <Compile Include="ControlImpl\IOrderComboLegList.cs" />
+    <Compile Include="ControlImpl\IOrderState.cs" />
+    <Compile Include="ControlImpl\IScannerSubscription.cs" />
+    <Compile Include="ControlImpl\ITagValue.cs" />
+    <Compile Include="ControlImpl\ITagValueList.cs" />
+    <Compile Include="ControlImpl\ITws.cs" />
+    <Compile Include="ControlImpl\ITwsEvents.cs" />
+    <Compile Include="ControlImpl\IWshEventData.cs" />
+    <Compile Include="Properties\AssemblyInfo.cs" />
+    <Compile Include="ControlImpl\Tws.cs" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\client\CSharpAPI.csproj">
+      <Project>{4b0985f5-eb08-4c7a-9bb1-fec7abe9550c}</Project>
+      <Name>CSharpAPI</Name>
+    </ProjectReference>
+  </ItemGroup>
+  <Import Project="$(MSBuildToolsPath)\Microsoft.CSharp.targets" />
+  <!-- To modify your build process, add your task inside one of the targets below and uncomment it. 
+       Other similar extension points exist, see Microsoft.Common.targets.
+  <Target Name="BeforeBuild">
+  </Target>
+  <Target Name="AfterBuild">
+  </Target>
+  -->
+</Project>
