@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import pytest
 
-from broker import BrokerError, FakeIB, WorkingOrder
+from broker import BrokerError, FakeIB, WorkingOrder, is_working
 from orders import OrderManager, RatchetViolation, order_ref, parse_ref
 from sleeve import Bar, SleeveConfig, SleeveStateMachine, START_IDX
 from store import Store
@@ -523,31 +523,23 @@ def test_clear_working_reports_what_it_could_not_cancel(tmp_path):
 
 # ------------------------------- the 15:55 flatten deadline (2026-08-10, #4)
 class StuckCancelIB(FakeIB):
-    """A broker whose protective legs refuse to cancel.
+    """Cancels TWS never confirms — the 2026-08-10 state, as the broker models it.
 
-    On 2026-08-10 the SOXL bracket's `LMT SELL 524` and `STP SELL 524` went to
-    `PendingCancel` and stayed there. IBKR holds the shares against a working
-    sell, so the flatten's market order could not be filled — and every
-    individual `cancelOrder` was ignored. Only `reqGlobalCancel` releases this.
+    Built on `FakeIB`'s own two-phase cancel rather than on a bespoke no-op:
+    `stall_cancels` leaves the legs in `PendingCancel`, which is exactly what
+    `IBBroker` reported for `LMT SELL 524` and `STP SELL 524` at 15:55. Before
+    the double carried that state, this class had to fake the stall by ignoring
+    `cancel` outright, which left the orders `Submitted` — behaviourally similar
+    and mechanically wrong.
     """
 
-    def __init__(self, *a, stuck_roles=("T", "S"), **kw):
+    def __init__(self, *a, **kw):
         super().__init__(*a, **kw)
-        self.stuck_roles = stuck_roles
-        self.honour_cancel = False
+        self.stall_cancels = True
 
-    def _is_stuck(self, o) -> bool:
-        p = parse_ref(o.order_ref or "")
-        return bool(p and p[2] in self.stuck_roles) and not self.honour_cancel
-
-    def cancel(self, order_id) -> None:
-        o = self.orders.get(order_id)
-        if o is not None and self._is_stuck(o):
-            return                       # PendingCancel: acknowledged, never done
-        super().cancel(order_id)
-
-    def cancel_all(self) -> None:        # reqGlobalCancel is the bigger hammer
-        self.honour_cancel = True
+    def cancel_all(self) -> None:
+        # §6.7's hammer resolves the stall; ordinary cancels work again after.
+        self.stall_cancels = False
         super().cancel_all()
 
 
@@ -670,10 +662,12 @@ class BlockedMarketIB(StuckCancelIB):
 
     def place_market(self, symbol, action, qty, order_ref):
         oid = super().place_market(symbol, action, qty, order_ref)
+        # `is_working`, not a hand-written status list — the same mistake this
+        # whole change exists to remove. A leg in PendingCancel still holds the
+        # shares, which is the entire mechanism of 2026-08-10.
         blocked = [o for o in self.orders.values()
                    if o.symbol == symbol and o.action == "SELL"
-                   and o.order_type in ("LMT", "STP")
-                   and o.status in ("Submitted", "PreSubmitted")]
+                   and o.order_type in ("LMT", "STP") and is_working(o.status)]
         if not blocked:
             self.fill(oid, price=99.5)
         return oid

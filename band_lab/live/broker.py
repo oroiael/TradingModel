@@ -56,6 +56,31 @@ def _has_quote(ticker) -> bool:
     return False
 
 
+#: `ib_async.OrderStatus.DoneStates`, transcribed from the installed package.
+#: An order in any *other* state — including `PendingCancel` — is still working
+#: as far as the broker is concerned, because `IB.openTrades()` is defined as
+#: "every trade whose status is not a DoneState".
+#:
+#: This exists because the two implementations below had drifted. `IBBroker`
+#: reports whatever `openTrades()` returns, so a cancel that TWS has not yet
+#: confirmed shows up as working — which is what `LMT SELL 524 (PendingCancel)`
+#: was on 2026-08-10. `FakeIB` filtered to `Submitted`/`PreSubmitted`, so the
+#: state that broke that session could not be represented in a test at all.
+#: One predicate, used by both, is the only thing that keeps them honest.
+DONE_STATES = frozenset({"Filled", "Cancelled", "ApiCancelled", "Inactive"})
+
+#: `ib_async.OrderStatus.ActiveStates`. Note `PendingCancel` is in neither set:
+#: it is a limbo the client enters on `cancelOrder` and leaves only when TWS
+#: says so. Nothing may treat it as done.
+ACTIVE_STATES = frozenset({"PendingSubmit", "ApiPending", "PreSubmitted",
+                           "Submitted", "ValidationError", "ApiUpdate"})
+
+
+def is_working(status: str) -> bool:
+    """Would `IB.openTrades()` still return an order in this state?"""
+    return status not in DONE_STATES
+
+
 class BrokerError(RuntimeError):
     pass
 
@@ -629,6 +654,9 @@ class FakeIB(Broker):
         self.sessions: dict[str, list[tuple]] = {}
         self.market_data_type = MARKET_DATA_LIVE
         self.global_cancels = 0
+        #: Leave cancels in `PendingCancel` instead of confirming them,
+        #: reproducing the 2026-08-10 stall. See `cancel`.
+        self.stall_cancels = False
         self.connect_count = 0
 
     # lifecycle
@@ -660,11 +688,13 @@ class FakeIB(Broker):
         return self.positions.get(symbol, 0.0)
 
     def working_orders(self, symbol) -> list[WorkingOrder]:
+        # `is_working`, not a hand-written status list: `IBBroker` reports
+        # whatever `IB.openTrades()` returns, and that includes `PendingCancel`.
         return [WorkingOrder(o.order_ref, o.order_id, self._next_perm, o.symbol,
                              o.action, o.order_type, o.qty, o.filled,
                              o.limit_px, o.aux_px, o.oca_group, o.status)
                 for o in self.orders.values()
-                if o.symbol == symbol and o.status in ("Submitted", "PreSubmitted")]
+                if o.symbol == symbol and is_working(o.status)]
 
     def executions(self, symbol) -> list[Execution]:
         return [e for e in self.execs if e.symbol == symbol]
@@ -709,14 +739,42 @@ class FakeIB(Broker):
         o.qty = float(qty)
 
     def cancel(self, order_id) -> None:
+        """Cancel in two phases, the way `ib_async` actually does it.
+
+        `IB.cancelOrder` sets the local status to `PendingCancel` and leaves it
+        there until TWS confirms; only an untransmitted `PendingSubmit` order or
+        an `Inactive` one goes straight to `Cancelled`. `PendingCancel` is in
+        neither `ActiveStates` nor `DoneStates`, so `openTrades()` keeps
+        returning it — which is precisely how two SOXL legs were still holding
+        524 shares at 15:55 on 2026-08-10.
+
+        `stall_cancels` leaves them there, so a test can reproduce that session
+        without inventing a mechanism. The default confirms immediately, which
+        is the ordinary case and keeps the happy path fast.
+        """
         o = self.orders.get(order_id)
-        if o and o.status in ("Submitted", "PreSubmitted"):
+        if o is None or not is_working(o.status):
+            return
+        o.status = "PendingCancel"
+        if not self.stall_cancels:
             o.status = "Cancelled"
 
+    def confirm_cancels(self, symbol: Optional[str] = None) -> int:
+        """TWS finally acknowledges — `PendingCancel` becomes `Cancelled`."""
+        n = 0
+        for o in self.orders.values():
+            if o.status == "PendingCancel" and (symbol is None or o.symbol == symbol):
+                o.status, n = "Cancelled", n + 1
+        return n
+
     def cancel_all(self) -> None:
+        # §6.7 `reqGlobalCancel`. Modelled as authoritative — it is the escape
+        # hatch precisely because individual cancels can stall. Whether IBKR
+        # really frees a stuck OCA leg this way is NOT verified here; see the
+        # `ibkr-semantics` skill.
         self.global_cancels += 1
         for o in self.orders.values():
-            if o.status in ("Submitted", "PreSubmitted"):
+            if is_working(o.status):
                 o.status = "Cancelled"
 
     # ------------------------------------------------------- test controls
