@@ -25,6 +25,7 @@ from __future__ import annotations
 
 import os
 import sys
+import time
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from typing import Callable, Optional
@@ -45,7 +46,8 @@ from strategy_core import (                                 # noqa: E402
     Bar, FeatureHistory, session_stats,
 )
 from spec_constants import (                                # noqa: E402
-    DAY_LOSS_KILL, F_SIZE, W_PER_SLEEVE, bar_index,
+    DAY_LOSS_KILL, F_SIZE, FLATTEN_TIME, HARD_FLAT_BY, TIMEZONE,
+    W_PER_SLEEVE, _minutes, bar_index,
 )
 
 NY = ZoneInfo("America/New_York")
@@ -217,8 +219,33 @@ class Engine:
                 rt.om.on_executions(bar_idx)
 
     # ----------------------------------------------------------- 15:55
+    def hard_flat_budget(self, now: Optional[datetime] = None,
+                         margin: float = 20.0) -> float:
+        """Seconds the flatten may spend, from `now` to §12's `HARD_FLAT_BY`.
+
+        §12 sets the flatten at 15:55 and the hard deadline at 16:00, so a
+        flatten that begins on time has five minutes. On 2026-08-10 it used
+        **23 seconds** of them and carried 524 shares overnight, because the
+        loop counted attempts instead of watching the clock.
+
+        `margin` keeps a little back so the 16:00 verify runs against a settled
+        book rather than against orders still in flight. Never negative: a
+        flatten that starts late still gets one attempt (`ensure_flat` checks
+        the position before it checks the budget).
+        """
+        now = now or datetime.now(ZoneInfo(TIMEZONE))
+        hh, mm = (int(v) for v in HARD_FLAT_BY.split(":"))
+        deadline = now.replace(hour=hh, minute=mm, second=0, microsecond=0)
+        # Capped at the §12 window itself (15:55 -> 16:00). Called at 09:00 by a
+        # disconnect path the raw arithmetic would hand out seven hours, and
+        # `ensure_flat` would spend every one of them.
+        window = (_minutes(HARD_FLAT_BY) - _minutes(FLATTEN_TIME)) * 60.0
+        return max(0.0, min(window, (deadline - now).total_seconds() - margin))
+
     def flatten_all(self, bar_idx: int = FLATTEN_IDX,
-                    settle: float = 2.0) -> dict[str, bool]:
+                    settle: float = 2.0,
+                    now: Optional[datetime] = None,
+                    budget: Optional[float] = None) -> dict[str, bool]:
         """15:55 — cancel everything, close any position (§2.8).
 
         The flatten's own executions book the trade through the ordinary exit
@@ -234,9 +261,21 @@ class Engine:
         loss and buries the real fault, which was that 541 shares were about to
         be carried overnight.
         """
+        budget = self.hard_flat_budget(now) if budget is None else budget
+        started = time.monotonic()
         out = {}
         for symbol, rt in self.sleeves.items():
-            flat = rt.om.ensure_flat(settle=settle)
+            # Share what is left between the sleeves that still hold something.
+            # Sequential and un-shared, the first stuck sleeve would spend the
+            # whole budget and leave the second with none — turning one
+            # overnight position into two.
+            share = None
+            if budget is not None:
+                left = max(0.0, budget - (time.monotonic() - started))
+                holding = sum(1 for s in self.symbols
+                              if abs(self.broker.position(s)) > 1e-9)
+                share = left / max(1, holding)
+            flat = rt.om.ensure_flat(settle=settle, budget=share)
             if rt.sm.in_position and not flat:
                 pos = self.broker.position(symbol)
                 self.on_event("critical",

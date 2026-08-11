@@ -519,3 +519,208 @@ def test_clear_working_reports_what_it_could_not_cancel(tmp_path):
     ib.cancel = lambda oid: None                 # cancels never take effect
     assert om._clear_working(timeout=0.5) is False
     assert any(l == "critical" and "still working" in m for l, m in said)
+
+
+# ------------------------------- the 15:55 flatten deadline (2026-08-10, #4)
+class StuckCancelIB(FakeIB):
+    """A broker whose protective legs refuse to cancel.
+
+    On 2026-08-10 the SOXL bracket's `LMT SELL 524` and `STP SELL 524` went to
+    `PendingCancel` and stayed there. IBKR holds the shares against a working
+    sell, so the flatten's market order could not be filled — and every
+    individual `cancelOrder` was ignored. Only `reqGlobalCancel` releases this.
+    """
+
+    def __init__(self, *a, stuck_roles=("T", "S"), **kw):
+        super().__init__(*a, **kw)
+        self.stuck_roles = stuck_roles
+        self.honour_cancel = False
+
+    def _is_stuck(self, o) -> bool:
+        p = parse_ref(o.order_ref or "")
+        return bool(p and p[2] in self.stuck_roles) and not self.honour_cancel
+
+    def cancel(self, order_id) -> None:
+        o = self.orders.get(order_id)
+        if o is not None and self._is_stuck(o):
+            return                       # PendingCancel: acknowledged, never done
+        super().cancel(order_id)
+
+    def cancel_all(self) -> None:        # reqGlobalCancel is the bigger hammer
+        self.honour_cancel = True
+        super().cancel_all()
+
+
+def _in_position(tmp_path, **kw):
+    """A sleeve holding a bracketed position, as at 15:55."""
+    om, ib, sm = _armed(tmp_path, high=100.0, **kw)
+    ib.fill(om.entry_id, price=99.0)
+    om.on_executions(START_IDX)
+    assert ib.position("SOXL") > 0
+    return om, ib, sm
+
+
+def test_flatten_is_budgeted_in_time_not_attempts(tmp_path):
+    """The 2026-08-10 failure: five attempts spent in 23 seconds, then it quit
+    with §12's 16:00 deadline still four minutes away."""
+    om, ib, sm = _in_position(tmp_path, ib=StuckCancelIB())
+    calls = []
+    om.broker.cancel_all = lambda: calls.append(1)      # neutered: stays stuck
+
+    import time as _t
+    t0 = _t.time()
+    assert om.ensure_flat(settle=0, budget=0.6, escalate_after=999) is False
+    elapsed = _t.time() - t0
+    # It spent the budget rather than five quick attempts.
+    assert elapsed >= 0.6, f"gave up after {elapsed:.2f}s of a 0.6s budget"
+
+
+def test_flatten_escalates_to_global_cancel_when_cancels_stall(tmp_path):
+    """§6.7's hammer, applied only after the ordinary cancels demonstrably fail."""
+    om, ib, sm = _in_position(tmp_path, ib=StuckCancelIB())
+    assert ib.global_cancels == 0
+    om.ensure_flat(settle=0, budget=0.5, escalate_after=0.0)
+    assert ib.global_cancels >= 1, "the stuck bracket was never force-cancelled"
+
+
+def test_flatten_does_not_escalate_when_cancels_are_working(tmp_path):
+    """A hammer that swings on a healthy book is defects 6 and 7 again."""
+    om, ib, sm = _in_position(tmp_path)                 # plain FakeIB: cancels work
+    om.ensure_flat(settle=0, budget=0.3, escalate_after=0.0)
+    assert ib.global_cancels == 0
+
+
+def test_flatten_escalates_at_most_once(tmp_path):
+    om, ib, sm = _in_position(tmp_path, ib=StuckCancelIB())
+    ib.cancel_all_calls = 0
+    real = ib.cancel_all
+    def counted():
+        ib.cancel_all_calls += 1
+        real()
+    ib.cancel_all = counted
+    om.ensure_flat(settle=0, budget=0.5, escalate_after=0.0)
+    assert ib.cancel_all_calls == 1
+
+
+def test_flatten_resends_after_the_global_cancel_takes_its_own_order(tmp_path):
+    """reqGlobalCancel kills this sleeve's own working flatten too.
+
+    If the loop stopped there, the escalation would leave nothing working and
+    the position would go overnight anyway — the failure it exists to prevent.
+    """
+    om, ib, sm = _in_position(tmp_path, ib=StuckCancelIB())
+    held = ib.position("SOXL")
+    om.ensure_flat(settle=0, budget=0.5, escalate_after=0.0)
+    flats = [o for o in ib.orders.values()
+             if o.order_type == "MKT" and o.status in ("Submitted", "PreSubmitted")]
+    assert flats, "no live flatten left after the global cancel"
+    assert sum(o.qty for o in flats) == pytest.approx(held), \
+        "the re-sent flatten must cover the whole position, and only once"
+    assert ib.global_cancels == 1
+
+
+def test_flatten_never_stacks_duplicates_over_a_long_budget(tmp_path):
+    """The safety invariant, re-asserted under the new deadline loop.
+
+    Looping for minutes instead of attempts multiplies the chances of the
+    2026-08-06 bug: three sells of 541 against one long 541 is a short 1,082,
+    the one direction §11 forbids outright. At no point may the working sell
+    quantity exceed the position.
+    """
+    om, ib, sm = _in_position(tmp_path)
+    held = ib.position("SOXL")
+    ib.fill = lambda *a, **k: None                      # nothing ever settles
+
+    assert om.ensure_flat(settle=0, budget=0.8) is False
+    sells = [o for o in ib.orders.values()
+             if o.order_type == "MKT" and o.action == "SELL"
+             and o.status in ("Submitted", "PreSubmitted")]
+    assert len(sells) == 1, f"{len(sells)} stacked flatten orders"
+    assert sells[0].qty == pytest.approx(held)
+    assert ib.position("SOXL") >= 0, "never inverted"
+
+
+def test_flatten_makes_one_attempt_even_with_no_budget_left(tmp_path):
+    """A flatten that starts late still tries. Zero budget is not zero effort."""
+    om, ib, sm = _in_position(tmp_path)
+    real_place = ib.place_market
+    def place_and_fill(symbol, action, qty, order_ref):
+        oid = real_place(symbol, action, qty, order_ref)
+        ib.fill(oid, price=99.5)
+        return oid
+    ib.place_market = place_and_fill
+    assert om.ensure_flat(settle=0, budget=0.0) is True
+    assert abs(ib.position("SOXL")) < 1e-9
+
+
+def test_flatten_returns_true_without_acting_when_already_flat(tmp_path):
+    om, ib, sm = _om(tmp_path)
+    assert om.ensure_flat(settle=0, budget=5.0) is True
+    assert not [o for o in ib.orders.values() if o.order_type == "MKT"]
+
+
+class BlockedMarketIB(StuckCancelIB):
+    """StuckCancelIB, plus the reason the flatten could not fill.
+
+    IBKR holds the shares against a working sell, so while the bracket's SELL
+    LMT / SELL STP are alive the flatten's market order cannot be filled. This
+    is the whole mechanism of 2026-08-10 in one double: the cancels do not land,
+    so the shares stay committed, so the market order sits.
+    """
+
+    def place_market(self, symbol, action, qty, order_ref):
+        oid = super().place_market(symbol, action, qty, order_ref)
+        blocked = [o for o in self.orders.values()
+                   if o.symbol == symbol and o.action == "SELL"
+                   and o.order_type in ("LMT", "STP")
+                   and o.status in ("Submitted", "PreSubmitted")]
+        if not blocked:
+            self.fill(oid, price=99.5)
+        return oid
+
+
+def test_the_2026_08_10_flatten_now_reaches_flat(tmp_path):
+    """The regression, end to end.
+
+    On 2026-08-10 this exact situation left 524 shares overnight: the loop
+    burned five attempts in 23 seconds and quit at 15:55:39 with the 16:00
+    deadline four minutes away. With a clock-based budget it keeps trying,
+    escalates to reqGlobalCancel once the ordinary cancels have plainly failed,
+    re-sends the market order the global cancel took with it, and gets flat.
+    """
+    om, ib, sm = _in_position(tmp_path, ib=BlockedMarketIB())
+    held = ib.position("SOXL")
+    assert held > 0
+
+    # The old budget, for contrast: five attempts and no escalation.
+    assert om.ensure_flat(attempts=5, settle=0, escalate_after=1e9) is False
+    assert ib.position("SOXL") == pytest.approx(held), "the old path leaves it open"
+
+    # The new one.
+    assert om.ensure_flat(settle=0, budget=10.0, escalate_after=0.2) is True
+    assert abs(ib.position("SOXL")) < 1e-9, "still not flat"
+    assert ib.global_cancels == 1, "escalated exactly once"
+
+
+def test_a_failed_global_cancel_does_not_take_the_fast_path(tmp_path):
+    """Found by review, not by a failing run.
+
+    The escalation normally skips the budget check and re-sends at once, because
+    the global cancel just took this sleeve's own flatten with it. If the cancel
+    *raised*, nothing was freed — so re-sending immediately would only queue a
+    second market order behind the same bracket. The error is reported and the
+    budget still decides.
+    """
+    events = []
+    om, ib, sm = _in_position(tmp_path, ib=StuckCancelIB())
+    om.on_event = lambda level, msg: events.append((level, msg))
+    def boom():
+        raise RuntimeError("IBKR said no")
+    ib.cancel_all = boom
+
+    assert om.ensure_flat(settle=0, budget=0.5, escalate_after=0.0) is False
+    assert any(lvl == "error" and "reqGlobalCancel failed" in m
+               for lvl, m in events), events
+    sells = [o for o in ib.orders.values()
+             if o.order_type == "MKT" and o.status in ("Submitted", "PreSubmitted")]
+    assert len(sells) <= 1, "a failed escalation must not stack a second flatten"

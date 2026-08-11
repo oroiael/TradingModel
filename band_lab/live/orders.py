@@ -489,10 +489,13 @@ class OrderManager:
                 return False
             time.sleep(0.25)
 
-    def ensure_flat(self, attempts: int = 5, settle: float = 3.0) -> bool:
+    def ensure_flat(self, attempts: int = 5, settle: float = 3.0,
+                    budget: Optional[float] = None,
+                    escalate_after: float = 20.0) -> bool:
         """§4.7 — re-send until flat; critical alert if not flat by 16:00.
 
-        Two things this has to get right, and the first version got neither.
+        Three things this has to get right. The first version got none of them,
+        the second got two.
 
         **Give the order time to fill.** The original looped with no pause, so on
         2026-08-06 all three attempts ran inside the same second: the position
@@ -504,11 +507,56 @@ class OrderManager:
         sells of 541 against one long 541 is a short 1,082 — turning a failure to
         flatten into an inverted position, which is the one direction §11
         prohibits outright. A flatten already working is left alone.
+
+        **Spend the time you actually have.** On 2026-08-10 the bracket's SELL
+        LMT and SELL STP went to `PendingCancel` and stayed there, holding the
+        524 shares the flatten needed. The loop was budgeted in *attempts*, so
+        it exhausted five of them in **23 seconds** and gave up at 15:55:39 with
+        §12's `HARD_FLAT_BY` still four minutes and twenty-one seconds away. The
+        shares went overnight and lost money the next morning. A deadline is a
+        time, not a count: pass `budget` and this keeps working until it is
+        spent.
+
+        **Escalate when cancelling is not working.** Individual `cancelOrder`
+        calls can sit in `PendingCancel` indefinitely. After `escalate_after`
+        seconds of failing to clear the orders that hold the shares, this fires
+        `reqGlobalCancel` **once** — the same §6.7 hammer `watchdog.py` uses.
+        That also cancels this sleeve's own working flatten, which is why the
+        loop must continue afterwards: the next pass sees nothing working, and
+        re-sends a market order that now has nothing standing in front of it.
         """
-        for i in range(attempts):
+        start = time.time()
+        escalated = False
+        stuck_since: Optional[float] = None
+        i = 0
+
+        def spent() -> bool:
+            # `budget` wins when given: the 15:55 flatten has until 16:00 and
+            # must use it. Without one, the attempt count is the only limit —
+            # which is what the tests drive and what a non-deadline caller gets.
+            if budget is not None:
+                return (time.time() - start) >= budget
+            return i >= attempts
+
+        def clear_timeout(default: float) -> float:
+            # `_clear_working` blocks, so an unbounded timeout can overshoot the
+            # whole budget in a single call and turn a deadline into a suggestion.
+            if budget is None:
+                return default
+            return max(0.25, min(default, budget - (time.time() - start)))
+
+        # Checked at the top and spent at the bottom, so a zero or already-past
+        # budget still buys one honest attempt rather than none.
+        while True:
             pos = self.broker.position(self.symbol)
             if abs(pos) < 1e-9:
                 return True
+            i += 1
+            # The stall clock starts *here*, before the blocking cancel — not
+            # when it returns. `_clear_working` can spend most of the budget
+            # failing, and measuring only the time after it returns meant the
+            # escalation could never come due before the deadline did.
+            attempt_started = time.time()
             already = self._working_flatten()
             if already:
                 self.on_event("info",
@@ -517,23 +565,65 @@ class OrderManager:
                               f"not re-sending")
                 # A flatten that is working but not filling is usually blocked by
                 # something else holding the shares, so keep clearing.
-                self._clear_working(timeout=2.0)
+                cleared = self._clear_working(timeout=clear_timeout(2.0))
             else:
-                self._clear_working()
+                cleared = self._clear_working(timeout=clear_timeout(5.0))
                 ref = self._next_ref(ROLE_FLAT)
                 self.broker.place_market(self.symbol, "SELL" if pos > 0 else "BUY",
                                          abs(pos), ref)
                 self._log_order(ref, ROLE_FLAT, "SELL" if pos > 0 else "BUY", "MKT",
-                                f"flatten_attempt_{i+1}", qty=abs(pos))
+                                f"flatten_attempt_{i}", qty=abs(pos))
                 self.on_event("info", f"{self.symbol} FLATTEN market "
                                       f"{'SELL' if pos > 0 else 'BUY'} {abs(pos):.0f}")
+
+            # --- escalation: the cancels themselves are not landing
+            if cleared:
+                stuck_since = None
+            else:
+                if stuck_since is None:
+                    stuck_since = attempt_started
+                if not escalated and (time.time() - stuck_since) >= escalate_after:
+                    escalated = True
+                    self.on_event("critical",
+                                  f"{self.symbol} orders have refused to cancel for "
+                                  f"{escalate_after:.0f}s — firing reqGlobalCancel "
+                                  f"(§6.7) to release the shares")
+                    try:
+                        self.broker.cancel_all()
+                    except Exception as exc:                        # noqa: BLE001
+                        # Nothing was freed, so the fast path below must not be
+                        # taken: re-sending immediately would put a second
+                        # market order behind the same bracket that is still
+                        # holding the shares. Fall through and let the budget
+                        # decide. (`_clear_working` has already cleared the
+                        # bracket ids, so there is nothing to restore here.)
+                        self.on_event("error",
+                                      f"{self.symbol} reqGlobalCancel failed: {exc!r}")
+                    else:
+                        # The global cancel takes this sleeve's own flatten with
+                        # it. Forget the ids so the next pass re-sends rather
+                        # than believing an order is still working.
+                        self.target_id = self.stop_id = self.entry_id = None
+                        # Go straight round again, without consulting the budget.
+                        # Escalating and *then* stopping would leave nothing
+                        # working at all — strictly worse than never escalating,
+                        # because the market order this just cancelled was the
+                        # only thing trying to close the position. The re-send
+                        # is not optional.
+                        self.on_executions(bar_idx=-1)
+                        continue
             if settle > 0:
                 time.sleep(settle)
             self.on_executions(bar_idx=-1)
+            if spent():
+                break
+
         flat = abs(self.broker.position(self.symbol)) < 1e-9
         if not flat:
+            spent_desc = (f"{time.time() - start:.0f}s of a {budget:.0f}s budget"
+                          if budget is not None else f"{attempts} attempts")
             self.on_event("critical",
-                          f"{self.symbol} NOT FLAT after {attempts} attempts: "
+                          f"{self.symbol} NOT FLAT after {spent_desc}: "
                           f"position={self.broker.position(self.symbol)} — "
                           f"CLOSE IT BY HAND. §1 forbids holding overnight.")
         return flat
