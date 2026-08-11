@@ -125,6 +125,20 @@ class Watchdog:
             working += len(self.broker.working_orders(symbol))
         return positions, working
 
+    def _flatten_in_flight(self, symbol: str) -> float:
+        """Shares already committed to a working market order for `symbol`.
+
+        Any MKT order resting on this contract is closing something — the
+        watchdog's own from a previous pass, or an engine flatten that outlived
+        the global cancel. Either way, a second one sells the same shares twice.
+
+        Nothing else the engine rests is counted here. A bracket leg is what the
+        global cancel is aimed at, and if it survives, that is §6.7 — a problem
+        this method cannot fix and must not paper over by refusing to flatten.
+        """
+        return sum(w.remaining for w in self.broker.working_orders(symbol)
+                   if w.order_type == "MKT")
+
     @staticmethod
     def in_session(now: datetime) -> bool:
         return (now.weekday() < 5
@@ -162,7 +176,20 @@ class Watchdog:
 
     # --------------------------------------------------------------- acting
     def intervene(self, why: str, attempts: int = 5, settle: float = 3.0) -> bool:
-        """Cancel everything, then sell to flat. The only thing it can do."""
+        """Cancel everything, then sell to flat. The only thing it can do.
+
+        **Never stacks.** This loop used to re-send a full-size market order on
+        every pass, which is the defect `OrderManager.ensure_flat` was rewritten
+        to remove: three sells of 1,680 against one long 1,680 is a short 3,360,
+        and §11 prohibits an inverted position outright. It is strictly worse
+        than the failure to flatten it is trying to fix, and a market order that
+        has not filled in three seconds is usually still working, not lost.
+
+        Until `broker.wait` replaced `time.sleep` the risk was masked rather than
+        absent: the event loop never ran between passes, so `exposure()` returned
+        the same frozen snapshot every time and the position never appeared to
+        shrink. Now that the watchdog can actually see, it has to look.
+        """
         self.say("critical", f"INTERVENING — {why}")
         self.fired = True
         try:
@@ -179,6 +206,16 @@ class Watchdog:
             for symbol, pos in positions.items():
                 ref = f"WATCHDOG-{datetime.now(NY):%Y%m%d-%H%M%S}-{symbol}"
                 try:
+                    # Reading what is already working is part of the decision,
+                    # so it sits inside the guard: if the book cannot be read,
+                    # sending blind is the one outcome worth avoiding. The pass
+                    # is skipped loudly and the next one tries again.
+                    working = self._flatten_in_flight(symbol)
+                    if working > 0:
+                        self.say("info",
+                                 f"{symbol} flatten already working for "
+                                 f"{working:.0f} — waiting, not re-sending")
+                        continue
                     self.broker.place_market(
                         symbol, "SELL" if pos > 0 else "BUY", abs(pos), ref)
                     self.say("critical",

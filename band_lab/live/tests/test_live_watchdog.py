@@ -149,6 +149,43 @@ def test_it_shouts_when_it_cannot_flatten(tmp_path):
                for lvl, m in wd._said)
 
 
+def test_intervention_never_stacks_duplicate_market_orders(tmp_path):
+    """The defect `ensure_flat` was rewritten to remove, still live here.
+
+    Nothing fills in this test, so every pass sees the same 1,680 long. The old
+    loop sent a full-size market order each time: four passes against one long
+    1,680 is a short 5,040. §11 prohibits an inverted position outright, and it
+    is strictly worse than the failure to flatten it is trying to fix.
+    """
+    wd, ib = _wd(tmp_path, heartbeat_age=600, positions={"SOXS": 1680})
+
+    assert wd.intervene("stuck", attempts=4, settle=0) is False
+    mkt = [o for o in ib.orders.values() if o.order_type == "MKT"]
+    assert len(mkt) == 1, f"one flatten for one position, not {len(mkt)}"
+    assert mkt[0].qty == 1680
+    assert any("already working" in m for _, m in wd._said)
+
+
+def test_it_re_sends_once_the_previous_flatten_is_gone(tmp_path):
+    """The guard must not wedge it — a dead flatten leaves shares exposed.
+
+    Waiting on an order that is still working is right; waiting on one that TWS
+    cancelled would leave the position open with nothing trying to close it,
+    which is the failure the watchdog exists to prevent.
+    """
+    wd, ib = _wd(tmp_path, heartbeat_age=600, positions={"SOXS": 1680})
+
+    def kill_working_then_wait(seconds):
+        for o in ib.orders.values():
+            if o.order_type == "MKT" and o.status == "Submitted":
+                o.status = "Cancelled"          # TWS took it; nothing is working
+    ib.wait = kill_working_then_wait
+
+    assert wd.intervene("stuck", attempts=3, settle=1) is False
+    mkt = [o for o in ib.orders.values() if o.order_type == "MKT"]
+    assert len(mkt) == 3, "each pass must re-send once the last one died"
+
+
 def test_the_watchdog_never_opens_a_position(tmp_path):
     """It has exactly one power. Flat is the only state it can create."""
     import inspect
