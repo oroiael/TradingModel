@@ -594,7 +594,10 @@ class OrderManager:
                                           for w in stuck)
                               + " — they hold the shares the flatten needs")
                 return False
-            time.sleep(0.25)
+            # `broker.wait`, not `time.sleep`: the cancel confirmation this loop
+            # is waiting for arrives over the socket, and the socket is only
+            # read while the event loop runs.
+            self.broker.wait(0.25)
 
     def ensure_flat(self, attempts: int = 5, settle: float = 3.0,
                     budget: Optional[float] = None,
@@ -720,7 +723,11 @@ class OrderManager:
                         self.on_executions(bar_idx=-1)
                         continue
             if settle > 0:
-                time.sleep(settle)
+                # This is the pause the market order fills during. Under
+                # `time.sleep` the fill could not be observed at all: both
+                # `position()` and `executions()` are local reads of state the
+                # event loop populates.
+                self.broker.wait(settle)
             self.on_executions(bar_idx=-1)
             if spent():
                 break

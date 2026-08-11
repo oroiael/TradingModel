@@ -328,3 +328,76 @@ def test_global_cancel_clears_a_stalled_cancel():
     assert ib.working_orders("SOXL")
     ib.cancel_all()
     assert ib.working_orders("SOXL") == []
+
+
+# ------------------------------------------------ waiting without going deaf
+def test_ibbroker_wait_runs_the_event_loop():
+    """`wait` must pump ib_async's loop, or every poll reads frozen state.
+
+    `ib_async` is single-threaded asyncio with no background reader, and
+    `positions()`, `openTrades()`, `fills()` and `accountValues()` are plain
+    reads of dictionaries the loop fills in. `IB.sleep` runs the loop;
+    `time.sleep` stops it. Three loops depend on the difference — `ensure_flat`,
+    `_clear_working` and `watchdog.check` — and under `time.sleep` none of them
+    can observe the change they are waiting for.
+    """
+    slept = []
+    broker = IBBroker()
+    broker._ib = SimpleNamespace(sleep=slept.append)
+
+    broker.wait(0.25)
+
+    assert slept == [0.25], "wait must delegate to IB.sleep, not time.sleep"
+
+
+def test_wait_works_while_disconnected():
+    """`run_session` sleeps between polls whether or not the reconnect took.
+
+    Routing this through `_require` would raise exactly when the engine is
+    already struggling, turning a recoverable outage into a hot loop.
+    """
+    broker = IBBroker()
+    assert broker._ib is None
+    broker.wait(0.0)                     # must not raise
+
+
+def test_a_failing_ib_sleep_still_waits():
+    """A pause is never allowed to be what fails a flatten."""
+    broker = IBBroker()
+
+    def boom(_seconds):
+        raise RuntimeError("event loop is already running")
+
+    broker._ib = SimpleNamespace(sleep=boom)
+    broker.wait(0.0)                     # falls back, does not propagate
+
+
+def test_no_trading_module_sleeps_deaf():
+    """The regression guard for the whole class of defect.
+
+    Parsed rather than grepped, so a mention of `time.sleep` in a comment or a
+    docstring — of which there are now several, deliberately — cannot fail this,
+    and a real call cannot hide behind one.
+
+    `broker.py` is excluded because it *defines* the fallback: `Broker.wait` is
+    `time.sleep` (right for `FakeIB`, which has no loop to pump) and
+    `IBBroker.wait` falls back to it when there is no connection.
+    """
+    import ast
+    import os
+
+    live = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    offenders = []
+    for name in ("orders.py", "run.py", "watchdog.py", "engine.py", "feed.py"):
+        tree = ast.parse(open(os.path.join(live, name)).read(), filename=name)
+        for node in ast.walk(tree):
+            if (isinstance(node, ast.Call)
+                    and isinstance(node.func, ast.Attribute)
+                    and node.func.attr == "sleep"
+                    and isinstance(node.func.value, ast.Name)
+                    and node.func.value.id == "time"):
+                offenders.append(f"{name}:{node.lineno}")
+
+    assert not offenders, (
+        "these block ib_async's event loop, so every broker read taken "
+        f"afterwards is stale: {offenders}. Use `self.broker.wait(...)`.")

@@ -41,7 +41,6 @@ import argparse
 import json
 import os
 import sys
-import time
 from dataclasses import dataclass, field
 from datetime import datetime, time as dtime
 from typing import Optional
@@ -188,7 +187,7 @@ class Watchdog:
                 except Exception as exc:                    # noqa: BLE001
                     self.say("error", f"{symbol} flatten failed: {exc!r}")
             if settle > 0:
-                time.sleep(settle)
+                self.broker.wait(settle)
 
         positions, working = self.exposure()
         if positions:
@@ -232,7 +231,12 @@ class Watchdog:
             ticks += 1
             if ticks % quiet_every == 0:        # a periodic "still here"
                 self.say("info", f"ok — {verdict}")
-            time.sleep(interval)
+            # The watchdog's whole job is sensing, and every sensor it has
+            # (`position`, `working_orders`) is a local read. Sleeping deaf for
+            # 30s at a time meant `exposure()` returned the snapshot taken at
+            # connect and never changed: a watchdog that started flat would
+            # never see a position appear.
+            self.broker.wait(interval)
 
 
 def main() -> int:
