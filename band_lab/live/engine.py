@@ -261,7 +261,14 @@ class Engine:
         loss and buries the real fault, which was that 541 shares were about to
         be carried overnight.
         """
-        budget = self.hard_flat_budget(now) if budget is None else budget
+        # The deadline is only in force when the caller supplies the clock.
+        # Reading `datetime.now()` here made the flatten's duration depend on
+        # what time of day the process happened to run: the same call returned a
+        # 0-second budget after 16:00 and a 300-second one in the morning, which
+        # is how a 300-second spin got through a green suite. `run.py` owns the
+        # wall clock and passes it; everything else keeps the attempt-based path.
+        if budget is None and now is not None:
+            budget = self.hard_flat_budget(now)
         started = time.monotonic()
         out = {}
         for symbol, rt in self.sleeves.items():

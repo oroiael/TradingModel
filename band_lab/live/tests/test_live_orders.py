@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import pytest
 
-from broker import FakeIB
+from broker import BrokerError, FakeIB, WorkingOrder
 from orders import OrderManager, RatchetViolation, order_ref, parse_ref
 from sleeve import Bar, SleeveConfig, SleeveStateMachine, START_IDX
 from store import Store
@@ -812,3 +812,132 @@ def test_a_later_execution_that_moves_the_vwap_reprices_the_bracket(tmp_path):
     assert stop[0].aux_px == pytest.approx(round(100.00 * 0.96, 2)), \
         "the stop is still priced off the first execution, not the vwap"
     assert stop[0].qty == pytest.approx(full)
+
+
+# --------------- the ratchet race and Error 103 (2026-08-10, fix #7)
+class RejectModifyIB(FakeIB):
+    """IBKR answers `Error 103, Duplicate order id` and keeps the original.
+
+    `IBBroker.modify_limit` mutates the local `Order` and then calls
+    `placeOrder`, which `ib_async` treats as a modification of the existing
+    trade. The rejection arrives asynchronously, so by the time it lands the
+    client's copy already carries the new price. On 2026-08-10 the engine
+    believed `43.78 x1701` while the broker still had `43.71 x1703` — and the
+    fill proved the broker won, settling 1,703 shares.
+    """
+
+    def modify_limit(self, order_id, limit_px, qty) -> None:
+        return                            # accepted locally, refused upstream
+
+
+class PendingSubmitIB(FakeIB):
+    """An order TWS has not acknowledged yet."""
+
+    def _add(self, *a, **kw) -> int:
+        oid = super()._add(*a, **kw)
+        self.orders[oid].status = "PendingSubmit"
+        return oid
+
+    def working_orders(self, symbol):
+        return [WorkingOrder(o.order_ref, o.order_id, 0, o.symbol, o.action,
+                             o.order_type, o.qty, o.filled, o.limit_px,
+                             o.aux_px, o.oca_group, o.status)
+                for o in self.orders.values()
+                if o.symbol == symbol
+                and o.status in ("Submitted", "PreSubmitted", "PendingSubmit")]
+
+
+def _ratchet_to(om, sm, idx, high):
+    sm.on_bar_close(Bar(idx, high, high, high, high))
+    sm.on_bar_open(idx + 1)
+    om.apply(sm.drain_intents())
+
+
+def test_a_refused_ratchet_is_corrected_from_the_broker_next_bar(tmp_path):
+    """The engine's limit is a belief; the broker's is the fact."""
+    om, ib, sm = _armed(tmp_path, high=100.0, ib=RejectModifyIB())
+    assert om.entry_limit == pytest.approx(99.00)
+    original = ib.orders[om.entry_id].limit_px
+
+    _ratchet_to(om, sm, START_IDX, 110.0)              # asks for 108.90
+    assert om.entry_limit == pytest.approx(108.90), "optimistic in the moment"
+    assert ib.orders[om.entry_id].limit_px == pytest.approx(original), \
+        "the broker refused it"
+
+    events = []
+    om.on_event = lambda lvl, msg: events.append((lvl, msg))
+    _ratchet_to(om, sm, START_IDX + 1, 111.0)
+    assert any(lvl == "warn" and "drifted from the broker" in m
+               for lvl, m in events), events
+
+
+def test_the_engine_never_believes_a_price_the_broker_refused(tmp_path):
+    """The resync replaces the belief with the fact.
+
+    Asserting this *after* a ratchet would not show it: the engine adopts the
+    broker's price and then optimistically writes the newly-requested one, so
+    the end state is always the optimistic value. The correction is what
+    `_resync_entry` does, and that is what is asserted.
+    """
+    om, ib, sm = _armed(tmp_path, high=100.0, ib=RejectModifyIB())
+    _ratchet_to(om, sm, START_IDX, 110.0)
+    assert om.entry_limit == pytest.approx(108.90)          # believed
+    assert ib.orders[om.entry_id].limit_px == pytest.approx(99.00)   # actual
+
+    assert om._resync_entry() is not None
+    assert om.entry_limit == pytest.approx(99.00), \
+        "the engine is still carrying a price the broker refused"
+
+
+def test_a_vanished_entry_order_is_never_silently_re_armed(tmp_path):
+    """The dangerous half of Error 103.
+
+    A rejected modify leaves `ib_async`'s copy marked Cancelled — `openTrades`
+    drops it, because Cancelled is a DoneState — while the original order is
+    still live at IBKR. Re-arming there would put a second buy limit behind one
+    that then filled 1,703 shares. A missed ratchet costs basis points; a
+    duplicate position costs control of the sleeve.
+    """
+    om, ib, sm = _armed(tmp_path, high=100.0)
+    before = len([o for o in ib.orders.values() if o.action == "BUY"])
+    ib.orders[om.entry_id].status = "Cancelled"        # gone, locally
+
+    events = []
+    om.on_event = lambda lvl, msg: events.append((lvl, msg))
+    _ratchet_to(om, sm, START_IDX, 110.0)
+
+    after = len([o for o in ib.orders.values() if o.action == "BUY"])
+    assert after == before, "a second entry order was placed"
+    assert any(lvl == "critical" and "NOT re-arming" in m for lvl, m in events), \
+        events
+
+
+def test_the_ratchet_waits_for_an_unacknowledged_order(tmp_path):
+    """2026-08-10: the arm and the ratchet were 2 ms apart, and IBKR answered
+    Error 103. Modifying an order it has not acknowledged is deferred a bar."""
+    om, ib, sm = _armed(tmp_path, high=100.0, ib=PendingSubmitIB())
+    at_arm = ib.orders[om.entry_id].limit_px
+
+    events = []
+    om.on_event = lambda lvl, msg: events.append((lvl, msg))
+    _ratchet_to(om, sm, START_IDX, 110.0)
+
+    assert ib.orders[om.entry_id].limit_px == pytest.approx(at_arm), \
+        "modified an order TWS had not acknowledged"
+    assert any("ratchet deferred" in m for _, m in events), events
+    # Once acknowledged, the ratchet proceeds normally. The high must actually
+    # rise — an unchanged session high emits no intent at all.
+    ib.orders[om.entry_id].status = "Submitted"
+    _ratchet_to(om, sm, START_IDX + 1, 120.0)
+    assert ib.orders[om.entry_id].limit_px == pytest.approx(118.80)
+
+
+def test_a_broker_error_on_modify_does_not_kill_the_session(tmp_path):
+    om, ib, sm = _armed(tmp_path, high=100.0)
+    def boom(order_id, limit_px, qty):
+        raise BrokerError("no")
+    ib.modify_limit = boom
+    events = []
+    om.on_event = lambda lvl, msg: events.append((lvl, msg))
+    _ratchet_to(om, sm, START_IDX, 110.0)              # must not raise
+    assert any(lvl == "error" and "refused" in m for lvl, m in events), events

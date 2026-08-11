@@ -208,9 +208,11 @@ class Runner:
             time.sleep(sleep)
 
     # ------------------------------------------------------ 15:55 / 16:10
-    def close_out(self) -> dict:
+    def close_out(self, now: Optional[datetime] = None) -> dict:
         self._event("info", "15:55 flatten")
-        flat = self.engine.flatten_all()
+        # §12's HARD_FLAT_BY is a wall-clock deadline, so the flatten needs the
+        # wall clock. The engine does not read it for itself — see flatten_all.
+        flat = self.engine.flatten_all(now=now or datetime.now(NY))
         for symbol, ok in flat.items():
             if not ok:
                 self._event("critical", f"{symbol} did not flatten on the first pass")
