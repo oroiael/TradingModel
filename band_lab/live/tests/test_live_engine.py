@@ -401,3 +401,54 @@ def test_flatten_honours_a_clock_when_it_is_given(tmp_path):
     eng.flatten_all(now=datetime(2026, 8, 10, 15, 55,
                                  tzinfo=ZoneInfo("America/New_York")))
     assert seen.get("budget") == pytest.approx(5 * 60 - 20, abs=1.0)
+
+
+# ------------------ completing the bar record (fix: bar 76/77 truncation)
+def test_the_session_record_is_completed_after_the_flatten(tmp_path):
+    """`run_session` stops at 15:55, so bars 76 and 77 are never recorded.
+
+    `report.py`'s shadow replays what was stored and `replay_session`
+    force-flattens at the last bar it is given, so the comparison closed its
+    final trade a bar early. On 2026-08-10 that understated the SOXS shadow by
+    68 bp and read as live outperformance.
+    """
+    eng, ib, store, feats = _engine(tmp_path)
+    day = datetime(2026, 8, 10, 6, 0, tzinfo=ZoneInfo("America/New_York"))
+    eng.pre_open(day, feats)
+    ib.bars["SOXL"] = _session_bars(high=100.0, n=FLATTEN_IDX + 1)   # 0..77
+
+    # what the live loop managed to record
+    for b in ib.bars["SOXL"][:76]:
+        store.bar("SOXL", eng.session, b.idx, b.open, b.high, b.low, b.close, b.volume)
+    recorded = store.session_bars("SOXL", eng.session)
+    assert max(r["bar_idx"] for r in recorded) == 75
+
+    eng.record_session_tail(day)
+
+    recorded = store.session_bars("SOXL", eng.session)
+    assert max(r["bar_idx"] for r in recorded) == FLATTEN_IDX
+    from sleeve import LAST_HOLDING_IDX
+    assert LAST_HOLDING_IDX in {r["bar_idx"] for r in recorded}
+
+
+def test_completing_the_record_is_idempotent(tmp_path):
+    eng, ib, store, feats = _engine(tmp_path)
+    day = datetime(2026, 8, 10, 6, 0, tzinfo=ZoneInfo("America/New_York"))
+    eng.pre_open(day, feats)
+    ib.bars["SOXL"] = _session_bars(high=100.0, n=FLATTEN_IDX + 1)
+    eng.record_session_tail(day)
+    first = len(store.session_bars("SOXL", eng.session))
+    eng.record_session_tail(day)
+    assert len(store.session_bars("SOXL", eng.session)) == first
+
+
+def test_a_failed_tail_fetch_never_blocks_the_reconcile(tmp_path):
+    """The record is evidence, not control."""
+    eng, ib, store, feats = _engine(tmp_path)
+    day = datetime(2026, 8, 10, 6, 0, tzinfo=ZoneInfo("America/New_York"))
+    eng.pre_open(day, feats)
+    def boom(*a, **kw):
+        raise RuntimeError("no data")
+    ib.historical_bars = boom
+    assert eng.record_session_tail(day) == {"SOXL": 0}      # no raise
+    eng.reconcile()                                          # still works

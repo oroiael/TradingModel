@@ -309,6 +309,50 @@ class Engine:
             self.on_event("info", "all sleeves flat")
         return ok
 
+    # ----------------------------------------------------------- 16:00
+    def record_session_tail(self, day: Optional[datetime] = None) -> dict[str, int]:
+        """Store the bars the session loop never saw. **Writes, decides nothing.**
+
+        `run_session` polls until 15:55 and stops, so the bar labelled 15:50
+        (`LAST_HOLDING_IDX`) and the one labelled 15:55 (`FLATTEN_IDX`) are
+        never recorded — a real session leaves 76 bars, idx 0..75. Nothing in
+        the *trading* path needs them: the sleeve is flat by then.
+
+        `report.py` does. Its shadow replays the recorded bars, and
+        `replay_session`'s tail rule force-flattens at the last bar it is given
+        — so the shadow closed its last trade at bar 75 while the live session
+        went on trading in bar 76. On 2026-08-10 that understated the SOXS
+        shadow by 68 bp (233.04 against 301.44) and made the live session look
+        like it had beaten the backtest.
+
+        This is deliberately not on the trading path and deliberately not
+        idempotency-critical: `store.bar` is INSERT OR REPLACE on
+        (symbol, session, bar_idx, source).
+        """
+        day = day or datetime.now(NY)
+        out: dict[str, int] = {}
+        for symbol in self.symbols:
+            n = 0
+            try:
+                bars = self.broker.historical_bars(symbol, day, "1 D", "5 mins")
+            except Exception as exc:                            # noqa: BLE001
+                # The record is evidence, not control. Failing to complete it
+                # must never affect the reconcile that follows.
+                self.on_event("warn", f"{symbol} tail bars unavailable: {exc!r}")
+                out[symbol] = 0
+                continue
+            for b in bars:
+                if b.idx > FLATTEN_IDX:
+                    continue
+                self.store.bar(symbol, self.session, b.idx, b.open, b.high,
+                               b.low, b.close, b.volume)
+                n += 1
+            out[symbol] = n
+            self.on_event("info", f"{symbol} session record completed to bar "
+                                  f"{max((b.idx for b in bars), default=-1)} "
+                                  f"({n} bars)")
+        return out
+
     # ----------------------------------------------------------- 16:10
     def reconcile(self) -> dict[str, dict]:
         out = {}

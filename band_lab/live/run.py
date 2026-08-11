@@ -218,6 +218,10 @@ class Runner:
                 self._event("critical", f"{symbol} did not flatten on the first pass")
         if not self.engine.verify_flat():
             self._event("critical", "NOT FLAT — manual intervention required")
+        # Complete the bar record before the daily row is written: the session
+        # loop stops at 15:55, and `report.py`'s shadow is force-flattened early
+        # without the last two bars. Evidence only — no decision follows it.
+        self.engine.record_session_tail(now or datetime.now(NY))
         return self.engine.reconcile()
 
     # ------------------------------------------------------------ helpers
