@@ -550,7 +550,9 @@ class IBBroker(Broker):
         o.transmit = transmit
         if oca_group:
             o.ocaGroup = oca_group
-            # ASSUMPTION §6.3: ocaType 1 = cancel remaining with block.
+            # §6.3, VERIFIED 2026-08-11 against IBKR's own `ibapi/order.py`, which
+            # documents the field inline: "1 = CANCEL_WITH_BLOCK, 2 =
+            # REDUCE_WITH_BLOCK, 3 = REDUCE_NON_BLOCK". No longer an assumption.
             o.ocaType = 1
         return o
 

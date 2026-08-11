@@ -33,15 +33,27 @@ verified-from-source or inferred, in code comments and in prose.
 | source | status |
 |---|---|
 | installed `ib_async` package | ✅ on disk, authoritative for client behaviour |
+| **vendored TWS API source**, branch `docs/tws-api` | ✅ IBKR's own clients — see below |
 | `raw.githubusercontent.com` | ✅ reachable |
 | `interactivebrokers.github.io/tws-api` | ❌ egress-blocked |
 | `ibkrcampus.com` / `interactivebrokers.com` | ❌ egress-blocked |
 | `InteractiveBrokers/tws-api-public` on GitHub | ⚠️ reachable but contains only a link page |
 
-So **TWS-side behaviour cannot be verified here.** Anything about what the *server*
-does — what an error code means, whether `reqGlobalCancel` frees a stuck OCA leg —
-is inference until a live session shows it. `broker.py`'s header has said this
-since the Stage 2 build; keep it true.
+The vendored bundle (2026-08-11) is the **source distribution, not the prose
+documentation**: `TWS API/source/pythonclient/ibapi/` and `.../CSharpClient/`,
+plus samples. Read it with:
+
+```bash
+git show origin/docs/tws-api:"TWS API/source/pythonclient/ibapi/order.py"
+git grep -n "<term>" origin/docs/tws-api -- "TWS API/source"
+```
+
+It settles anything IBKR states in its own client code. It does **not** contain
+the message-codes reference — `ibapi/errors.py` holds only client-side codes
+(500+), so the meanings of server codes like `103`, `202` and `10148` are still
+only on the blocked website. **TWS-side behaviour that is not in the client source
+remains inference until a live session shows it.** `broker.py`'s header has said
+this since the Stage 2 build; keep it true, and narrow it as things get settled.
 
 ## Order status, and the two states that cause trouble
 
@@ -96,6 +108,13 @@ modify an order TWS has not acknowledged. `IBBroker.modify_limit` mutates the lo
 `Order` in place and then calls it — which means **on rejection the client's copy
 already carries the new price and nothing rolls it back.**
 
+**Worth knowing: IBKR does not document the reuse-the-id idiom at all.** Its own
+`ibapi/client.py` says of `placeOrder`: *"orderId — The order id. **You must
+specify a unique value.**"* Modify-by-re-placing is an `ib_async` convention, not
+a documented API contract, which makes `Error 103, Duplicate order id` a more
+plausible response to it than it first appeared — and makes treating the local
+copy as authoritative correspondingly less safe.
+
 The engine's defence is to treat its own limit as a belief: `_resync_entry` adopts
 whatever the broker reports before every ratchet and warns when they disagree. The
 optimistic write after a successful modify stays, because acceptance is
@@ -123,17 +142,27 @@ this codebase at least once:
 
 ## OCA and global cancel
 
-`ocaGroup` alone is not enough — `ocaType` defaults to `0`. `IBBroker._order` sets
-`ocaType = 1` ("cancel remaining with block") and marks it `ASSUMPTION §6.3`.
-A target fill was observed cancelling its sibling stop on 2026-08-10, which is
-consistent, but that is one observation and not a verification.
+`ocaGroup` alone is not enough — `ocaType` defaults to `0`. **Verified 2026-08-11**
+against IBKR's own `ibapi/order.py`, which documents the field inline:
 
-`IB.reqGlobalCancel` is documented in ib_async as cancelling **"all active trades
-including those placed by other clients or TWS/IB gateway."** It is the right
-hammer when individual cancels stall, and it is genuinely global — it will take
-this sleeve's own working flatten with it, which is why `ensure_flat` re-sends
-unconditionally after escalating. Whether it frees a leg stuck in `PendingCancel`
-is **not verified**; `FakeIB` models it optimistically and says so.
+```python
+self.ocaType = (
+    0  # 1 = CANCEL_WITH_BLOCK, 2 = REDUCE_WITH_BLOCK, 3 = REDUCE_NON_BLOCK
+)
+```
+
+So `IBBroker._order`'s `ocaType = 1` is cancel-with-block, exactly as intended.
+`PHASE2_PLAN.md` §6.3 was right, and it can stop being called an assumption.
+
+`reqGlobalCancel` is genuinely global. **Verified 2026-08-11** — IBKR's
+`ibapi/client.py`: *"cancel all open orders globally. It cancels both API and TWS
+open orders. If the order was created in TWS, it also gets canceled."* ib_async
+says the same in its own words. That is why `ensure_flat` re-sends unconditionally
+after escalating: the hammer takes this sleeve's own working flatten with it.
+
+Whether it frees a leg stuck in `PendingCancel` is **still not verified** — that is
+server behaviour and it is not in the client source. `FakeIB` models it
+optimistically and says so at the call site.
 
 ## Writing or changing FakeIB
 
@@ -158,10 +187,13 @@ These are inference, not verification, and each is marked at its use site:
 | assumption | where | how it gets settled |
 |---|---|---|
 | a broker-side `STP` survives the client dying | `PHASE2_PLAN.md` §6.1 | kill the engine with a bracket on, look at TWS |
-| `ocaType=1` gives cancel-with-block | `broker.py:_order` | observe a stop fill cancelling its target |
 | `reqGlobalCancel` frees a stalled `PendingCancel` | `orders.py:ensure_flat` | a session where the escalation fires |
 | modifying an unacknowledged order causes `103` | `orders.py:_modify_entry` | arm and ratchet in the same second, deliberately |
+| what `103` / `202` / `10148` actually mean | throughout | the message-codes page, which is not in the vendored source |
 | `1 D` historical inside RTH may reach into the prior session | `PHASE2_PLAN.md` §6.4 | compare a request's span against the session |
 
-When one of these is settled by a live session, move it out of this table and into
-the verified sections above, with the date and what was observed.
+Settled 2026-08-11 from the vendored source, and moved into the sections above:
+**`ocaType=1` is cancel-with-block**, and **`reqGlobalCancel` is global across API
+and TWS**. When a live session settles another, move it up with the date and what
+was observed — and run `scripts/verify_claims.py`, which will not catch a prose
+change but will catch the package drifting underneath one.
