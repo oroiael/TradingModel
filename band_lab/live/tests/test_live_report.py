@@ -710,3 +710,51 @@ def test_cli_rejects_an_unknown_session(store, tmp_path, capsys):
     write_daily(store)
     assert report.main(["--db", store.path, "--session", "19990101"]) == 2
     assert "not in the database" in capsys.readouterr().err
+
+
+# ---------------- slippage vs a gap-through limit (fix #3)
+def test_a_gap_through_entry_is_not_reported_as_slippage(store):
+    """SOXL on 2026-08-10: limit 142.02, filled 135.69, reported -445.71 bp
+    with "0 adverse".
+
+    The limit sat 4.46% above the market because §2.5 prices the entry 1% under
+    a *rolling session high* and SOXL had fallen 6.4% from its 09:30 bar. The
+    fill was correct and the backtest models it. Averaging that distance into a
+    slippage figure measures how far price travelled, not execution quality.
+    """
+    write_entry_limit(store, 142.02, 11, 5)
+    write_fill(store, "e1", "E", "BOT", 524, 135.69, 12, 18, bid=135.68, ask=135.70)
+    (s,) = [r for r in slippage(store, "SOXL", SESSION) if r.role == "E"]
+
+    assert s.gap_through is True
+    assert s.vs_limit is None, "a gap-through must not be graded against the limit"
+    assert s._raw_vs_limit() == pytest.approx(-445.71, abs=0.5)
+    # The quote while the order worked is the honest number, and it is ~0.
+    assert s.vs_mid == pytest.approx(0.0, abs=1.0)
+
+
+def test_an_ordinary_fill_is_still_graded_against_the_limit(store):
+    write_entry_limit(store, 100.00, 11, 5)
+    write_fill(store, "e1", "E", "BOT", 100, 100.10, 11, 10)
+    (s,) = [r for r in slippage(store, "SOXL", SESSION) if r.role == "E"]
+    assert s.gap_through is False
+    assert s.vs_limit == pytest.approx(10.0, abs=0.01)
+
+
+def test_modest_price_improvement_is_not_called_a_gap_through(store):
+    """The threshold must not swallow ordinary favourable fills."""
+    write_entry_limit(store, 100.00, 11, 5)
+    write_fill(store, "e1", "E", "BOT", 100, 99.75, 11, 10)      # -25 bp
+    (s,) = [r for r in slippage(store, "SOXL", SESSION) if r.role == "E"]
+    assert s.gap_through is False
+    assert s.vs_limit == pytest.approx(-25.0, abs=0.01)
+
+
+def test_the_report_names_a_gap_through_instead_of_burying_it(store, capsys):
+    write_session(store, flat_session_bars(78))
+    write_entry_limit(store, 142.02, 11, 5)
+    write_fill(store, "e1", "E", "BOT", 524, 135.69, 12, 18)
+    report.print_session_report(store, SESSION, ["SOXL"])
+    out = capsys.readouterr().out
+    assert "gap-through entries" in out
+    assert "Not slippage" in out
