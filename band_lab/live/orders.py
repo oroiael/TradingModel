@@ -248,14 +248,25 @@ class OrderManager:
             # actually held — 100 of 541 shares, live, on 2026-08-06.
             self.sm.amend_entry(vwap, pos)
         working = {w.order_id: w for w in self.broker.working_orders(self.symbol)}
-        covered = max((working[i].remaining
-                       for i in (self.target_id, self.stop_id) if i in working),
-                      default=0.0)
-        if abs(covered - pos) < 1e-9:
+        t, s = working.get(self.target_id), working.get(self.stop_id)
+        covered = max((o.remaining for o in (t, s) if o is not None), default=0.0)
+        # The quantity is not the only thing a later execution can move. Once
+        # the legs are sized from `position()` they usually already cover the
+        # whole holding, so a quantity-only test would return here and leave the
+        # bracket at prices computed from the *first* execution while the vwap
+        # above had moved under it. Before this sized off the broker the two
+        # almost always disagreed, which hid the gap.
+        repriced = not (t is not None and s is not None
+                        and abs(t.limit_px - self.target_px) < 1e-9
+                        and abs(s.aux_px - self.stop_px) < 1e-9)
+        if abs(covered - pos) < 1e-9 and not repriced:
             return False
+        why = (f"covers {covered:.0f} of {pos:.0f} held" if abs(covered - pos) >= 1e-9
+               else f"is priced off a stale entry — target {self.target_px:.2f} "
+                    f"/ stop {self.stop_px:.2f} now")
         self.on_event("warn",
-                      f"{self.symbol} bracket covers {covered:.0f} of {pos:.0f} "
-                      f"held — resizing so every share has a stop")
+                      f"{self.symbol} bracket {why} — replacing so every share "
+                      f"has a stop at the right price")
         self._cancel_bracket()
         self._place_bracket(Intent(kind=IntentKind.PLACE_BRACKET,
                                    bar_idx=self.sm._last_bar_idx, qty=pos,
@@ -350,11 +361,20 @@ class OrderManager:
             self.entry_id = None
         self.bracket_ref = e.order_ref
         self.entry_qty, self.entry_notional = e.qty, e.qty * e.price
-        self.sm.on_entry_fill(e.price, bar_idx, qty=e.qty)
+        # Size off the broker, not off this one execution. `position()` runs
+        # *ahead* of the execution stream: on 2026-08-10 it already read 524
+        # while the first execution reported 27. Sizing from the execution
+        # placed a 27-share bracket and then immediately cancelled it to place
+        # a 524-share one — two generations of OCA orders per entry, the
+        # `Error 202` / `Error 10148` cascade in that day's log, and very
+        # likely the reason the cancels were still stuck in `PendingCancel` at
+        # 15:55. One correctly-sized bracket does not need replacing.
+        #
+        # When `position()` has *not* caught up, `max` leaves the old behaviour
+        # intact and `cover_whole_position` remains the safety net.
+        pos = abs(self.broker.position(self.symbol))
+        self.sm.on_entry_fill(e.price, bar_idx, qty=max(e.qty, pos))
         self.apply(self.sm.drain_intents())
-        # The remainder may already have executed while the cancel was in
-        # flight, so size the legs off the broker rather than off this one
-        # execution. Cheap, and it is the only thing that closes the race.
         self.cover_whole_position()
 
     def _on_exit_exec(self, e: Execution, bar_idx: int, role: str) -> None:

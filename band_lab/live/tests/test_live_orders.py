@@ -724,3 +724,91 @@ def test_a_failed_global_cancel_does_not_take_the_fast_path(tmp_path):
     sells = [o for o in ib.orders.values()
              if o.order_type == "MKT" and o.status in ("Submitted", "PreSubmitted")]
     assert len(sells) <= 1, "a failed escalation must not stack a second flatten"
+
+
+# ------------------- one bracket, sized off the broker (2026-08-10, fix #5)
+def _brackets(ib, symbol="SOXL"):
+    """Every protective leg ever placed, grouped by OCA generation."""
+    groups = {}
+    for o in ib.orders.values():
+        if o.symbol == symbol and o.action == "SELL" and o.order_type in ("LMT", "STP"):
+            groups.setdefault(o.oca_group, []).append(o)
+    return groups
+
+
+def test_one_entry_in_many_executions_places_exactly_one_bracket(tmp_path):
+    """2026-08-10: 524 shares in 7 executions, and two brackets per entry.
+
+    `position()` runs ahead of the execution stream — it already read 524 when
+    the first execution reported 27 — so the engine placed a 27-share bracket
+    and cancelled it a millisecond later for a 524-share one. Two OCA
+    generations per entry is the churn behind that day's `Error 202` /
+    `Error 10148` cascade, and the reason cancels were still stuck in
+    `PendingCancel` at 15:55.
+    """
+    om, ib, sm = _armed(tmp_path, high=100.0)
+    eid = om.entry_id
+    full = ib.orders[eid].qty
+    # settle it the way IBKR did: several executions, position already complete
+    for frac in (0.05, 0.20, 0.15, 0.25, 0.35):
+        ib.fill(eid, qty=full * frac, price=99.0)
+    assert ib.position("SOXL") == pytest.approx(full)
+
+    om.on_executions(START_IDX)
+
+    groups = _brackets(ib)
+    assert len(groups) == 1, \
+        f"{len(groups)} bracket generations for one entry: {list(groups)}"
+    legs = next(iter(groups.values()))
+    assert len(legs) == 2                                     # target + stop
+    assert all(o.qty == pytest.approx(full) for o in legs), \
+        "the one bracket must cover every share from the start"
+    assert all(o.status in ("Submitted", "PreSubmitted") for o in legs)
+
+
+def test_the_bracket_still_covers_when_position_lags_the_executions(tmp_path):
+    """The safety net stays. If `position()` has not caught up, the legs are
+    sized from the execution and `cover_whole_position` widens them after."""
+    om, ib, sm = _armed(tmp_path, high=100.0)
+    eid = om.entry_id
+    full = ib.orders[eid].qty
+
+    ib.fill(eid, qty=full * 0.4, price=99.0)
+    om.on_executions(START_IDX)                 # position is only 40% here
+    ib.fill(eid, qty=full * 0.6, price=99.0)
+    om.on_executions(START_IDX)
+
+    live = [o for o in ib.orders.values()
+            if o.action == "SELL" and o.status in ("Submitted", "PreSubmitted")]
+    assert live, "no protective legs left"
+    assert all(o.qty == pytest.approx(full) for o in live), \
+        "every share must end up covered however the executions arrived"
+
+
+def test_a_later_execution_that_moves_the_vwap_reprices_the_bracket(tmp_path):
+    """The bug fix #5 would otherwise have unmasked.
+
+    Sized off `position()`, the legs usually already cover the whole holding —
+    so a quantity-only test returns early and leaves the bracket priced off the
+    *first* execution while the vwap moved under it. §2.6 prices the bracket off
+    E, and with one order settled in several executions the honest E is the
+    volume-weighted average.
+    """
+    om, ib, sm = _armed(tmp_path, high=100.0)
+    eid = om.entry_id
+    full = ib.orders[eid].qty
+
+    # Both executions land before the first drain, so `position()` is complete
+    # from the outset and the legs are sized right immediately. The quantity
+    # therefore never disagrees, and only the price path can fix the bracket —
+    # which is precisely the case a quantity-only test cannot reach.
+    ib.fill(eid, qty=full * 0.5, price=99.00)
+    ib.fill(eid, qty=full * 0.5, price=101.00)          # vwap is 100.00
+    om.on_executions(START_IDX)
+
+    stop = [o for o in ib.orders.values()
+            if o.order_type == "STP" and o.status in ("Submitted", "PreSubmitted")]
+    assert len(stop) == 1
+    assert stop[0].aux_px == pytest.approx(round(100.00 * 0.96, 2)), \
+        "the stop is still priced off the first execution, not the vwap"
+    assert stop[0].qty == pytest.approx(full)
