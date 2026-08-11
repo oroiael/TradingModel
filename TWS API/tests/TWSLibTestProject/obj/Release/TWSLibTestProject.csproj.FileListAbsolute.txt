@@ -1,0 +1,17 @@
+C:\local\git-repos\tws-api-installer\apiInstaller\githubTwsApiCode\tws-api\tests\TWSLibTestProject\bin\Release\OrderConditionsParsingTestProject.dll
+C:\local\git-repos\tws-api-installer\apiInstaller\githubTwsApiCode\tws-api\tests\TWSLibTestProject\bin\Release\OrderConditionsParsingTestProject.pdb
+C:\local\git-repos\tws-api-installer\apiInstaller\githubTwsApiCode\tws-api\tests\TWSLibTestProject\bin\Release\CSharpAPI.dll
+C:\local\git-repos\tws-api-installer\apiInstaller\githubTwsApiCode\tws-api\tests\TWSLibTestProject\bin\Release\Microsoft.VisualStudio.QualityTools.UnitTestFramework.dll
+C:\local\git-repos\tws-api-installer\apiInstaller\githubTwsApiCode\tws-api\tests\TWSLibTestProject\bin\Release\TWSLib.dll
+C:\local\git-repos\tws-api-installer\apiInstaller\githubTwsApiCode\tws-api\tests\TWSLibTestProject\bin\Release\Google.Protobuf.dll
+C:\local\git-repos\tws-api-installer\apiInstaller\githubTwsApiCode\tws-api\tests\TWSLibTestProject\bin\Release\System.Memory.dll
+C:\local\git-repos\tws-api-installer\apiInstaller\githubTwsApiCode\tws-api\tests\TWSLibTestProject\bin\Release\System.Runtime.CompilerServices.Unsafe.dll
+C:\local\git-repos\tws-api-installer\apiInstaller\githubTwsApiCode\tws-api\tests\TWSLibTestProject\bin\Release\System.Numerics.Vectors.dll
+C:\local\git-repos\tws-api-installer\apiInstaller\githubTwsApiCode\tws-api\tests\TWSLibTestProject\bin\Release\System.Buffers.dll
+C:\local\git-repos\tws-api-installer\apiInstaller\githubTwsApiCode\tws-api\tests\TWSLibTestProject\bin\Release\TWSLib.pdb
+C:\local\git-repos\tws-api-installer\apiInstaller\githubTwsApiCode\tws-api\tests\TWSLibTestProject\bin\Release\CSharpAPI.pdb
+C:\local\git-repos\tws-api-installer\apiInstaller\githubTwsApiCode\tws-api\tests\TWSLibTestProject\obj\Release\TWSLibTestProject.csproj.AssemblyReference.cache
+C:\local\git-repos\tws-api-installer\apiInstaller\githubTwsApiCode\tws-api\tests\TWSLibTestProject\obj\Release\TWSLibTestProject.csproj.CoreCompileInputs.cache
+C:\local\git-repos\tws-api-installer\apiInstaller\githubTwsApiCode\tws-api\tests\TWSLibTestProject\obj\Release\TWSLibTe.1CF03F17.Up2Date
+C:\local\git-repos\tws-api-installer\apiInstaller\githubTwsApiCode\tws-api\tests\TWSLibTestProject\obj\Release\OrderConditionsParsingTestProject.dll
+C:\local\git-repos\tws-api-installer\apiInstaller\githubTwsApiCode\tws-api\tests\TWSLibTestProject\obj\Release\OrderConditionsParsingTestProject.pdb
