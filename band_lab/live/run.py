@@ -186,6 +186,10 @@ class Runner:
                             self._event("error",
                                         f"{symbol} bar {bar.idx}: {exc!r} — "
                                         f"skipped; later bars still processed")
+                # §2.5's activation is a clock event, not a bar event: the
+                # feed only reports *completed* bars, so waiting for bar 18
+                # armed at 11:05 and cost ~6% of the edge every session.
+                self.engine.activate_due(datetime.now(NY))
                 self.engine.poll(max((f.last_idx for f in self.feeds.values()),
                                      default=-1))
                 self.touch_heartbeat()

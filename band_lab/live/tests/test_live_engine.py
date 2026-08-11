@@ -452,3 +452,93 @@ def test_a_failed_tail_fetch_never_blocks_the_reconcile(tmp_path):
     ib.historical_bars = boom
     assert eng.record_session_tail(day) == {"SOXL": 0}      # no raise
     eng.reconcile()                                          # still works
+
+
+# ------------------- §2.5's activation is a clock event (fix: 11:05 arming)
+def _at_1100(day=None):
+    d = day or DAY
+    return d.replace(hour=11, minute=0, second=0, microsecond=0)
+
+
+def _observed_to_1100(eng, symbol="SOXL"):
+    """Everything the engine knows at 11:00: bars 0..17, filter applied."""
+    for b in _session_bars(n=START_IDX):
+        eng.on_bar(symbol, b)
+
+
+def test_the_limit_is_armed_at_1100_not_when_bar_18_completes(tmp_path):
+    """The engine armed five minutes late, every session.
+
+    The feed only reports *completed* bars, so the bar labelled 11:00 arrived
+    at 11:05 and the limit went live after that bar had already traded. The
+    backtest opens bar 18 and then lets it trade against the resting limit —
+    `sleeve.on_bar_open` says so in as many words. Measured on the reference
+    engine at start_idx 19 instead of 18: SOXL 65.93 -> 62.02 bp/ON-day,
+    SOXS 61.18 -> 57.72.
+    """
+    eng, ib, store, feats = _engine(tmp_path)
+    eng.pre_open(DAY, feats)
+    _observed_to_1100(eng)
+    assert not [o for o in ib.orders.values() if o.action == "BUY"]
+
+    assert eng.activate_due(_at_1100()) == ["SOXL"]
+    buys = [o for o in ib.orders.values() if o.action == "BUY"]
+    assert buys, "the limit must be resting before bar 18 trades"
+    assert buys[0].limit_px == pytest.approx(99.0)
+
+
+def test_the_clock_activation_does_not_fire_early(tmp_path):
+    eng, ib, store, feats = _engine(tmp_path)
+    eng.pre_open(DAY, feats)
+    _observed_to_1100(eng)
+    assert eng.activate_due(_at_1100().replace(hour=10, minute=59)) == []
+    assert not [o for o in ib.orders.values() if o.action == "BUY"]
+
+
+def test_the_clock_activation_refuses_an_incomplete_bar_record(tmp_path):
+    """A gapped session understates the session high, which is the one input
+    the whole strategy ratchets from."""
+    eng, ib, store, feats = _engine(tmp_path)
+    eng.pre_open(DAY, feats)
+    for b in _session_bars(n=START_IDX):
+        if b.idx == 12:
+            continue                      # a bar the feed never delivered
+        eng.on_bar("SOXL", b)
+    assert eng.activate_due(_at_1100()) == []
+    assert not [o for o in ib.orders.values() if o.action == "BUY"]
+
+
+def test_the_clock_activation_does_not_double_arm(tmp_path):
+    """`on_bar` still activates when bar 18 lands; it must be a no-op by then."""
+    eng, ib, store, feats = _engine(tmp_path)
+    eng.pre_open(DAY, feats)
+    _observed_to_1100(eng)
+    eng.activate_due(_at_1100())
+    before = len([o for o in ib.orders.values() if o.action == "BUY"])
+
+    eng.on_bar("SOXL", Bar(START_IDX, 100.0, 100.0, 100.0, 100.0, 1.0))
+    after = len([o for o in ib.orders.values() if o.action == "BUY"])
+    assert after == before, "bar 18 armed a second entry order"
+
+
+def test_the_clock_activation_still_refuses_delayed_data(tmp_path):
+    """§2's refusal must not be bypassed by moving the trigger to the clock."""
+    eng, ib, store, feats = _engine(tmp_path)
+    eng.pre_open(DAY, feats)
+    _observed_to_1100(eng)
+    def boom(symbol=None):
+        raise NotLiveDataError("delayed")
+    ib.assert_live_data = boom
+    assert eng.activate_due(_at_1100()) == []
+    assert eng.sleeves["SOXL"].dormant
+    assert not [o for o in ib.orders.values() if o.action == "BUY"]
+
+
+def test_a_stood_down_sleeve_is_not_armed_by_the_clock(tmp_path):
+    # §2.3: a wide opening range with the 10:00 print low in it.
+    eng, ib, store, feats = _engine(tmp_path, or30=1.0)
+    eng.pre_open(DAY, feats)
+    for i in range(START_IDX):
+        eng.on_bar("SOXL", Bar(i, 100.0, 108.0, 100.0, 100.5, 1.0))
+    assert eng.sleeves["SOXL"].dormant
+    assert eng.activate_due(_at_1100()) == []
