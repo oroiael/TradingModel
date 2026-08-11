@@ -594,7 +594,9 @@ class OrderManager:
                                           for w in stuck)
                               + " — they hold the shares the flatten needs")
                 return False
-            time.sleep(0.25)
+            # `broker.sleep`, never `time.sleep`: the cancel confirmation
+            # this loop is waiting for only arrives if the event loop runs.
+            self.broker.sleep(0.25)
 
     def ensure_flat(self, attempts: int = 5, settle: float = 3.0,
                     budget: Optional[float] = None,
@@ -720,7 +722,10 @@ class OrderManager:
                         self.on_executions(bar_idx=-1)
                         continue
             if settle > 0:
-                time.sleep(settle)
+                # The whole point of settling is to let TWS report the fill.
+                # `time.sleep` here blocked the socket for 140s on 2026-08-11
+                # and TWS closed the connection for unresponsiveness.
+                self.broker.sleep(settle)
             self.on_executions(bar_idx=-1)
             if spent():
                 break

@@ -983,3 +983,41 @@ def test_reconcile_counts_two_separate_entries_as_two(tmp_path):
         ib.fill(target.order_id, price=99.99)
         om.on_executions(START_IDX)
     assert om.reconcile()["broker_fills"] == 2 == sm.fills
+
+
+# --------------- the flatten must not block the event loop (2026-08-11)
+def test_the_flatten_waits_through_the_broker_not_time_sleep(tmp_path):
+    """The regression that carried two sleeves overnight.
+
+    `ib_async` is asyncio-based: cancel confirmations, fills and status changes
+    are socket messages that only get read when the event loop runs. The flatten
+    polled `working_orders()` — a pure local cache read — between bare
+    `time.sleep` calls, so for 140 seconds nothing from TWS was processed. The
+    legs reported `PendingCancel` forever because the acknowledgement was never
+    read, the market order's fill was never seen, and TWS finally closed the
+    connection for unresponsiveness.
+
+    A `FakeIB` suite cannot notice this: there is no event loop to starve. So
+    the assertion is on the mechanism — the wait goes through the broker, which
+    is the only object that can pump the loop.
+    """
+    om, ib, sm = _in_position(tmp_path, ib=StuckCancelIB())
+    slept = []
+    ib.sleep = lambda seconds: slept.append(seconds)
+
+    om.ensure_flat(settle=0.5, budget=2.0, escalate_after=0.5)
+
+    assert slept, "ensure_flat never went through broker.sleep — the event " \
+                  "loop is being blocked and TWS will stop being heard"
+    assert sum(slept) > 0
+
+
+def test_clearing_orders_also_waits_through_the_broker(tmp_path):
+    """`_clear_working` polls for a cancel TWS has to confirm. Blocking there
+    guarantees the confirmation it is waiting for can never arrive."""
+    om, ib, sm = _in_position(tmp_path, ib=StuckCancelIB())
+    slept = []
+    ib.sleep = lambda seconds: slept.append(seconds)
+
+    om._clear_working(timeout=1.0)
+    assert slept, "_clear_working blocked instead of pumping the event loop"

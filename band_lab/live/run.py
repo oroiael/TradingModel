@@ -209,7 +209,13 @@ class Runner:
                     self.heartbeat()
                 except Exception as exc:                    # noqa: BLE001
                     self._event("error", f"heartbeat: {exc!r}")
-            time.sleep(sleep)
+            # Pump the event loop while waiting, so fills and status changes
+            # are actually read between polls rather than queueing in the
+            # socket. Falls back to a plain wait when the broker is down.
+            try:
+                self.broker.sleep(sleep)
+            except Exception:                                   # noqa: BLE001
+                time.sleep(sleep)
 
     # ------------------------------------------------------ 15:55 / 16:10
     def close_out(self, now: Optional[datetime] = None) -> dict:
