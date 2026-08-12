@@ -709,6 +709,55 @@ not.
 4001) are refused by config validation and there is no flag that overrides that
 in Phase 2.
 
+## 5.6 — watching the day from your phone
+
+**Do not open TWS or the IBKR mobile app to check on a running session.** IBKR
+permits one login per user: signing in anywhere else disconnects the engine.
+Checking on the run is how you end the run.
+
+`status.py` reads the engine's own SQLite store instead — read-only, no broker,
+no IBKR connection of any kind — so looking costs the session nothing. It can be
+run at any time, including while the engine is mid-session.
+
+```powershell
+python band_lab\live\status.py                       # print it here
+python band_lab\live\status.py --publish             # to a secret gist
+python band_lab\live\status.py --publish --watch 300 # and keep it fresh
+```
+
+Run the publishing form in a **second** PowerShell window. It is not on the
+trading path and cannot affect it; if GitHub is down it prints the failure and
+carries on.
+
+**Setup, once.** A GitHub token with the `gist` scope only:
+
+```powershell
+setx BANDLAB_GITHUB_TOKEN "ghp_xxxxxxxxxxxxxxxx"
+```
+
+Open a new window after `setx` — it does not affect the current one. The first
+`--publish` creates a **secret** gist and remembers its id in
+`band_lab\live\out\status_gist.json`, so the URL never changes. Bookmark it on
+your phone once.
+
+**The privacy decision, stated rather than buried.** A secret gist is unlisted
+and authenticated, not public — but it is still a third party holding your
+positions and P&L, which is the objection `PROJECT_STATUS.md` §5F raises against
+public `ntfy.sh`. Use `--no-dollars` to publish states, counts and basis points
+without absolute account size:
+
+```powershell
+python band_lab\live\status.py --publish --no-dollars --watch 300
+```
+
+That version still answers the only questions worth asking from a phone: is the
+engine alive, did the sleeves trade, what were the round trips, is anything
+critical, and **is the account flat after 16:00**.
+
+**What it is not.** This is visibility, not alerting — it tells you what happened
+when you look. Nothing pushes on a condition, so it does not make unattended
+operation safe. §8.1 still applies in full.
+
 ## 7.0 — the timeline, and why an 08:00 start is safe
 
 **No order can exist before the 11:00 bar.** §2.3: *"No orders may be placed
@@ -909,7 +958,7 @@ nothing rather than consuming the prior session — and read the log afterwards.
 
 | Missing | Consequence unattended |
 |---|---|
-| Alerting | None exists — no push, email or desktop. The console is the only monitor |
+| Alerting | Half exists. `status.py` (§5.6) gives visibility from a phone; nothing **pushes** on a condition, so it only helps when you look |
 | `watchdog.py` | Engine hangs holding a position → nothing independently flattens it |
 | Service supervision | Process dies → the day ends silently, possibly with a position open |
 | §6.1 unverified | Whether the protective stop survives the engine dying is *still an open question*. Until confirmed, an unattended crash mid-position has no proven protection |

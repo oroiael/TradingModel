@@ -405,7 +405,7 @@ python3 band_lab/live/run.py --transmit       # terminal 1, all session
 |---|---|---|
 | `report.py` | 6 — daily shadow parity, weekly §8 report | ⬜ **does not exist.** Highest-priority remaining work, and **the highest-value thing to build on this machine**: without it the paper run produces fills nobody diffs against the backtest, which is the entire reason to launch |
 | `risk.py` | 7 — the −8.5% day-loss breaker, *enforced* | ⬜ **does not exist.** `Engine.day_loss_breached()` measures the condition and `run.py` breaks the session loop on it; nothing enforces a dormant-until-cleared state |
-| Alerting | 7 | ⬜ **does not exist** in any form. When it is built, it must not go through public `ntfy.sh` — that would carry positions and P&L in clear text through a third party |
+| Alerting | 7 | 🟡 **half built.** `status.py` publishes the session to a *secret* gist for phone viewing (RUNBOOK.md §5.6) — visibility, not push-on-condition. The `ntfy.sh` objection stands and is why the gist is secret and `--no-dollars` exists |
 | Service supervision | 7 | ⬜ **does not exist.** The engine is a foreground process started by hand. `launchd` is the macOS answer, but only after Stage 7 |
 | `watchdog.py` | 7 | ✅ built 2026-08-07 — §E.6 |
 

@@ -7,8 +7,9 @@ it worked*; it contains no instructions.
 The instructions live in exactly one place: **[`live/RUNBOOK.md`](live/RUNBOOK.md)**
 — what to type, in what order. §0M is macOS, §0 is Windows.
 
-Last reviewed: **2026-08-09** — QA/QC pass (§4.1–4.5), the first live IBKR
-sessions (§4.6), the first transmitting session (§4.7), and `report.py` (§7).
+Last reviewed: **2026-08-12** — QA/QC pass (§4.1–4.5), the first live IBKR
+sessions (§4.6), the first transmitting session (§4.7), `report.py` (§7), and
+the 2026-08-12 session, which closed the exit-path gap (§4.8).
 Every PASS in §2 is a command that was executed, not a claim carried forward.
 
 ---
@@ -87,11 +88,12 @@ No §12 constant changed. Three re-test programmes tried and adopted nothing.
 
 | Gap | Consequence | When it must exist |
 |---|---|---|
-| **No exit has ever filled against IBKR** | Entry, bracket and ratchet are proven live; no target or stop has executed, and the 15:55 flatten has never run against a real position. All three `PHASE2_PLAN.md` §6 assumptions remain open — above all §6.1, that a `STP` is broker-side and survives the engine dying | next sessions |
+| ~~No exit has ever filled against IBKR~~ | ✅ **Closed 2026-08-12** (§4.8). Three targets filled across the two sleeves and the 15:55 flatten ran against a real 510-share position. §6.3 has corroboration — a target fill left no orphan stop, and the re-entry that followed was clean. **§6.1 is still open**: no stop has ever fired, and nobody has yet killed the engine with a bracket on to see whether the `STP` survives | §6.1 before unattended |
+| **The 15:55 flatten is a market order and its cost was never measured** | Priced against the bar-76 close the backtest exits on, the 2026-08-12 flatten cost 58 bp of a 152 bp SOXL day. `report.py` now measures it every session and separates spread-crossing from the market moving; before that the report graded entries only | measured — decide after ~10 sessions |
 | ~~`report.py` does not exist~~ | ✅ Built 2026-08-09 (§7). Shadow parity, the two S10/S11 questions, per-fill slippage and the §8 comparison. **It has never been run against a real session's database** — every test drives it from fixtures, which is precisely the condition under which eight defects survived a green suite. Read its first real output with that in mind | done — first real use is the next session |
 | **`risk.py` does not exist** (Stage 7) | `Engine.day_loss_breached()` measures the −8.5% condition and `run.py` breaks the session loop on it, but nothing enforces a dormant-until-cleared state | Before Phase 3 |
 | ~~`watchdog.py` does not exist~~ | ✅ Built 2026-08-07 after three consecutive sessions where the engine failed to flatten. Fires on a stale heartbeat (§6.2) **or** on still being exposed past 15:58 — the second trigger is the one that would have caught all three | done |
-| **No alerting** | `run.py` prints to the console and writes SQLite. There is no push, email or desktop notification of any kind, despite three documents describing them | Before unattended operation |
+| 🟡 **Alerting — half built** | `status.py` (2026-08-12) renders the session from the store and publishes it to a secret gist, so the day can be watched from a phone without an IBKR login stealing the engine's session. That is *visibility*, not alerting: nothing yet pushes on a condition, so it only helps if you look | push-on-condition before unattended |
 | **No service supervision** | The engine is a foreground process started by hand. A reboot or a crash ends the trading day silently | Before unattended operation |
 | ~~Paper account not confirmed~~ | ✅ Resolved: NetLiquidation **$155,803** → `sleeve_capital` **$75,000**, the size the published cost rows assume | done 2026-08-03 |
 
@@ -305,6 +307,36 @@ session high and filled at 133.54, because the engine was restarted at 12:26
 into a market already 4.6% below that high. Correct by the rules, and not
 representative — a continuous run would have entered hours earlier and higher.
 
+### 4.8 The 2026-08-12 session — the exit path, and what it cost
+
+**The first session where exits actually ran.** Three targets filled across the
+two sleeves and the 15:55 flatten closed a real 510-share SOXL position. That
+closes the largest standing gap in §3 and gives §6.3 its first corroboration —
+a target fill left no orphan stop behind, and the re-entry that followed was
+clean.
+
+The day: SOXL −152.0 bp, SOXS +99.9 bp, **−52.1 bp net (≈ −$388)**. The shadow
+booked −23.2 bp, so the live shortfall was 128.8 bp. It decomposes into two
+things, and neither is a coding defect:
+
+| | bp | what it is |
+|---|---:|---|
+| the bar-20 re-entry | ~71 | **S10, as predicted.** Live re-entered at 145.82; the backtest fills a same-bar re-entry at the bar *open*, 145.31 — a price that traded before the exit did. 35 bp of entry price moved the 1% target from 146.76 to 147.28, the afternoon high landed between the two, and live held to the close instead of banking a winner |
+| the 15:55 flatten | ~58 | a **market order** (§4.7 — MKT, not MOC) filling at 142.15 against the 142.99 bar-76 close the backtest exits on. ≈ −$428 on 510 shares |
+
+**At 15:55:00 the book was flat for the day** (+5.6 bp). Both costs are
+execution, and S10 predicted the larger one before the account existed.
+
+What it also found: **`report.py` measured no exits at all.** `vs_limit` is None
+for every role but `"E"` and the "honest execution number" filtered to entries,
+so the one session whose result turned in its last bar produced a report with no
+line about that bar. Fixed the same day — the flatten is now priced against the
+bar the backtest exits on, in bp and dollars, with spread-crossing separated
+from the market moving.
+
+**Still not observed live:** a stop-out, the 2-stop breaker, and §6.1 — nobody
+has killed the engine with a bracket on to see whether the `STP` survives.
+
 ### 4.5 On the strategy itself — no errors found, one observation
 
 I did not re-test anything, as instructed. Reading for high-level and
@@ -401,27 +433,33 @@ difference between finding that at 08:30 and finding it at 11:00.
 
 ### C. 🔜 The next session — what to watch, in order
 
-- [ ] **The exit path.** No target or stop has ever filled. Watch for
-      `EXIT TARGET` / `EXIT STOP` with a `ret=` figure
+- [x] **The exit path** — ✅ 2026-08-12, three targets and a real flatten (§4.8).
+      A **stop** has still never filled, and neither has the 2-stop breaker
 - [ ] **§6.1 — the safety-critical one.** Once a bracket is on: confirm SELL LMT
       and SELL STP in TWS, kill the engine, **check the stop is still there**.
       If it vanishes, stop and report — nothing runs unattended until it is
       resolved
-- [ ] **§6.3** — a target fill must cancel its sibling stop by itself
+- [x] **§6.3** — ✅ corroborated 2026-08-12: no orphan stop after a target fill.
+      One session is corroboration, not proof; keep watching it
 - [ ] **A bracket that covers the whole position.** After any entry, the stop's
       quantity in TWS must equal the position. This is defect 8's fix under
       observation on real fills for the first time
-- [ ] **The 15:55 flatten** against a real position — verify flat in TWS with
-      your own eyes, not just the log line
+- [x] **The 15:55 flatten** against a real position — ✅ 2026-08-12, and it cost
+      58 bp against the price the backtest assumes. `report.py` now prices it
+      every session; watch the spread-crossing line, not the total
 - [ ] **§6.2** — leave it overnight; confirm the 23:00 TWS restart reconciles
       without double-counting
 
 ### E. Week 1 of the paper run
 
 - [x] **Build `report.py`** (Stage 6) — done 2026-08-09, §7
-- [ ] **Run it on a real session** and read the output critically. Fixtures are
-      not evidence; §4.6 is the standing proof of that
-- [ ] Answer the two S10/S11 questions from the `fills` and `quotes` tables:
+- [x] **Run it on a real session** and read the output critically — ✅ and the
+      point was made immediately: it graded entries only, and the session turned
+      on an exit. Fixtures are not evidence (§4.6, again)
+- [x] Answer the two S10/S11 questions — ✅ 2026-08-12: 1 of 1 live re-entries
+      at or worse than the price just sold, shadow advantage **35.2 bp** on the
+      one shared event. S10 is real and it is the larger of the day's two costs
+- [ ] Same, over enough sessions to be a number rather than an anecdote:
       did any fill occur without the quote reaching the limit, and on same-bar
       re-entries is the achieved price at or worse than the price just sold —
       `report.py` computes both; they need real fills to be meaningful
@@ -431,7 +469,10 @@ difference between finding that at 08:30 and finding it at 11:00.
 
 - [ ] `risk.py` — the −8.5% day-loss breaker, enforced not just measured
 - [x] `watchdog.py` — separate process, heartbeat → `reqGlobalCancel` + flatten
-- [ ] Alerting (push / email / desktop) and service supervision
+- [ ] 🟡 Alerting — `status.py` gives *visibility* (a secret gist you can read
+      from a phone without an IBKR login stealing the engine's session). Nothing
+      yet **pushes on a condition**, which is the half that matters unattended
+- [ ] Service supervision — the engine is still a hand-started foreground process
 - [ ] Acceptance tests §10.11, §10.12, §10.15, §10.16 green
 - [ ] Resolve the remaining `PHASE2_PLAN.md` §6 questions against IBKR docs
 - [ ] Move alerting off public `ntfy.sh` — it would carry positions and P&L in

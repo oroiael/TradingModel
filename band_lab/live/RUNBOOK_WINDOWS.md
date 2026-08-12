@@ -574,7 +574,7 @@ python band_lab\live\run.py --transmit       # terminal 1, all session
 |---|---|---|
 | `report.py` | 6 — daily shadow parity, weekly §8 report | ⬜ **does not exist.** Highest-priority remaining work: without it the paper run produces fills nobody diffs against the backtest |
 | `risk.py` | 7 — the −8.5% day-loss breaker, *enforced* | ⬜ **does not exist.** `Engine.day_loss_breached()` measures the condition and `run.py` breaks the session loop on it; nothing enforces a dormant-until-cleared state |
-| Alerting | 7 | ⬜ **does not exist** in any form |
+| Alerting | 7 | 🟡 **half built** — `status.py` gives phone visibility (RUNBOOK.md §5.6); no push-on-condition |
 | Service supervision | 7 | ⬜ **does not exist.** The engine is a foreground process started by hand |
 | `watchdog.py` | 7 | ✅ built 2026-08-07 — §F.6 |
 
@@ -1000,7 +1000,7 @@ since 09:30. **Check TWS for orphaned orders first.**
 
 | Missing | Consequence unattended |
 |---|---|
-| Alerting | None exists — no push, email or desktop. The console is the only monitor |
+| Alerting | Half exists. `status.py` gives visibility from a phone (RUNBOOK.md §5.6); nothing **pushes** on a condition |
 | Service supervision | Process dies → the day ends silently, possibly with a position open |
 | §6.1 unverified | Whether the protective stop survives the engine dying is *still an open question* |
 | `report.py` | No daily diff against the backtest, so a slow drift is invisible |
