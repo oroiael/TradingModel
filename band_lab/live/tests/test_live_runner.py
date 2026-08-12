@@ -428,3 +428,88 @@ def test_the_documented_sample_config_actually_starts():
     fields = json.loads(block.group(1))
     cfg = EngineConfig(**{**fields, "symbols": tuple(fields["symbols"])})
     cfg.validate()                       # must not raise
+
+
+# ------------------- a dormant day still owes the account a flatten (F15)
+def _bare_runner(tmp_path, positions=None):
+    """A Runner whose `pre_open` is stubbed, so no CSV backbone is needed."""
+    ib = FakeIB(symbols=("SOXL",))
+    ib.connect()
+    for symbol, qty in (positions or {}).items():
+        ib.positions[symbol] = qty
+    store = Store(str(tmp_path / "b.db"))
+    cfg = EngineConfig(symbols=("SOXL",), db_path=str(tmp_path / "b.db"))
+    r = Runner(cfg, broker=ib, store=store, root=_repo_root())
+    return r, ib, store
+
+
+def _stand_down(r, reason="gate_off"):
+    """Every sleeve dormant, the way pre_open leaves them on a gated-off day."""
+    r.pre_open = lambda d: False
+    r.engine.sleeves = {"SOXL": SimpleNamespace(dormant=True,
+                                                dormant_reason=reason)}
+    seen = []
+    r.run_session = lambda *a, **kw: seen.append("session")
+    r.close_out = lambda *a, **kw: (seen.append("close_out"), {"SOXL": {}})[1]
+    r.engine.reconcile = lambda: {"SOXL": {"agrees": True}}
+    return seen
+
+
+def test_a_flat_dormant_day_does_nothing(tmp_path):
+    """The ordinary gated-off morning. Nothing held, so nothing owed."""
+    r, ib, store = _bare_runner(tmp_path)
+    seen = _stand_down(r)
+    r.day(DAY)
+    assert seen == [], "no session, no flatten — there is nothing to flatten"
+
+
+def test_a_dormant_day_still_flattens_an_inherited_position(tmp_path):
+    """"No session to run" was read as "nothing to do", and the day returned.
+
+    Past the 15:55 flatten and past the 16:00 verify. But the gate is a decision
+    not to *open* anything: a position left by a process that died is exactly as
+    real on a gated-off day, and §1's first priority does not take the day off
+    with the gate.
+    """
+    r, ib, store = _bare_runner(tmp_path, positions={"SOXL": 500.0})
+    seen = _stand_down(r)
+    said = []
+    r._event = lambda lvl, msg: said.append((lvl, msg))
+
+    r.day(DAY)
+
+    assert seen == ["session", "close_out"], "the day must still reach 15:55"
+    assert any(lvl == "critical" and "500" in msg for lvl, msg in said)
+
+
+def test_a_closed_market_says_so_and_does_not_try_to_trade(tmp_path):
+    """A holiday with an inherited position: nothing can be done from here.
+
+    Sending a market order at a closed exchange is not a fix, so this is the
+    one exposed case that must stop — loudly.
+    """
+    r, ib, store = _bare_runner(tmp_path, positions={"SOXL": 500.0})
+    seen = _stand_down(r, reason="market_closed")
+    said = []
+    r._event = lambda lvl, msg: said.append((lvl, msg))
+
+    r.day(DAY)
+
+    assert seen == [], "there is no RTH to flatten into"
+    assert any(lvl == "critical" and "NOT FLAT" in msg for lvl, msg in said)
+
+
+def test_the_feed_stops_once_every_sleeve_is_dormant(tmp_path):
+    """A dormant day that stays up must not spend the pacing budget on bars.
+
+    One `reqHistoricalData` per symbol per poll against IBKR's 60-per-600s, for
+    bars that cannot change a decision any of the sleeves is still able to make.
+    """
+    r, ib, store = _bare_runner(tmp_path)
+    assert list(r.feeds_to_poll()), "with no sleeves yet, poll normally"
+
+    r.engine.sleeves = {"SOXL": SimpleNamespace(dormant=False)}
+    assert list(r.feeds_to_poll()), "a live sleeve is polled"
+
+    r.engine.sleeves = {"SOXL": SimpleNamespace(dormant=True)}
+    assert list(r.feeds_to_poll()) == []
