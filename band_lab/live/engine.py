@@ -128,6 +128,26 @@ class Engine:
             rt = SleeveRuntime(symbol=symbol, sm=sm, om=om, history=hist)
             self.sleeves[symbol] = rt
 
+            # §3 — reconciliation from the broker is the only way state is ever
+            # established, "so there is no distinct restart path, because every
+            # path is the restart path". The cold path was the exception, and
+            # nothing said so: `Runner.pre_open` connects before `self.sleeves`
+            # exists, so `on_connect` iterated an empty dict and reconciled
+            # nothing, and this method then built fresh state machines without
+            # asking the broker anything. Only a *re*connect ever reconciled.
+            #
+            # It runs before the gate, and before the market-closed check, on
+            # purpose: a position left by a dead process is exactly as real on a
+            # holiday or a gated-off day, and those are the days nothing else
+            # would look.
+            summary = om.reconcile()
+            if summary["position"] or summary["working"]:
+                self.on_event("warn",
+                              f"{symbol} pre-open reconcile found broker state "
+                              f"already in place: position={summary['position']:.0f}, "
+                              f"{summary['working']} working order(s) — adopted, "
+                              f"not replaced")
+
             try:
                 sh = (hours or {}).get(symbol) or self.broker.session_hours(symbol, day)
             except MarketClosedError as exc:

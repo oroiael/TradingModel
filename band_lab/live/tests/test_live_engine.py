@@ -542,3 +542,62 @@ def test_a_stood_down_sleeve_is_not_armed_by_the_clock(tmp_path):
         eng.on_bar("SOXL", Bar(i, 100.0, 108.0, 100.0, 100.5, 1.0))
     assert eng.sleeves["SOXL"].dormant
     assert eng.activate_due(_at_1100()) == []
+
+
+# --------------------------------- the cold start is a restart path too (F2)
+def test_a_cold_start_never_places_a_second_entry(tmp_path):
+    """§3 says every path is the restart path. The first one was not.
+
+    `Runner.pre_open` connects before `engine.sleeves` exists, so `on_connect`
+    iterated an empty dict and reconciled nothing, and `pre_open` then built
+    fresh state machines without asking the broker anything. Only a *re*connect
+    ever reconciled. A process that armed at 11:00 and died therefore came back
+    believing it had never armed, replayed the session from the feed, and put a
+    second live buy limit behind one that could still fill.
+    """
+    eng, ib, store, feats = _engine(tmp_path)
+    eng.pre_open(DAY, feats)
+    for b in _session_bars(n=START_IDX + 1):
+        eng.on_bar("SOXL", b)
+    resting = [o for o in ib.orders.values() if o.action == "BUY"]
+    assert len(resting) == 1, "the dead process armed exactly once"
+
+    # The replacement process: same broker, same database, nothing in memory.
+    eng2 = Engine(ib, store, symbols=("SOXL",), on_event=lambda l, m: None)
+    eng2.pre_open(DAY, feats)
+    assert eng2.sleeves["SOXL"].om.entry_id == resting[0].order_id, \
+        "pre-open must establish state from the broker, not from memory"
+
+    for b in _session_bars(n=START_IDX + 1):
+        eng2.on_bar("SOXL", b)
+
+    live = [o for o in ib.orders.values()
+            if o.action == "BUY" and o.status not in ("Cancelled", "Filled")]
+    assert len(live) == 1, f"one sleeve, one resting entry — found {len(live)}"
+
+
+def test_pre_open_reconciles_even_when_the_market_is_closed(tmp_path):
+    """A position left by a dead process is just as real on a holiday.
+
+    The gate and the market-closed check both stand the sleeve down before
+    anything else looks at the broker, so a holiday is precisely the day a
+    forgotten position would go unnoticed.
+    """
+    ib = FakeIB(symbols=("SOXL",))
+    store = Store(str(tmp_path / "closed.db"))
+    said = []
+    eng = Engine(ib, store, symbols=("SOXL",),
+                 on_event=lambda lvl, msg: said.append((lvl, msg)))
+    o = DAY.replace(hour=9, minute=30)
+    ib.hours["SOXL"] = SessionHours(o, o.replace(hour=13), is_half_day=True)
+    ib.positions["SOXL"] = 500.0        # left behind by a process that died
+
+    eng.pre_open(DAY, {"SOXL": _history()})
+
+    assert eng.sleeves["SOXL"].dormant, "a half day still gates the sleeve off"
+    # Asserted on what pre_open itself did — calling reconcile() from the test
+    # would write the same row and pass whether or not the engine ever looked.
+    rows = store.rows("SELECT state FROM counters WHERE symbol='SOXL'")
+    assert rows, "pre-open must reconcile even when the sleeve stands down"
+    assert any(lvl == "warn" and "500" in msg for lvl, msg in said), \
+        "and must say so — a holiday is the day nobody else would look"

@@ -158,10 +158,55 @@ class OrderManager:
                 f"{self.highest_limit:.2f} — §2.5 forbids the limit moving down")
         self.highest_limit = max(self.highest_limit, limit_px)
 
+    def _adopt_rather_than_duplicate(self, working: WorkingOrder, it: Intent,
+                                     px: float, qty: float) -> None:
+        """The broker already has an entry for this sleeve. Never add a second.
+
+        A restart rebuilds the state machine from nothing and replays the
+        session from the feed, so it reaches 11:00 believing it has never armed
+        — while the order the dead process placed is still resting at IBKR.
+        Arming again gives one sleeve two live buy limits. `_modify_entry`
+        already refuses to cause that and logs `critical` about it; it must not
+        be reachable through the front door either.
+        """
+        if working.status == "PendingCancel":
+            # On its way out, but not gone. Adopting means modifying an order
+            # mid-cancel; placing means a duplicate if the cancel never lands.
+            # Neither is acceptable, so do nothing and say so — the next ratchet
+            # retries once TWS has confirmed it one way or the other.
+            self.on_event("critical",
+                          f"{self.symbol} not arming: entry {working.order_id} "
+                          f"is still {working.status} at the broker, so it can "
+                          f"be neither modified nor safely replaced. Check TWS.")
+            return
+        self.entry_id, self.entry_ref = working.order_id, working.order_ref
+        self.entry_limit = working.limit_px
+        self.highest_limit = max(self.highest_limit, working.limit_px)
+        if (abs(working.limit_px - px) < self.tick / 2
+                and abs(working.remaining - qty) < 1e-9):
+            # The ordinary restart: same bars in, same arithmetic, same order.
+            # Sending a modify that changes nothing is pointless traffic.
+            self.on_event("info",
+                          f"{self.symbol} adopted the resting entry "
+                          f"{working.order_ref} @ {working.limit_px:.2f} "
+                          f"x{working.remaining:.0f} — already exactly what this "
+                          f"session would have placed")
+            return
+        self.on_event("warn",
+                      f"{self.symbol} adopted the resting entry "
+                      f"{working.order_ref} @ {working.limit_px:.2f} "
+                      f"x{working.remaining:.0f} and is ratcheting it to "
+                      f"{px:.2f} x{qty:.0f} rather than placing a second")
+        self._modify_entry(it)
+
     def _place_entry(self, it: Intent) -> None:
         px, qty = self._px(it.limit_px), it.qty
         if qty <= 0:
             return
+        # The broker is the fact; this state machine is only a belief about it.
+        working = self._working_entry()
+        if working is not None:
+            return self._adopt_rather_than_duplicate(working, it, px, qty)
         self._assert_ratchet(px)
         self.entry_ref = self._next_ref(ROLE_ENTRY)
         self.entry_limit = px

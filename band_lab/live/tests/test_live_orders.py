@@ -12,7 +12,9 @@ import pytest
 
 from broker import BrokerError, FakeIB, WorkingOrder, is_working
 from orders import OrderManager, RatchetViolation, order_ref, parse_ref
-from sleeve import Bar, SleeveConfig, SleeveStateMachine, START_IDX
+from sleeve import (
+    Bar, Intent, IntentKind, SleeveConfig, SleeveStateMachine, START_IDX,
+)
 from store import Store
 
 
@@ -983,3 +985,71 @@ def test_reconcile_counts_two_separate_entries_as_two(tmp_path):
         ib.fill(target.order_id, price=99.99)
         om.on_executions(START_IDX)
     assert om.reconcile()["broker_fills"] == 2 == sm.fills
+
+
+# ------------- a second entry is never placed behind a resting one (fix F2)
+def test_arming_adopts_a_resting_entry_instead_of_placing_a_second(tmp_path):
+    """§3's restart path, at the point where it actually costs money.
+
+    A process that armed and died leaves its buy limit at IBKR. Its
+    replacement rebuilds the state machine from nothing and replays the
+    session, so it reaches 11:00 believing it has never armed. Placing here
+    gives one sleeve two live buy limits — the outcome `_modify_entry` refuses
+    to cause and logs `critical` about, arrived at through the front door.
+    """
+    om, ib, sm = _armed(tmp_path, high=100.0)
+    resting = ib.orders[om.entry_id]
+    assert resting.action == "BUY"
+
+    # A new OrderManager against the same broker: the dead process's successor.
+    om2, _, sm2 = _om(tmp_path, ib=ib, sm=_sm("SOXL"))
+    om2.apply([Intent(kind=IntentKind.PLACE_ENTRY, bar_idx=START_IDX,
+                      limit_px=resting.limit_px, qty=resting.qty)])
+
+    live = [o for o in ib.orders.values()
+            if o.action == "BUY" and is_working(o.status)]
+    assert len(live) == 1, f"one sleeve, one resting entry — found {len(live)}"
+    assert om2.entry_id == resting.order_id, "it must adopt, not ignore"
+    assert om2.highest_limit == pytest.approx(resting.limit_px), \
+        "the ratchet witness has to survive the restart too"
+
+
+def test_adopting_still_ratchets_the_resting_entry_up(tmp_path):
+    """Adopting must not mean freezing. §2.5's limit still has to track."""
+    om, ib, sm = _armed(tmp_path, high=100.0)
+    resting = ib.orders[om.entry_id]
+    higher = resting.limit_px + 1.00
+
+    om2, _, _ = _om(tmp_path, ib=ib, sm=_sm("SOXL"))
+    om2.apply([Intent(kind=IntentKind.PLACE_ENTRY, bar_idx=START_IDX,
+                      limit_px=higher, qty=resting.qty)])
+
+    live = [o for o in ib.orders.values()
+            if o.action == "BUY" and is_working(o.status)]
+    assert len(live) == 1
+    assert ib.orders[om2.entry_id].limit_px == pytest.approx(higher), \
+        "the adopted order is modified, not left where the dead process put it"
+
+
+def test_a_cancelling_entry_is_neither_adopted_nor_replaced(tmp_path):
+    """`PendingCancel` is the one state where both moves are wrong.
+
+    Modifying an order mid-cancel is undefined; replacing it duplicates the
+    position if the cancel never lands. Doing nothing loudly is the only safe
+    answer, and the next ratchet retries once TWS has confirmed either way.
+    """
+    om, ib, sm = _armed(tmp_path, high=100.0)
+    ib.stall_cancels = True
+    ib.cancel(om.entry_id)
+    assert ib.orders[om.entry_id].status == "PendingCancel"
+
+    said = []
+    om2, _, _ = _om(tmp_path, ib=ib, sm=_sm("SOXL"))
+    om2.on_event = lambda lvl, msg: said.append((lvl, msg))
+    om2.apply([Intent(kind=IntentKind.PLACE_ENTRY, bar_idx=START_IDX,
+                      limit_px=99.0, qty=100)])
+
+    assert len([o for o in ib.orders.values()
+                if o.action == "BUY" and is_working(o.status)]) == 1
+    assert om2.entry_id is None, "nothing was armed"
+    assert any(lvl == "critical" and "PendingCancel" in msg for lvl, msg in said)
