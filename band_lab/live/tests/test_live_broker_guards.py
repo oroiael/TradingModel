@@ -401,3 +401,79 @@ def test_no_trading_module_sleeps_deaf():
     assert not offenders, (
         "these block ib_async's event loop, so every broker read taken "
         f"afterwards is stale: {offenders}. Use `self.broker.wait(...)`.")
+
+
+# ------------------------------- IBKR errors are recorded, and classified (F26)
+def test_the_warning_set_matches_ib_async():
+    """Transcribed, then asserted — the same discipline as DONE_STATES.
+
+    The split decides whether an order is still working. A code in the set
+    leaves it alive with `ValidationError`; anything else makes `wrapper.error`
+    set the trade `Cancelled` while IBKR may still be filling it.
+    """
+    import inspect
+
+    import ib_async.wrapper as W
+    from broker import IB_WARNING_CODES, is_warning
+
+    src = " ".join(inspect.getsource(W.Wrapper.error).split())
+    listed = "frozenset({" + ", ".join(str(c) for c in sorted(IB_WARNING_CODES)) + "})"
+    assert listed in src, "ib_async's warning set has moved; retranscribe it"
+    assert "2100 <= errorCode < 2200" in src
+
+    assert is_warning(2102), "modify-before-processed leaves the order working"
+    assert not is_warning(103), "duplicate order id does not"
+    assert not is_warning(202), "202 is an order-delete error, deliberately"
+
+
+def _broker_recording():
+    """The stub broker from above, with its event stream captured."""
+    said = []
+    b = _broker(readonly=True, mdt=1)
+    b._on_event = lambda lvl, msg: said.append((lvl, msg))
+    return b, said
+
+
+def test_every_ibkr_error_is_recorded_not_just_market_data():
+    """On 2026-08-10 error 103 arrived and this engine recorded nothing.
+
+    `_on_ib_error` returned early for anything outside NO_LIVE_DATA_ERRORS, so
+    the one code that mattered was dropped, `ib_async` marked the trade
+    Cancelled, and IBKR went on to fill 1,703 shares. The session had to be
+    reconstructed from TWS's own log afterwards.
+    """
+    b, said = _broker_recording()
+    b._on_ib_error(7, 103, "Duplicate order ID", SimpleNamespace(symbol="SOXS"))
+
+    assert said, "an order-rejecting error must reach the log"
+    level, msg = said[-1]
+    assert level == "error"
+    assert "103" in msg and "SOXS" in msg
+    assert "Cancelled" in msg, "say what ib_async has just done to the trade"
+
+
+def test_a_warning_code_is_not_reported_as_a_dead_order():
+    """2102 leaves the order working, and the log must not imply otherwise."""
+    b, said = _broker_recording()
+    b._on_ib_error(7, 2102, "Unable to modify this order as it is still being "
+                            "processed", SimpleNamespace(symbol="SOXL"))
+    level, msg = said[-1]
+    assert level == "warn" and "Cancelled" not in msg
+
+
+def test_connection_chatter_is_not_logged():
+    """TWS repeats "farm connection is OK" constantly; it is not a condition."""
+    b, said = _broker_recording()
+    for code in (2104, 2106, 2158):
+        b._on_ib_error(-1, code, "Market data farm connection is OK")
+    assert not said
+
+
+def test_a_market_data_error_still_stands_the_sleeve_down():
+    """The pre-existing behaviour must survive the widened logging."""
+    b, said = _broker_recording()
+    b._on_ib_error(9, 10089, "API data requires subscription",
+                   SimpleNamespace(symbol="SOXL"))
+    assert "SOXL" in b._no_live_data
+    with pytest.raises(NotLiveDataError):
+        b.assert_live_data("SOXL")

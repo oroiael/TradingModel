@@ -43,6 +43,27 @@ MARKET_DATA_LIVE = 1
 #: below is the backstop for a silent downgrade, not the primary detector.
 NO_LIVE_DATA_ERRORS = frozenset({354, 10089, 10090, 10167, 10168})
 
+#: `ib_async.Wrapper.error`'s own warning set, transcribed from the installed
+#: package and asserted against it by `test_the_warning_set_matches_ib_async`.
+#:
+#: The distinction is the whole reason this matters. A code **in** here leaves
+#: the order working and sets `ValidationError`, which is an ActiveState.
+#: Anything **outside** it makes `wrapper.error` set the trade `Cancelled` — a
+#: DoneState — so `openTrades()` drops it even when IBKR is still working the
+#: order. ib_async's own comment on that line: *"modification to existing order
+#: just has an update error, but the order is STILL LIVE"*.
+IB_WARNING_CODES = frozenset({105, 110, 165, 321, 329, 399, 404, 434, 492, 10167})
+
+#: Connection-status notices TWS emits constantly ("market data farm connection
+#: is OK"). They are in the 2100-2199 warning band but say nothing about this
+#: engine, so they are not worth a line each. Same list `diagnose.py` filters.
+IB_STATUS_CHATTER = frozenset({2104, 2106, 2107, 2119, 2158})
+
+
+def is_warning(code: int) -> bool:
+    """Would `ib_async` leave the order working after this code?"""
+    return code in IB_WARNING_CODES or 2100 <= code < 2200
+
 #: How long to wait for TWS to describe the feed before warning and proceeding.
 PROBE_SECONDS = 5.0
 
@@ -348,11 +369,28 @@ class IBBroker(Broker):
         where §4's "must detect delayed-data mode and refuse to trade" is
         actually decided.
         """
+        symbol = getattr(contract, "symbol", None) or "*"
+
+        # Everything IBKR says, not only the market-data codes. Until now every
+        # other code was dropped here, so when `Error 103` arrived on
+        # 2026-08-10 — and `ib_async` marked the trade Cancelled while IBKR went
+        # on to fill 1,703 shares — this engine's own record said nothing at
+        # all. The session had to be reconstructed from TWS's log afterwards,
+        # and the cause was then inferred rather than read.
+        if errorCode not in IB_STATUS_CHATTER:
+            if is_warning(errorCode):
+                self._on_event("warn", f"IBKR {errorCode} req={reqId} {symbol}: "
+                                       f"{errorString}")
+            else:
+                self._on_event(
+                    "error",
+                    f"IBKR {errorCode} req={reqId} {symbol}: {errorString} "
+                    f"— not in ib_async's warning set, so it has marked this "
+                    f"trade Cancelled locally. The order may still be live at "
+                    f"IBKR; reconcile before believing it is gone.")
+
         if errorCode not in NO_LIVE_DATA_ERRORS:
             return
-        symbol = getattr(contract, "symbol", None) or "*"
-        if symbol not in self._no_live_data:
-            self._on_event("error", f"IBKR {errorCode} on {symbol}: {errorString}")
         self._no_live_data.add(symbol)
 
     def disconnect(self) -> None:
@@ -626,7 +664,13 @@ class IBBroker(Broker):
         o.transmit = transmit
         if oca_group:
             o.ocaGroup = oca_group
-            # ASSUMPTION §6.3: ocaType 1 = cancel remaining with block.
+            # VERIFIED 2026-08-11, no longer §6.3's assumption. IBKR's own
+            # client says so in the field's declaration — `ibapi/order.py:51`:
+            #   ocaType = 0  # 1 = CANCEL_WITH_BLOCK, 2 = REDUCE_WITH_BLOCK,
+            #                #                        3 = REDUCE_NON_BLOCK
+            # The default of 0 is why it has to be set at all. What is still
+            # unverified is the behaviour under a *partial* fill, which the
+            # committed documentation does not cover.
             o.ocaType = 1
         return o
 

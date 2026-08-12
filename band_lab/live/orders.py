@@ -310,11 +310,31 @@ class OrderManager:
                           f"order may still be live at IBKR. Check TWS.")
             return
         if working.status == "PendingSubmit":
-            # Inference, not documented behaviour: on 2026-08-10 the arm and the
-            # ratchet were 2 ms apart and IBKR answered `Error 103`. Modifying
-            # an order it has not acknowledged is at best untestable from here,
-            # so the ratchet waits a bar. The anchor does not decay, and §2.5's
-            # invariant is that the limit never moves *down*.
+            # Documented, and no longer an inference — but not by the code that
+            # was cited here. IBKR's message table gives this its own entry:
+            #
+            #   2102  Unable to modify this order as it is still being
+            #         processed. "If you attempt to modify an order before it
+            #         gets processed by the system, the modification will be
+            #         rejected. Wait until the order has been fully processed
+            #         before modifying it."
+            #
+            # So waiting a bar is exactly right. What was wrong was the reason
+            # given: this comment used to attribute it to `Error 103` on
+            # 2026-08-10, and 103 means something else entirely — "Duplicate
+            # order ID. An order was placed with an order ID that is less than
+            # or equal to the order ID of a previous order from this client".
+            #
+            # The difference is not academic. 2102 is inside ib_async's
+            # 2100-2199 warning band, so the order stays working. 103 is not,
+            # so it marks the trade `Cancelled` while IBKR keeps filling it —
+            # which is what that session's 1,703 shares against a believed
+            # 1,701 actually look like. **The cause of that 103 is still
+            # unknown**; `_on_ib_error` now records every code so the next one
+            # can be read instead of reconstructed.
+            #
+            # The anchor does not decay, and §2.5's invariant is that the limit
+            # never moves *down*, so a deferred ratchet costs at most a bar.
             self.on_event("info",
                           f"{self.symbol} ratchet deferred — entry "
                           f"{working.order_id} is not acknowledged yet "
