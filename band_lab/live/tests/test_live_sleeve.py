@@ -165,6 +165,72 @@ def test_second_stop_out_ends_the_day():
     assert sm.working_entry is None
 
 
+# ------------------------------------------------- V19 day profit stop (dev)
+def test_the_default_has_no_upward_truncation():
+    """§12 truncates a day downward twice and upward never. Production keeps it
+    that way: the live engine builds `SleeveConfig` without the field at all."""
+    assert cfg().day_profit_stop is None
+    sm = armed()
+    for n in range(5):
+        sm.on_entry_fill(99.0, START_IDX + n)
+        sm.on_exit_fill(99.0 * 1.01, START_IDX + n + 1, "target")
+    assert sm.pnl == pytest.approx(0.05)      # five winners, never cut short
+    assert [x.reason for x in sm.drain_intents()
+            if x.kind is IntentKind.DORMANT] == ["counters_exhausted"]
+
+
+def test_one_target_ends_the_day_at_a_one_percent_stop():
+    """V19's central mechanism: a target pays exactly `f x target_pct`, so a
+    +1% threshold and a +0.5% threshold are the same rule — stop after the
+    first winner. There is no day that lands between them."""
+    sm = armed(cfg(day_profit_stop=0.01))
+    sm.on_entry_fill(99.0, START_IDX)
+    sm.on_exit_fill(99.0 * 1.01, START_IDX + 1, "target")
+    assert sm.pnl == pytest.approx(0.01)
+    assert sm.state is SleeveState.DONE
+    assert sm.working_entry is None
+    assert [x.reason for x in sm.drain_intents()
+            if x.kind is IntentKind.DORMANT] == ["day_profit_stop"]
+
+
+def test_the_epsilon_catches_a_target_that_floats_a_hair_under():
+    """`f x target_pct` lands on 0.009999999999999998 about as often as on 0.01.
+    Without the epsilon, "stop at +1%" would mean "after one winner" or "after
+    two" depending on rounding noise in the entry price — a 100 bp/day swing
+    decided by nothing."""
+    sm = armed(cfg(day_profit_stop=0.01))
+    sm.pnl = 0.01 - 1e-12
+    assert sm.day_profit_reached
+
+
+def test_a_threshold_above_one_target_needs_two():
+    sm = armed(cfg(day_profit_stop=0.015))
+    sm.on_entry_fill(99.0, START_IDX)
+    sm.on_exit_fill(99.0 * 1.01, START_IDX + 1, "target")
+    assert sm.state is SleeveState.ARMED          # +1% is not yet +1.5%
+    sm.on_entry_fill(99.0, START_IDX + 2)
+    sm.on_exit_fill(99.0 * 1.01, START_IDX + 3, "target")
+    assert sm.state is SleeveState.DONE
+
+
+def test_a_losing_day_never_reaches_the_profit_stop():
+    """The finding the sweep turns on: the rule can only fire on a day that is
+    already winning, so it does nothing at all to the days that hurt. Worst-day
+    was identical at every threshold tested, in both sleeves."""
+    sm = armed(cfg(day_profit_stop=0.005))
+    sm.on_entry_fill(99.0, START_IDX)
+    sm.on_exit_fill(99.0 * 0.96, START_IDX, "stop")
+    assert sm.pnl < 0.0
+    assert not sm.day_profit_reached
+    assert sm.state is SleeveState.ARMED
+
+
+@pytest.mark.parametrize("bad", [0.0, -0.01])
+def test_a_non_positive_profit_stop_is_refused(bad):
+    with pytest.raises(ValueError, match="day_profit_stop"):
+        cfg(day_profit_stop=bad)
+
+
 def test_first_stop_out_re_arms():
     sm = armed()
     sm.on_entry_fill(99.0, START_IDX)

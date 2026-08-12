@@ -97,6 +97,7 @@ churn-rate and day-selection variables were re-tested on 1-minute fills, in
 | [V16](v2_dev/V16_CHURN_JOINT_TEST.md) | V1 dip x V3 target x V7 cap (jointly) | 672 | **NOT ADOPTED** |
 | [V17](v2_dev/V17_TRADE_CAP_TEST.md) | V7 cap, at the margin | 16 + diagnostics | **NOT ADOPTED** |
 | [V18](v2_dev/V18_VOL_GATE_TEST.md) | V10 cutoff x lookback | 64 | **NOT ADOPTED** |
+| [V19](v2_dev/V19_PROFIT_STOP_TEST.md) | day profit stop (new variable, not a re-test) | 8 x 2 | **NOT ADOPTED — diagnostic, no prespecified bar** |
 
 **All §12 constants stand.** Three findings are worth carrying, because they
 change how future programs should be run rather than what the strategy is:

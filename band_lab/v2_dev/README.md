@@ -61,6 +61,13 @@ so the production path cannot silently drift.
 | [V16_CHURN_JOINT_TEST.md](V16_CHURN_JOINT_TEST.md) | V1 dip depth × V3 profit target × V7 trade cap | **complete — NOT ADOPTED** |
 | [V17_TRADE_CAP_TEST.md](V17_TRADE_CAP_TEST.md) | V7 trade cap, tested at the margin | **complete — NOT ADOPTED** |
 | [V18_VOL_GATE_TEST.md](V18_VOL_GATE_TEST.md) | V10 vol gate: cutoff × lookback | **complete — NOT ADOPTED** |
+| [V19_PROFIT_STOP_TEST.md](V19_PROFIT_STOP_TEST.md) | day profit stop — stop once up X% | **diagnostic — NOT ADOPTED, closed on mechanism** |
+
+V19 is the one entry here that ran **without** a prespecified adoption bar, and
+it is labelled a diagnostic rather than a program for that reason: it answered a
+direct question and was never eligible to change v1.0. Its result closes the
+question on mechanism anyway — the trades a profit stop deletes have *higher*
+expectancy than the ones it keeps.
 
 ## Tooling
 
@@ -82,4 +89,10 @@ python3 band_lab/v2_dev/churn_joint_test.py            # full program
 python3 band_lab/v2_dev/churn_joint_test.py --quick    # coarse grid, for iteration
 python3 band_lab/v2_dev/trade_cap_test.py             # V17
 python3 band_lab/v2_dev/vol_gate_test.py              # V18
+python3 band_lab/v2_dev/profit_stop_test.py           # V19
+python3 band_lab/v2_dev/profit_stop_test.py --quick   # three thresholds
 ```
+
+The data files these load are Git LFS pointers in a fresh clone. `git lfs pull
+--include="SOXL_1min.csv,SOXS_1min.csv,SOXL_5min_6Years.csv,SOXS_5min_6Years.csv"`
+before the first run, or every session stands down for want of history.
