@@ -52,10 +52,23 @@ class _StubTicker:
             self.bidSize = self.askSize = 100.0
 
 
+class _StubEvent:
+    """ib_async's Event, as far as `errorEvent += handler` is concerned."""
+
+    def __init__(self):
+        self.handlers = []
+
+    def __iadd__(self, handler):
+        self.handlers.append(handler)
+        return self
+
+
 class _StubIB:
     """Just enough of ib_async.IB to reach the guard under test."""
 
     def __init__(self, bars=(), mdt=1, quote=None):
+        self.errorEvent = _StubEvent()
+        self.connect_kwargs = None
         self.mkt_data_requests = []
         self._quote = quote
         self._connected = True
@@ -66,6 +79,11 @@ class _StubIB:
         self._mdt = mdt
         self.market_data_type_requested = None
         self.mkt_data_cancelled = []
+
+    def connect(self, host, port, clientId=None, timeout=None, readonly=None):
+        self.connect_kwargs = dict(host=host, port=port, clientId=clientId,
+                                   timeout=timeout, readonly=readonly)
+        self._connected = True
 
     def isConnected(self):
         return self._connected
@@ -106,8 +124,8 @@ class _StubIB:
         return self._bars
 
 
-def _broker(readonly, bars=(), mdt=1, quote=None):
-    b = IBBroker(readonly=readonly)
+def _broker(dry_run, bars=(), mdt=1, quote=None):
+    b = IBBroker(dry_run=dry_run)
     b._ib = _StubIB(bars, mdt, quote)
     b._contracts["SOXL"] = object()          # skip qualifyContracts
     b._contracts["SOXS"] = object()
@@ -116,7 +134,7 @@ def _broker(readonly, bars=(), mdt=1, quote=None):
 
 # ------------------------------------------------------- delayed data refusal
 def test_live_data_assertion_passes_on_live():
-    b = _broker(readonly=True, mdt=1)
+    b = _broker(dry_run=True, mdt=1)
     b.assert_live_data("SOXL")               # must not raise
     assert b._ib.market_data_type_requested == 1
     assert b._ib.mkt_data_cancelled, "the probe subscription is released again"
@@ -125,7 +143,7 @@ def test_live_data_assertion_passes_on_live():
 @pytest.mark.parametrize("mdt", [2, 3, 4])
 def test_live_data_assertion_refuses_a_downgrade(mdt):
     """3 = delayed. Arming a limit off 15-minute-old prices is the failure."""
-    b = _broker(readonly=True, mdt=mdt)
+    b = _broker(dry_run=True, mdt=mdt)
     with pytest.raises(NotLiveDataError):
         b.assert_live_data("SOXL")
 
@@ -137,7 +155,7 @@ def test_live_data_assertion_refuses_on_a_subscription_error():
     is available") four times while the engine armed regardless, because the
     old guard read an attribute nothing ever set.
     """
-    b = _broker(readonly=True, mdt=1)
+    b = _broker(dry_run=True, mdt=1)
     contract = SimpleNamespace(symbol="SOXL")
     b._on_ib_error(10, 10089, "Requested market data requires additional "
                               "subscription for API.", contract)
@@ -147,7 +165,7 @@ def test_live_data_assertion_refuses_on_a_subscription_error():
 
 def test_a_subscription_error_on_one_sleeve_does_not_condemn_the_other():
     """Entitlements are per contract."""
-    b = _broker(readonly=True, mdt=1)
+    b = _broker(dry_run=True, mdt=1)
     b._on_ib_error(10, 10089, "no subscription", SimpleNamespace(symbol="SOXL"))
     with pytest.raises(NotLiveDataError):
         b.assert_live_data("SOXL")
@@ -164,7 +182,7 @@ def test_silence_proceeds_with_a_warning_rather_than_refusing():
     error-code path below is what carries §4.
     """
     warned = []
-    b = _broker(readonly=True, mdt=None)     # TWS never answers
+    b = _broker(dry_run=True, mdt=None)     # TWS never answers
     b._ib._ticker = _StubTicker()
     b._on_event = lambda level, msg: warned.append((level, msg))
     b.assert_live_data("SOXL")               # must NOT raise
@@ -173,11 +191,11 @@ def test_silence_proceeds_with_a_warning_rather_than_refusing():
 
 def test_positive_evidence_still_refuses_after_the_loosening():
     """The loosening must not have hollowed the guard out."""
-    b = _broker(readonly=True, mdt=3)        # TWS says delayed
+    b = _broker(dry_run=True, mdt=3)        # TWS says delayed
     with pytest.raises(NotLiveDataError):
         b.assert_live_data("SOXL")
 
-    b = _broker(readonly=True, mdt=None)     # silent, but an error arrived
+    b = _broker(dry_run=True, mdt=None)     # silent, but an error arrived
     b._ib._ticker = _StubTicker()
     b._on_ib_error(9, 10089, "no subscription", SimpleNamespace(symbol="SOXL"))
     with pytest.raises(NotLiveDataError):
@@ -186,21 +204,21 @@ def test_positive_evidence_still_refuses_after_the_loosening():
 
 def test_unrelated_errors_are_ignored():
     """162 is the session/IP conflict — a different fault, not a data downgrade."""
-    b = _broker(readonly=True, mdt=1)
+    b = _broker(dry_run=True, mdt=1)
     b._on_ib_error(21, 162, "Trading TWS session is connected from a different "
                             "IP address", SimpleNamespace(symbol="SOXL"))
     b.assert_live_data("SOXL")               # must not raise
 
 
 # ------------------------------------------------------- dry run == no orders
-def test_readonly_broker_transmits_nothing():
+def test_a_dry_run_broker_transmits_nothing():
     """`--dry-run` must reach the market with nothing.
 
     ib_async's own `readonly` flag only skips two startup requests; it does not
     stop `placeOrder`. Without this guard, Stage 4's acceptance run places live
     paper orders — the opposite of what it is for.
     """
-    b = _broker(readonly=True)
+    b = _broker(dry_run=True)
     ids = [
         b.place_limit("SOXL", "BUY", 100, 50.0, "ref-entry"),
         b.place_stop("SOXL", "SELL", 100, 48.0, "ref-stop"),
@@ -211,9 +229,9 @@ def test_readonly_broker_transmits_nothing():
     assert len(set(ids)) == 3, "each dry order still gets a distinct id"
 
 
-def test_readonly_broker_swallows_modify_and_cancel():
+def test_a_dry_run_broker_swallows_modify_and_cancel():
     """The ratchet modifies and the 15:55 cancel run on the same dry ids."""
-    b = _broker(readonly=True)
+    b = _broker(dry_run=True)
     oid = b.place_limit("SOXL", "BUY", 100, 50.0, "ref-entry")
     b.modify_limit(oid, 50.5, 100)          # must not raise, must not send
     b.cancel(oid)
@@ -225,7 +243,7 @@ def test_readonly_broker_swallows_modify_and_cancel():
 
 def test_transmitting_broker_still_places_orders():
     """The guard is on `readonly` only — the real run is unchanged."""
-    b = _broker(readonly=False)
+    b = _broker(dry_run=False)
     assert b.place_limit("SOXL", "BUY", 100, 50.0, "ref-entry") == 99
     assert len(b._ib.placed) == 1
     o = b._ib.placed[0]
@@ -234,7 +252,7 @@ def test_transmitting_broker_still_places_orders():
 
 def test_a_negative_order_id_is_never_sent_even_when_transmitting():
     """Belt and braces: a dry id leaking into a live session cancels nothing."""
-    b = _broker(readonly=False)
+    b = _broker(dry_run=False)
     b.modify_limit(-1, 50.0, 100)           # must not raise
     b.cancel(-1)
     assert b._ib.placed == [] and b._ib.cancelled == []
@@ -254,7 +272,7 @@ def test_historical_bars_returns_only_the_requested_session():
     """
     bars = [_raw("20260731", "1400"), _raw("20260731", "1500"),
             _raw("20260803", "0930"), _raw("20260803", "0935")]
-    b = _broker(readonly=True, bars=bars)
+    b = _broker(dry_run=True, bars=bars)
     out = b.historical_bars("SOXL", datetime(2026, 8, 3, 9, 40, tzinfo=NY),
                             "1 D", "5 mins")
     assert [x.idx for x in out] == [0, 1], "only 2026-08-03's two bars"
@@ -262,7 +280,7 @@ def test_historical_bars_returns_only_the_requested_session():
 
 def test_historical_bars_before_the_open_is_empty():
     """06:00 pre-open: the prior session's bars are not today's."""
-    b = _broker(readonly=True, bars=[_raw("20260731", "1400")])
+    b = _broker(dry_run=True, bars=[_raw("20260731", "1400")])
     out = b.historical_bars("SOXL", datetime(2026, 8, 3, 6, 0, tzinfo=NY),
                             "1 D", "5 mins")
     assert out == [], "no session yet means no bars, not yesterday's"
@@ -271,7 +289,7 @@ def test_historical_bars_before_the_open_is_empty():
 def test_historical_sessions_still_spans_days():
     """The feature bootstrap needs the multi-day view and keeps it."""
     bars = [_raw("20260731", "0930"), _raw("20260803", "0930")]
-    b = _broker(readonly=True, bars=bars)
+    b = _broker(dry_run=True, bars=bars)
     days = b.historical_sessions("SOXL", datetime(2026, 8, 3, 6, 0, tzinfo=NY),
                                  "5 D", "5 mins")
     assert [d for d, _ in days] == [date(2026, 7, 31), date(2026, 8, 3)]
@@ -442,7 +460,7 @@ def test_the_warning_set_matches_ib_async():
 def _broker_recording():
     """The stub broker from above, with its event stream captured."""
     said = []
-    b = _broker(readonly=True, mdt=1)
+    b = _broker(dry_run=True, mdt=1)
     b._on_event = lambda lvl, msg: said.append((lvl, msg))
     return b, said
 
@@ -502,7 +520,7 @@ def test_repeated_quotes_use_one_subscription():
     a concurrent-line limit of about 100, and a `_record_fill` that reads a
     quote on every execution, that is a session-length leak.
     """
-    b = _broker(readonly=True, quote=(10.0, 10.02, 10.01))
+    b = _broker(dry_run=True, quote=(10.0, 10.02, 10.01))
     for _ in range(12):
         q = b.quote("SOXL")
     assert q.bid == pytest.approx(10.0) and q.ask == pytest.approx(10.02)
@@ -511,7 +529,7 @@ def test_repeated_quotes_use_one_subscription():
 
 
 def test_two_symbols_get_one_subscription_each():
-    b = _broker(readonly=True, quote=(10.0, 10.02, 10.01))
+    b = _broker(dry_run=True, quote=(10.0, 10.02, 10.01))
     for _ in range(4):
         b.quote("SOXL")
         b.quote("SOXS")
@@ -519,7 +537,7 @@ def test_two_symbols_get_one_subscription_each():
 
 
 def test_disconnect_releases_the_subscriptions():
-    b = _broker(readonly=True, quote=(10.0, 10.02, 10.01))
+    b = _broker(dry_run=True, quote=(10.0, 10.02, 10.01))
     b.quote("SOXL")
     assert b._tickers
     b.disconnect()
@@ -534,7 +552,7 @@ def test_the_live_data_probe_does_not_leave_a_dead_ticker_behind():
     that TWS has stopped updating — reporting a frozen book as a live one,
     which is worse than no quote at all because it looks fine.
     """
-    b = _broker(readonly=True, mdt=1, quote=(10.0, 10.02, 10.01))
+    b = _broker(dry_run=True, mdt=1, quote=(10.0, 10.02, 10.01))
     b.quote("SOXL")
     assert "SOXL" in b._tickers
 
@@ -660,3 +678,27 @@ def test_no_module_hand_writes_a_status_list():
     assert not offenders, (
         "these re-derive `is_working` by hand and will drift from "
         f"`openTrades()`: {offenders}")
+
+
+def test_a_dry_run_connects_as_a_full_client():
+    """The dry run has to rehearse the engine that will actually run.
+
+    `readonly` used to be handed straight to `ib.connect`, where ib_async
+    skips `reqOpenOrders` and `reqCompletedOrders`. It stops no order — that
+    is §4.1, and the guard for it lives in this adapter — so passing it bought
+    nothing except an `openTrades()` that a live run fills and a dry run leaves
+    empty.
+
+    Everything added since reads `openTrades()`: reconcile on startup, the
+    duplicate-entry check before arming, the dormant cancel, the ghost
+    recovery. A rehearsal that skips them rehearses a different engine.
+    """
+    b = _broker(dry_run=True)
+    b._ib._connected = False
+
+    b.connect()
+
+    assert b._ib.connect_kwargs["readonly"] is False
+    assert b.dry_run is True, "and it still must not transmit"
+    b.place_limit("SOXL", "BUY", 100, 50.0, "ref")
+    assert b._ib.placed == []

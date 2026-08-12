@@ -336,11 +336,16 @@ class IBBroker(Broker):
     """ib_async implementation. Imported lazily so tests never need ib_async."""
 
     def __init__(self, host="127.0.0.1", port=7497, client_id=11,
-                 exchange="SMART", primary="ARCA", readonly=False,
+                 exchange="SMART", primary="ARCA", dry_run=False,
                  on_event: Optional[Callable[[str, str], None]] = None) -> None:
         self.host, self.port, self.client_id = host, port, client_id
         self.exchange, self.primary = exchange, primary
-        self.readonly = readonly
+        #: Refuse to transmit. Named for what it does, because the old name —
+        #: `readonly`, borrowed from ib_async — is precisely what led three
+        #: documents to promise that a dry run reached the market with nothing
+        #: while every order went through (§4.1). ib_async's flag of that name
+        #: is unrelated: it skips two startup requests and stops no order.
+        self.dry_run = dry_run
         self._on_event = on_event or (lambda level, msg: None)
         self._ib = None
         self._contracts: dict[str, Any] = {}
@@ -358,7 +363,17 @@ class IBBroker(Broker):
         if self._ib.isConnected():
             return
         self._ib.connect(self.host, self.port, clientId=self.client_id,
-                         timeout=30, readonly=self.readonly)
+                         # Always a full client, dry run or not. ib_async's
+                         # `readonly` skips `reqOpenOrders` and
+                         # `reqCompletedOrders` at startup and does not stop
+                         # `placeOrder`, so passing it bought nothing but an
+                         # `openTrades()` the live path fills and the dry run
+                         # leaves empty. Every guard that matters now reads
+                         # `openTrades()`: reconcile on startup, the duplicate
+                         # -entry check before arming, the dormant cancel. A
+                         # rehearsal that skips them rehearses a different
+                         # engine.
+                         timeout=30, readonly=False)
         if not self._error_hooked:
             # Once per IB object, not per connect — `+=` on an ib_async Event
             # registers a second handler and would double-fire on every reconnect.
@@ -727,7 +742,7 @@ class IBBroker(Broker):
                     oca_group="", transmit=True) -> int:
         ib = self._require()
         px = round(float(limit_px), 2)
-        if self.readonly:
+        if self.dry_run:
             return self._dry(f"{action} LMT {qty} {symbol} @ {px} ({order_ref})")
         o = self._order(action, qty, order_ref, oca_group, transmit)
         o.orderType = "LMT"
@@ -738,7 +753,7 @@ class IBBroker(Broker):
                    oca_group="", transmit=True) -> int:
         ib = self._require()
         px = round(float(stop_px), 2)
-        if self.readonly:
+        if self.dry_run:
             return self._dry(f"{action} STP {qty} {symbol} @ {px} ({order_ref})")
         o = self._order(action, qty, order_ref, oca_group, transmit)
         o.orderType = "STP"
@@ -749,7 +764,7 @@ class IBBroker(Broker):
 
     def place_market(self, symbol, action, qty, order_ref) -> int:
         ib = self._require()
-        if self.readonly:
+        if self.dry_run:
             return self._dry(f"{action} MKT {qty} {symbol} ({order_ref})")
         o = self._order(action, qty, order_ref, "", True)
         o.orderType = "MKT"          # §4.7 — MKT, not MOC
@@ -757,7 +772,7 @@ class IBBroker(Broker):
 
     def modify_limit(self, order_id: int, limit_px: float, qty: float) -> None:
         ib = self._require()
-        if self.readonly or order_id < 0:
+        if self.dry_run or order_id < 0:
             self._dry(f"modify {order_id} -> {qty} @ {round(float(limit_px), 2)}")
             return
         for t in ib.openTrades():
@@ -770,7 +785,7 @@ class IBBroker(Broker):
 
     def cancel(self, order_id: int) -> None:
         ib = self._require()
-        if self.readonly or order_id < 0:
+        if self.dry_run or order_id < 0:
             return
         for t in ib.openTrades():
             if t.order.orderId == order_id:
@@ -791,7 +806,7 @@ class IBBroker(Broker):
         self._require().reqAllOpenOrders()
 
     def cancel_all(self) -> None:
-        if self.readonly:
+        if self.dry_run:
             self._dry("reqGlobalCancel")
             return
         self._require().reqGlobalCancel()

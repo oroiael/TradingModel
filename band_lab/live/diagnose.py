@@ -47,7 +47,7 @@ class Diagnosis:
         self.broker = IBBroker(host=cfg.host, port=cfg.port,
                                client_id=cfg.client_id + 50,   # never clash with a running engine
                                exchange=cfg.exchange, primary=cfg.primary,
-                               readonly=True, on_event=lambda lvl, m: None)
+                               dry_run=True, on_event=lambda lvl, m: None)
 
     def say(self, tag: str, what: str, detail: str = "") -> None:
         print(f"[{tag}] {what}" + (f"\n         {detail}" if detail else ""))

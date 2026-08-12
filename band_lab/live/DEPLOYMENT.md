@@ -322,16 +322,20 @@ Then run one real session against TWS with transmit off:
 python3 band_lab/live/run.py --dry-run
 ```
 
-`--dry-run` forces `transmit=False`, which puts the adapter in `readonly` mode
+`--dry-run` forces `transmit=False`, which puts the adapter in `dry_run` mode
 — decisions are computed, logged to SQLite and printed; nothing reaches the
-market.
+market. The API **connection** is a full one either way: a dry run has to
+rehearse the engine that will actually run, and everything the reconcile path
+depends on reads `openTrades()`.
 
 > **This was not true until 2026-08-02.** `readonly` in `ib_async` is a
 > client-side flag that skips two startup requests; it never stopped
 > `placeOrder`, and `OrderManager` always called the broker with the default
 > `transmit=True`. A dry run following this document would have placed real
-> paper orders. `IBBroker` now refuses to transmit while `readonly` is set —
-> every order is logged as `DRY RUN — not sent: …` instead. Guaranteed by
+> paper orders. `IBBroker` now refuses to transmit while its own `dry_run` flag
+> is set — every order is logged as `DRY RUN — not sent: …` instead. The flag
+> was called `readonly` until 2026-08-11, borrowing the name that caused this
+> defect; it no longer touches the connection at all. Guaranteed by
 > `tests/test_live_broker_guards.py`. **Confirm the prefix is present on the
 > first arming; if an order appears in TWS during a dry run, stop the session.**
 

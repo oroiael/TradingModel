@@ -89,7 +89,7 @@ class Watchdog:
                 host=self.cfg.host, port=self.cfg.port,
                 client_id=self.cfg.watchdog_client_id,      # §6.2 — never the engine's
                 exchange=self.cfg.exchange, primary=self.cfg.primary,
-                readonly=not self.cfg.watchdog_transmit, on_event=self.say)
+                dry_run=not self.cfg.watchdog_transmit, on_event=self.say)
 
     @property
     def armed(self) -> bool:

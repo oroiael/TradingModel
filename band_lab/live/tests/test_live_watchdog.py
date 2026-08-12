@@ -237,14 +237,14 @@ def test_armed_by_default_and_the_broker_agrees(tmp_path):
     cfg = EngineConfig(db_path=str(tmp_path / "w.db"))
     wd = Watchdog(cfg, store=Store(str(tmp_path / "w.db")))
     assert wd.armed is True
-    assert wd.broker.readonly is False
+    assert wd.broker.dry_run is False
 
 
 def test_no_transmit_really_sends_nothing(tmp_path):
     cfg = EngineConfig(db_path=str(tmp_path / "w.db"), watchdog_transmit=False)
     wd = Watchdog(cfg, store=Store(str(tmp_path / "w.db")))
     assert wd.armed is False
-    assert wd.broker.readonly is True, \
+    assert wd.broker.dry_run is True, \
         "readonly is what stops IBBroker transmitting (§4.1)"
 
 
