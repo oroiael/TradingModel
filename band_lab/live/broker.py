@@ -21,7 +21,7 @@ import os
 import sys
 import time
 from dataclasses import dataclass, field
-from datetime import datetime, timedelta
+from datetime import date as dt_date, datetime, time as dtime, timedelta
 from typing import Any, Callable, Optional
 from zoneinfo import ZoneInfo
 
@@ -70,6 +70,11 @@ ACCOUNT_SUBSCRIPTION_ERRORS = frozenset({2100, 2101})
 def is_warning(code: int) -> bool:
     """Would `ib_async` leave the order working after this code?"""
     return code in IB_WARNING_CODES or 2100 <= code < 2200
+
+#: Minutes per bar, for turning a clock time into `Bar.idx`. Only the sizes the
+#: engine actually requests are listed: anything else is a mis-index waiting to
+#: happen, so it raises rather than guessing.
+_BAR_STEP_MINUTES = {"1 min": 1, "5 mins": 5}
 
 #: How long to wait for TWS to describe the feed before warning and proceeding.
 PROBE_SECONDS = 5.0
@@ -156,6 +161,12 @@ def bar_time_et(raw) -> datetime:
     directly, and only because a zone-less TWS timestamp is already exchange
     time — the same convention the repository's CSVs use.
     """
+    if isinstance(raw, dt_date) and not isinstance(raw, datetime):
+        # `parseIBDatetime` returns a bare `date` for a daily bar. Reading an
+        # hour off it raised a ValueError from `strptime` two lines down that
+        # named neither the cause nor the caller. The session open is the only
+        # defensible reading, and it puts the bar at index 0.
+        return datetime.combine(raw, dtime(9, 30))
     if not isinstance(raw, datetime):
         try:
             return datetime.strptime(str(raw), "%Y%m%d  %H:%M:%S")
@@ -404,10 +415,16 @@ class IBBroker(Broker):
     """ib_async implementation. Imported lazily so tests never need ib_async."""
 
     def __init__(self, host="127.0.0.1", port=7497, client_id=11,
-                 exchange="SMART", primary="ARCA", dry_run=False,
+                 exchange="SMART", primary="ARCA", dry_run=False, account="",
                  on_event: Optional[Callable[[str, str], None]] = None) -> None:
         self.host, self.port, self.client_id = host, port, client_id
         self.exchange, self.primary = exchange, primary
+        #: Which account to read. Empty means "the only one", and `connect`
+        #: refuses to guess when TWS reports more than one: `positions()` and
+        #: `accountValues()` both sum across every account when unfiltered, so
+        #: a linked or FA login would silently size off the wrong capital and
+        #: flatten against a position this engine does not hold.
+        self.account = account
         #: Refuse to transmit. Named for what it does, because the old name —
         #: `readonly`, borrowed from ib_async — is precisely what led three
         #: documents to promise that a dry run reached the market with nothing
@@ -447,8 +464,18 @@ class IBBroker(Broker):
             # registers a second handler and would double-fire on every reconnect.
             self._ib.errorEvent += self._on_ib_error
             self._error_hooked = True
+        accounts = list(self._ib.client.getAccounts() or ())
+        if not self.account and len(accounts) > 1:
+            raise BrokerError(
+                f"TWS reports {len(accounts)} accounts {accounts} and no "
+                f"`account` is configured. Every read here would sum across "
+                f"all of them — the capital basis, the position the flatten "
+                f"acts on, everything. Set `account` in the config.")
+        if not self.account and accounts:
+            self.account = accounts[0]
         self._on_event("info", f"connected {self.host}:{self.port} "
-                               f"clientId={self.client_id}")
+                               f"clientId={self.client_id} "
+                               f"account={self.account or '(default)'}")
 
     def _on_ib_error(self, reqId, errorCode, errorString, contract=None) -> None:
         """Record the subscription errors that mean the feed is not live.
@@ -681,11 +708,11 @@ class IBBroker(Broker):
         not subject to the same exclusivity.
         """
         ib = self._require()
-        value = self._net_liq(ib.accountValues())
+        value = self._net_liq(ib.accountValues(self.account))
         if value is not None:
             return value
         try:
-            value = self._net_liq(ib.accountSummary())
+            value = self._net_liq(ib.accountSummary(self.account))
         except Exception as exc:                              # noqa: BLE001
             raise BrokerError(f"NetLiquidation (USD) not reported, and "
                               f"accountSummary failed: {exc!r}") from exc
@@ -704,7 +731,7 @@ class IBBroker(Broker):
 
     def position(self, symbol: str) -> float:
         ib = self._require()
-        return float(sum(p.position for p in ib.positions()
+        return float(sum(p.position for p in ib.positions(self.account)
                          if p.contract.symbol == symbol))
 
     def working_orders(self, symbol: str) -> list[WorkingOrder]:
@@ -782,7 +809,15 @@ class IBBroker(Broker):
             endDateTime=end.strftime("%Y%m%d %H:%M:%S US/Eastern") if end else "",
             durationStr=duration, barSizeSetting=bar_size, whatToShow="TRADES",
             useRTH=True, formatDate=1, keepUpToDate=False)
-        step = 5 if bar_size.startswith("5") else 1
+        step = _BAR_STEP_MINUTES.get(bar_size)
+        if step is None:
+            # `Bar.idx` is a fixed-width clock offset from 09:30, so a size
+            # this does not know would silently mis-index every bar in the
+            # session. The old expression read `startswith("5")`, which gave
+            # "15 mins" a 1-minute grid and "5 secs" a 5-minute one.
+            raise BrokerError(
+                f"bar size {bar_size!r} has no index grid; "
+                f"known: {sorted(_BAR_STEP_MINUTES)}")
         out = []
         for b in bars:
             dt = bar_time_et(b.date)

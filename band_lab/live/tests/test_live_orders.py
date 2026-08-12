@@ -1250,3 +1250,35 @@ def test_one_working_entry_stays_quiet(tmp_path):
 
     assert om._working_entry().order_id == oid
     assert not [m for lvl, m in said if lvl == "critical"]
+
+
+# --------------------------- the settle pause respects the budget (F21)
+def test_the_last_pause_cannot_overshoot_the_budget(tmp_path):
+    """A budgeted flatten has until 16:00, and not a second past it.
+
+    `settle` was slept in full even when the budget was already gone, which
+    pushes the 16:00 verify past its deadline to give a fill time when there is
+    no attempt left to give it time for.
+    """
+    om, ib, sm = _om(tmp_path)
+    ib.positions["SOXL"] = 500.0
+    waits = []
+    ib.wait = waits.append
+
+    om.ensure_flat(settle=3.0, budget=0.0)
+
+    assert all(w <= 3.0 for w in waits)
+    assert sum(waits) <= 3.0, f"slept {sum(waits)}s against a 0s budget: {waits}"
+
+
+def test_an_unbudgeted_flatten_still_settles_fully(tmp_path):
+    """The attempt-based path is what the tests drive and what a non-deadline
+    caller gets; clamping must not quietly shorten it."""
+    om, ib, sm = _om(tmp_path)
+    ib.positions["SOXL"] = 500.0
+    waits = []
+    ib.wait = waits.append
+
+    om.ensure_flat(attempts=2, settle=3.0)
+
+    assert waits and all(w == 3.0 for w in waits)

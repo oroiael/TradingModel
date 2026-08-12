@@ -10,7 +10,7 @@ is alive, heartbeating, and still holding a position after the flatten deadline.
 from __future__ import annotations
 
 import json
-from datetime import datetime, timedelta
+from datetime import datetime, time as dtime, timedelta
 from zoneinfo import ZoneInfo
 
 import pytest
@@ -305,3 +305,55 @@ def test_the_engine_records_its_mode_in_the_heartbeat(tmp_path):
     import inspect
     import run
     assert '"transmit"' in inspect.getsource(run.Runner.touch_heartbeat)
+
+
+# ------------------------- the session is the exchange's, not a constant (F16)
+def test_a_holiday_is_not_an_ordinary_tuesday(tmp_path):
+    """The static 09:30-16:00 window treats a weekday holiday as a session.
+
+    The engine's `session_hours` already answers this properly — it raises
+    `MarketClosedError` — and the watchdog can ask the same question.
+    """
+    from broker import MarketClosedError
+
+    wd, ib = _wd(tmp_path, heartbeat_age=600, positions={"SOXS": 1680})
+    def closed(symbol, day):
+        raise MarketClosedError(f"{symbol}: no regular session")
+    ib.session_hours = closed
+
+    assert wd.in_session(MIDDAY) is False
+    assert wd.verdict(MIDDAY)[0] is False
+
+
+def test_a_half_day_pulls_the_deadline_in(tmp_path):
+    """15:58 is two minutes before an ordinary close, and useless at 13:00.
+
+    A half day is precisely when the engine is gated off and least likely to be
+    watched, so a deadline that never arrives is the worst case for it.
+    """
+    from broker import SessionHours
+
+    wd, ib = _wd(tmp_path, heartbeat_age=5, positions={"SOXS": 1680})
+    o = MIDDAY.replace(hour=9, minute=30)
+    ib.hours["SOXL"] = ib.hours["SOXS"] = SessionHours(
+        o, o.replace(hour=13, minute=0), is_half_day=True)
+
+    assert wd.hard_flat_at(MIDDAY) == dtime(12, 58)
+    late = MIDDAY.replace(hour=12, minute=59)
+    assert wd.verdict(late)[0] is True, "past the real deadline, still exposed"
+
+
+def test_an_ordinary_day_keeps_the_configured_deadline(tmp_path):
+    wd, ib = _wd(tmp_path, heartbeat_age=5, positions={"SOXS": 1680})
+    assert wd.hard_flat_at(MIDDAY) == dtime(15, 58)
+
+
+def test_the_broker_falling_over_leaves_the_watchdog_awake(tmp_path):
+    """Blind is worse than approximate: fall back to the static window."""
+    wd, ib = _wd(tmp_path, heartbeat_age=600, positions={"SOXS": 1680})
+    def boom(symbol, day):
+        raise RuntimeError("TWS busy")
+    ib.session_hours = boom
+
+    assert wd.in_session(MIDDAY) is True
+    assert wd.verdict(MIDDAY)[0] is True

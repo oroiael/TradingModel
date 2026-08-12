@@ -58,7 +58,7 @@ class Runner:
         self.store = store or Store(cfg.db_path)
         self.broker = broker or IBBroker(
             host=cfg.host, port=cfg.port, client_id=cfg.client_id,
-            exchange=cfg.exchange, primary=cfg.primary,
+            exchange=cfg.exchange, primary=cfg.primary, account=cfg.account,
             dry_run=not cfg.transmit, on_event=self._event)
         self.engine = Engine(self.broker, self.store, symbols=cfg.symbols,
                              f=cfg.f, w=cfg.w, capital_cap=cfg.capital_cap,

@@ -65,6 +65,10 @@ class EngineConfig:
     client_id: int = 11
     exchange: str = "SMART"
     primary: str = "ARCA"
+    #: IBKR account id. Leave empty for a single-account login; required when
+    #: TWS reports more than one, because every account read otherwise sums
+    #: across all of them.
+    account: str = ""
     db_path: str = os.path.join(_HERE, "out", "live.db")
     capital_cap: float = CAPITAL_CAP
     #: One `reqHistoricalData` per symbol per poll. At 20.0 with two sleeves

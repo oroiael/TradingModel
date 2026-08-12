@@ -802,3 +802,43 @@ def test_a_second_stand_down_is_quiet(tmp_path):
     eng.pre_open(DAY, feats)
     assert eng.stand_down("SOXL", "not_live_data") == ["SOXL"]
     assert eng.stand_down("SOXL", "not_live_data") == []
+
+
+# ------------------- a ref must identify exactly one order (F24)
+def test_reconcile_reports_a_ref_that_covers_two_orders(tmp_path):
+    """Deterministic refs are what make §2.7's counters reconstructible.
+
+    `reconcile` counts entries as a *set* of refs, so a collision under-counts
+    the breaker without saying so. This is the detector for the sequence
+    recovery regressing.
+    """
+    eng, ib, store, feats = _engine(tmp_path)
+    said = []
+    eng.on_event = lambda lvl, msg: said.append((lvl, msg))
+    eng.pre_open(DAY, feats)
+
+    store.order("SOXL", eng.session, "20260803-SOXL-E-1", "E", "BUY", "LMT",
+                "placed", order_id=1)
+    store.order("SOXL", eng.session, "20260803-SOXL-E-1", "E", "BUY", "LMT",
+                "placed", order_id=2)
+
+    eng.reconcile()
+
+    assert any(lvl == "critical" and "no longer unique" in msg
+               for lvl, msg in said)
+
+
+def test_the_ordinary_event_log_is_not_a_collision(tmp_path):
+    """One ref legitimately has many rows — placed, modified, cancelled."""
+    eng, ib, store, feats = _engine(tmp_path)
+    said = []
+    eng.on_event = lambda lvl, msg: said.append((lvl, msg))
+    eng.pre_open(DAY, feats)
+
+    for event in ("placed", "modified", "cancelled"):
+        store.order("SOXL", eng.session, "20260803-SOXL-E-1", "E", "BUY",
+                    "LMT", event, order_id=1)
+
+    eng.reconcile()
+
+    assert not [m for lvl, m in said if "no longer unique" in m]

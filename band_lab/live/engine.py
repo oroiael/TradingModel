@@ -493,6 +493,22 @@ class Engine:
     # ----------------------------------------------------------- 16:10
     def reconcile(self) -> dict[str, dict]:
         out = {}
+        # Deterministic refs are what make §2.7's counters reconstructible from
+        # IBKR's execution log alone. If one ever covers two orders, that
+        # property is gone and `reconcile` under-counts without saying so —
+        # `entries` is a set of refs. Cheap to check once a day, and it is the
+        # detector for the sequence recovery regressing.
+        try:
+            clashes = self.store.duplicate_order_refs(self.session)
+        except Exception:                                   # noqa: BLE001
+            clashes = []
+        if clashes:
+            self.on_event("critical",
+                          "order refs are no longer unique: "
+                          + ", ".join(f"{r['order_ref']} covers {r['n']} orders"
+                                      for r in clashes)
+                          + " — the counters below are under-counted and the "
+                            "audit trail cannot identify which order is which.")
         for symbol, rt in self.sleeves.items():
             summary = rt.om.reconcile()
             realised = sum(t.ret for t in rt.sm.trades)

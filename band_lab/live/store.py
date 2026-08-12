@@ -52,6 +52,7 @@ CREATE TABLE IF NOT EXISTS orders (
     status TEXT, event TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS ix_orders_ref ON orders(order_ref);
+CREATE INDEX IF NOT EXISTS ix_orders_session ON orders(session, order_ref);
 
 CREATE TABLE IF NOT EXISTS fills (
     ts TEXT NOT NULL, symbol TEXT NOT NULL, session TEXT NOT NULL,
@@ -194,6 +195,20 @@ class Store:
     def session_bars(self, symbol: str, session: str) -> list[sqlite3.Row]:
         return self.rows("SELECT * FROM bars WHERE symbol=? AND session=? "
                          "AND source='feed' ORDER BY bar_idx", (symbol, session))
+
+    def duplicate_order_refs(self, session: str) -> list[sqlite3.Row]:
+        """Refs that identify more than one order id. Should always be empty.
+
+        The `orders` table is an event log — placed, modified, cancelled all
+        share a ref — so a UNIQUE constraint would be wrong. What must never
+        happen is one ref covering two *different* orders: `reconcile` counts
+        entries as a set of refs, so a collision silently under-counts §2.7's
+        breaker, and the audit trail stops identifying anything.
+        """
+        return self.rows(
+            "SELECT order_ref, COUNT(DISTINCT order_id) AS n "
+            "FROM orders WHERE session=? AND order_id IS NOT NULL "
+            "GROUP BY order_ref HAVING n > 1", (session,))
 
     def session_fills(self, symbol: str, session: str) -> list[sqlite3.Row]:
         return self.rows("SELECT * FROM fills WHERE symbol=? AND session=? "

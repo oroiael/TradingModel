@@ -885,6 +885,9 @@ class OrderManager:
                 return (time.time() - start) >= budget
             return i >= attempts
 
+        def remaining() -> float:
+            return max(0.0, budget - (time.time() - start)) if budget else 0.0
+
         def clear_timeout(default: float) -> float:
             # `_clear_working` blocks, so an unbounded timeout can overshoot the
             # whole budget in a single call and turn a deadline into a suggestion.
@@ -959,15 +962,22 @@ class OrderManager:
                         # is not optional.
                         self.on_executions(bar_idx=-1)
                         continue
+            if spent():
+                # Checked before the pause, not after. Sleeping a full `settle`
+                # on a budget that is already gone pushes the 16:00 verify past
+                # its deadline for no gain — there is no attempt left to give
+                # the fill time for.
+                self.on_executions(bar_idx=-1)
+                break
             if settle > 0:
                 # This is the pause the market order fills during. Under
                 # `time.sleep` the fill could not be observed at all: both
                 # `position()` and `executions()` are local reads of state the
-                # event loop populates.
-                self.broker.wait(settle)
+                # event loop populates. Clamped to what is left, so the last
+                # pause of a budgeted flatten cannot overshoot it.
+                self.broker.wait(min(settle, remaining()) if budget is not None
+                                 else settle)
             self.on_executions(bar_idx=-1)
-            if spent():
-                break
 
         flat = abs(self.broker.position(self.symbol)) < 1e-9
         if not flat:

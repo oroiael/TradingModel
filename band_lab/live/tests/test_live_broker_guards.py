@@ -63,10 +63,21 @@ class _StubEvent:
         return self
 
 
+class _StubClient:
+    """`IB.client`, as far as the account lookup on connect is concerned."""
+
+    def __init__(self, accounts=("DU123",)):
+        self._accounts = list(accounts)
+
+    def getAccounts(self):
+        return list(self._accounts)
+
+
 class _StubIB:
     """Just enough of ib_async.IB to reach the guard under test."""
 
-    def __init__(self, bars=(), mdt=1, quote=None):
+    def __init__(self, bars=(), mdt=1, quote=None, accounts=("DU123",)):
+        self.client = _StubClient(accounts)
         self.errorEvent = _StubEvent()
         self.connect_kwargs = None
         self.mkt_data_requests = []
@@ -134,9 +145,10 @@ class _StubIB:
         return self._account_summary
 
 
-def _broker(dry_run, bars=(), mdt=1, quote=None):
-    b = IBBroker(dry_run=dry_run)
-    b._ib = _StubIB(bars, mdt, quote)
+def _broker(dry_run, bars=(), mdt=1, quote=None, accounts=("DU123",),
+            account=""):
+    b = IBBroker(dry_run=dry_run, account=account)
+    b._ib = _StubIB(bars, mdt, quote, accounts)
     b._contracts["SOXL"] = object()          # skip qualifyContracts
     b._contracts["SOXS"] = object()
     return b
@@ -763,3 +775,67 @@ def test_the_account_subscription_errors_explain_themselves():
     level, msg = said[-1]
     assert level == "warn"
     assert "watchdog" in msg and "accountSummary" in msg
+
+
+# ------------------- every account read sums across accounts unfiltered (F23)
+def test_a_single_account_login_is_adopted_automatically():
+    b = _broker(dry_run=True, accounts=("DU123",))
+    b._ib._connected = False
+    b.connect()
+    assert b.account == "DU123"
+
+
+def test_more_than_one_account_is_refused_rather_than_summed():
+    """`positions()` and `accountValues()` both sum every account when the
+    filter is empty — so a linked or FA login would size off the wrong capital
+    and flatten against a position this engine does not hold. Neither failure
+    announces itself."""
+    b = _broker(dry_run=True, accounts=("DU123", "DU456"))
+    b._ib._connected = False
+    with pytest.raises(BrokerError, match="2 accounts"):
+        b.connect()
+
+
+def test_a_configured_account_settles_it():
+    b = _broker(dry_run=True, accounts=("DU123", "DU456"), account="DU456")
+    b._ib._connected = False
+    b.connect()                                   # must not raise
+    assert b.account == "DU456"
+
+
+# ------------------------------- a daily bar has no 5-minute index (F18)
+def test_a_daily_bar_date_does_not_raise():
+    """`parseIBDatetime` returns a bare `date` for a daily bar.
+
+    Reading an hour off it raised a ValueError from `strptime` that named
+    neither the cause nor the caller. The session open is the only defensible
+    reading, and it puts the bar at index 0.
+    """
+    et = bar_time_et(date(2026, 8, 3))
+    assert (et.year, et.month, et.day) == (2026, 8, 3)
+    assert (et.hour * 60 + et.minute - 570) // 5 == 0
+
+
+@pytest.mark.parametrize("size", ["15 mins", "30 mins", "1 day", "5 secs"])
+def test_an_unknown_bar_size_is_refused_not_guessed(size):
+    """`Bar.idx` is a fixed-width clock offset, so the grid has to be right.
+
+    The old expression was `5 if bar_size.startswith("5") else 1`, which gave
+    "15 mins" a 1-minute grid and "5 secs" a 5-minute one — every bar in the
+    session mis-indexed, silently.
+    """
+    b = _broker(dry_run=True, bars=[SimpleNamespace(
+        date=datetime(2026, 8, 3, 9, 30), open=1.0, high=1.0, low=1.0,
+        close=1.0, volume=1.0)])
+    with pytest.raises(BrokerError, match="index grid"):
+        b.historical_bars("SOXL", datetime(2026, 8, 3, tzinfo=NY), "1 D", size)
+
+
+@pytest.mark.parametrize("size,step", [("1 min", 1), ("5 mins", 5)])
+def test_the_sizes_the_engine_requests_still_index_correctly(size, step):
+    raw = [SimpleNamespace(date=datetime(2026, 8, 3, 9, 30 + step * i),
+                           open=1.0, high=1.0, low=1.0, close=1.0, volume=1.0)
+           for i in range(3)]
+    b = _broker(dry_run=True, bars=raw)
+    bars = b.historical_bars("SOXL", datetime(2026, 8, 3, tzinfo=NY), "1 D", size)
+    assert [x.idx for x in bars] == [0, 1, 2]
