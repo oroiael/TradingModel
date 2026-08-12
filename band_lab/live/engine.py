@@ -40,7 +40,9 @@ from broker import (                                        # noqa: E402
     Broker, MarketClosedError, NotLiveDataError, SessionHours,
 )
 from orders import OrderManager                             # noqa: E402
-from sleeve import SleeveConfig, SleeveStateMachine         # noqa: E402
+from sleeve import (                                        # noqa: E402
+    Intent, IntentKind, SleeveConfig, SleeveStateMachine,
+)
 from store import Store                                     # noqa: E402
 from strategy_core import (                                 # noqa: E402
     Bar, FeatureHistory, session_stats,
@@ -171,6 +173,36 @@ class Engine:
                              thr80=hist.thr80(), account_equity=equity,
                              sleeve_capital=self.sleeve_capital)
 
+    def stand_down(self, symbol: Optional[str], reason: str,
+                   detail: str = "") -> list[str]:
+        """Stop a sleeve trading, and take its resting order off the market.
+
+        One sleeve when the caller knows which — entitlements are per contract,
+        and on 2026-08-06 a `NotLiveDataError` on SOXL ended the session for
+        SOXS too. **All** of them when it does not: an unattributed live-data
+        failure could be either, and §4 forbids trading on delayed data.
+
+        The DORMANT intent is applied rather than the flag merely being set.
+        Both `not_live_data` paths used to set `rt.dormant` directly, which
+        skipped `_dormant` entirely — so a sleeve that lost its feed while armed
+        went dormant with its buy limit still resting at IBKR, free to fill into
+        a sleeve that had stopped watching.
+        """
+        targets = [symbol] if symbol in self.sleeves else list(self.sleeves)
+        stood_down = []
+        for s in targets:
+            rt = self.sleeves[s]
+            if rt.dormant:
+                continue
+            rt.dormant, rt.dormant_reason = True, reason
+            stood_down.append(s)
+            self.on_event("critical", f"{s} STANDING DOWN ({reason})"
+                                      + (f": {detail}" if detail else ""))
+            self.store.daily(self.session, s, filter_ok=0, filter_reason=reason)
+            rt.om.apply([Intent(kind=IntentKind.DORMANT,
+                                bar_idx=rt.sm._last_bar_idx, reason=reason)])
+        return stood_down
+
     # ----------------------------------------------------------- 10:00
     def apply_morning_filter(self, symbol: str, bars: list[Bar]) -> bool:
         rt = self.sleeves[symbol]
@@ -220,12 +252,9 @@ class Engine:
             try:
                 self.broker.assert_live_data(symbol)   # never arm on delayed data
             except NotLiveDataError as exc:
-                rt.dormant, rt.dormant_reason = True, "not_live_data"
-                self.on_event("critical", f"{symbol} NOT LIVE DATA: {exc} — "
-                                          f"this sleeve stands down; the other "
-                                          f"is unaffected")
-                self.store.daily(self.session, symbol, filter_ok=0,
-                                 filter_reason="not_live_data")
+                self.stand_down(symbol, "not_live_data",
+                                f"{exc} — this sleeve only; the other is "
+                                f"unaffected, entitlements are per contract")
                 return
             rt.activated = True
         rt.sm.on_bar_open(bar.idx)
@@ -289,11 +318,7 @@ class Engine:
             try:
                 self.broker.assert_live_data(symbol)
             except NotLiveDataError as exc:
-                rt.dormant, rt.dormant_reason = True, "not_live_data"
-                self.on_event("critical", f"{symbol} NOT LIVE DATA: {exc} — "
-                                          f"this sleeve stands down")
-                self.store.daily(self.session, symbol, filter_ok=0,
-                                 filter_reason="not_live_data")
+                self.stand_down(symbol, "not_live_data", str(exc))
                 continue
             rt.activated = True
             rt.sm.on_bar_open(START_IDX)

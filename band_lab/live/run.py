@@ -216,8 +216,18 @@ class Runner:
                     self._event("critical", "day-loss condition — flattening early")
                     break
             except NotLiveDataError as exc:
-                self._event("critical", f"{exc} — standing down for the session")
-                break
+                # Containment lives in `on_bar` and `activate_due`, which stand
+                # one sleeve down. Reaching here means some other path raised
+                # it, and this handler used to `break` — ending the session for
+                # both sleeves over one symbol's entitlement, which is the
+                # 2026-08-06 failure the containment was added to prevent.
+                #
+                # Stand down what the error names, or everything when it names
+                # nothing, and keep the loop running. A dormant session costs a
+                # heartbeat (`feeds_to_poll` returns empty) and still owes the
+                # account its 15:55 flatten.
+                self.engine.stand_down(getattr(exc, "symbol", None),
+                                       "not_live_data", str(exc))
             except BrokerError as exc:
                 self._event("error", f"broker: {exc}; will reconnect")
             except Exception as exc:                        # noqa: BLE001

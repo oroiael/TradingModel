@@ -744,3 +744,61 @@ def test_a_dormant_flat_sleeve_does_not_leave_orphan_sell_orders(tmp_path):
 
     assert not is_working(ib.orders[tgt].status)
     assert not is_working(ib.orders[stp].status)
+
+
+# ------------- one sleeve's entitlement is not the whole session's (F22)
+def test_standing_down_one_sleeve_leaves_the_other_trading(tmp_path):
+    """Entitlements are per contract, and the error now says which.
+
+    `NotLiveDataError` carries the symbol so a caller that catches it outside
+    the per-sleeve guards can still contain it. Parsing it out of the message
+    is the alternative, and the message is prose.
+    """
+    eng, ib, store, feats = _engine(tmp_path, symbols=("SOXL", "SOXS"))
+    eng.pre_open(DAY, feats)
+
+    stood = eng.stand_down("SOXL", "not_live_data", "SOXL: delayed")
+
+    assert stood == ["SOXL"]
+    assert eng.sleeves["SOXL"].dormant
+    assert not eng.sleeves["SOXS"].dormant
+
+
+def test_an_unattributed_failure_stands_every_sleeve_down(tmp_path):
+    """§4 forbids trading on delayed data, and an error naming no symbol
+    could be either sleeve. Refusing both is the safe reading."""
+    eng, ib, store, feats = _engine(tmp_path, symbols=("SOXL", "SOXS"))
+    eng.pre_open(DAY, feats)
+
+    stood = eng.stand_down(None, "not_live_data", "account: no subscription")
+
+    assert sorted(stood) == ["SOXL", "SOXS"]
+    assert all(rt.dormant for rt in eng.sleeves.values())
+
+
+def test_standing_down_takes_the_resting_entry_off_the_market(tmp_path):
+    """The gap the two `not_live_data` paths had.
+
+    Both set `rt.dormant` directly, which skipped `_dormant` — so a sleeve that
+    lost its feed while armed went dormant with its buy limit still resting at
+    IBKR, free to fill into a sleeve that had stopped watching.
+    """
+    eng, ib, store, feats = _engine(tmp_path)
+    eng.pre_open(DAY, feats)
+    for b in _session_bars(n=START_IDX + 1):
+        eng.on_bar("SOXL", b)
+    entry = [o for o in ib.orders.values() if o.action == "BUY"][0]
+    assert is_working(entry.status), "armed, with a live buy limit"
+
+    eng.stand_down("SOXL", "not_live_data", "SOXL: delayed")
+
+    assert not is_working(entry.status), \
+        "a sleeve that stops watching must not leave an order that can fill"
+
+
+def test_a_second_stand_down_is_quiet(tmp_path):
+    """It runs from a loop handler, so it must not shout every 30 seconds."""
+    eng, ib, store, feats = _engine(tmp_path)
+    eng.pre_open(DAY, feats)
+    assert eng.stand_down("SOXL", "not_live_data") == ["SOXL"]
+    assert eng.stand_down("SOXL", "not_live_data") == []

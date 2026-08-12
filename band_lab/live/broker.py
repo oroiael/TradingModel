@@ -118,7 +118,17 @@ class BrokerError(RuntimeError):
 
 
 class NotLiveDataError(BrokerError):
-    """Raised when the feed is not real-time. Never trade through this."""
+    """Raised when the feed is not real-time. Never trade through this.
+
+    Carries the symbol, because entitlements are per contract and the caller
+    has to know whether one sleeve is affected or the account is. Parsing it
+    back out of the message is how that would otherwise be done, and the
+    message is prose.
+    """
+
+    def __init__(self, message: str, symbol: Optional[str] = None) -> None:
+        super().__init__(message)
+        self.symbol = symbol
 
 
 class MarketClosedError(BrokerError):
@@ -573,7 +583,7 @@ class IBBroker(Broker):
         ib.reqMarketDataType(MARKET_DATA_LIVE)
 
         def _refuse(why: str) -> None:
-            raise NotLiveDataError(f"{symbol or 'account'}: {why}")
+            raise NotLiveDataError(f"{symbol or 'account'}: {why}", symbol=symbol)
 
         if "*" in self._no_live_data or (symbol and symbol in self._no_live_data):
             _refuse("IBKR reported no live market-data subscription "
