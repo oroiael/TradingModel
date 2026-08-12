@@ -490,6 +490,111 @@ def test_sell_slippage_flips_sign(store):
     assert s.vs_mid == pytest.approx(10.0, abs=0.01)
 
 
+# ------------------------------------------------------ the exit side
+def test_exit_quality_grades_every_exit_role(store):
+    """The exit side used to have no measurement at all.
+
+    `vs_limit` is None for every role but "E" — an exit has no resting entry
+    limit — and the "honest execution number" filtered to `role == "E"` as well.
+    A session whose result turned in its last bar produced a report with no line
+    in it about that bar.
+    """
+    write_fill(store, "x1", "T", "SLD", 100, 100.90, 12, 0, bid=101.0, ask=101.0)
+    write_fill(store, "x2", "F", "SLD", 100, 99.90, 15, 56, bid=100.0, ask=100.0)
+    by_role = {e.role: e
+               for e in report.exit_quality(slippage(store, "SOXL", SESSION))}
+    assert set(by_role) == {"T", "F"}
+    assert by_role["T"].vs_mid_bp == pytest.approx(9.90, abs=0.01)
+    assert by_role["F"].vs_mid_bp == pytest.approx(10.00, abs=0.01)
+
+
+def test_exit_quality_weights_the_quote_comparison_by_size(store):
+    """900 shares at the mid and 100 shares 100 bp under it is 10 bp, not 50."""
+    write_fill(store, "f1", "F", "SLD", 900, 100.00, 15, 56, bid=100.0, ask=100.0)
+    write_fill(store, "f2", "F", "SLD", 100, 99.00, 15, 57, bid=100.0, ask=100.0)
+    (e,) = report.exit_quality(slippage(store, "SOXL", SESSION))
+    assert e.vs_mid_bp == pytest.approx(10.0, abs=0.01)
+
+
+# ------------------------------------------------------- the 15:55 flatten
+def test_a_day_that_ended_on_a_target_has_no_flatten_cost(store):
+    """Most sessions never flatten, and a zero on all of them would be noise."""
+    write_fill(store, "e1", "E", "BOT", 100, 100.00, 11, 0)
+    write_fill(store, "x1", "T", "SLD", 100, 101.00, 12, 0)
+    assert report.flatten_cost(slippage(store, "SOXL", SESSION),
+                               flat_session_bars(78)) is None
+
+
+def test_flatten_is_priced_against_the_bar_the_backtest_exits_on(store):
+    """SOXL on 2026-08-12, at the prices that session actually recorded.
+
+    `replay_session`'s tail rule books the backtest's flatten at `close` of
+    LAST_HOLDING_IDX, so that is the only price the live market order can
+    honestly be compared against — and the comparison nobody could make on the
+    day, because the report did not draw it.
+    """
+    bars = flat_session_bars(78, price=142.99)
+    write_fill(store, "e1", "E", "BOT", 510, 145.82, 11, 40)
+    write_fill(store, "f1", "F", "SLD", 510, 142.15, 15, 56)
+
+    fc = report.flatten_cost(slippage(store, "SOXL", SESSION), bars)
+    assert fc.qty == 510
+    assert fc.ref_px == pytest.approx(142.99)
+    assert fc.bp == pytest.approx(-58.75, abs=0.05)
+    assert fc.dollars == pytest.approx(-428.40, abs=0.01)
+
+
+def test_flatten_cost_weights_executions_by_size(store):
+    """Defect 8's rule on the exit side: IBKR settles one flatten in as many
+    executions as the book requires, and a 10-share tail must not weigh the same
+    as the 490 shares in front of it."""
+    write_fill(store, "e1", "E", "BOT", 500, 100.00, 11, 40)
+    write_fill(store, "f1", "F", "SLD", 490, 99.00, 15, 56)
+    write_fill(store, "f2", "F", "SLD", 10, 90.00, 15, 57)
+
+    fc = report.flatten_cost(slippage(store, "SOXL", SESSION),
+                             flat_session_bars(78, price=100.0))
+    assert fc.n_execs == 2 and fc.qty == 500
+    assert fc.live_px == pytest.approx(98.82)      # not the unweighted 94.50
+    assert fc.dollars == pytest.approx(-590.00)
+
+
+def test_flatten_without_the_last_holding_bar_has_no_reference(store):
+    """`record_session_tail` backfills bar 76; a record that stops at 75 has
+    nothing to price the flatten against, and None is the honest answer —
+    defects 6 and 7 were both checks that manufactured evidence instead."""
+    write_fill(store, "e1", "E", "BOT", 100, 100.00, 11, 40)
+    write_fill(store, "f1", "F", "SLD", 100, 99.00, 15, 56)
+    fc = report.flatten_cost(slippage(store, "SOXL", SESSION),
+                             flat_session_bars(76))
+    assert fc is not None and fc.ref_px is None
+    assert fc.bp is None and fc.dollars is None
+
+
+@pytest.mark.parametrize("bid,ask,flagged", [
+    (142.14, 142.16, False),   # filled at the mid: the market moved, we did not
+    (143.20, 143.24, True),    # filled 75 bp under a quote that was standing
+])
+def test_only_a_bad_fill_against_the_standing_quote_is_a_finding(
+        store, capsys, bid, ask, flagged):
+    """The distinction the two numbers exist to draw.
+
+    Both cases lose the same amount against the backtest's price. In the first
+    the market fell between 15:55 and the fill, which is timing exposure no
+    order type avoids — §4.7 sends a MKT because §1 puts being flat above the
+    fill price, and that trade-off is deliberate. Only the second is the
+    execution's own fault, and only the second may raise a finding.
+    """
+    write_session(store, traded_session_bars(78))
+    write_fill(store, "e1", "E", "BOT", 510, 145.82, 11, 40)
+    write_fill(store, "f1", "F", "SLD", 510, 142.15, 15, 56, bid=bid, ask=ask)
+
+    report.print_session_report(store, SESSION, ["SOXL"])
+    out = capsys.readouterr().out
+    assert "the 15:55 flatten — a MARKET order" in out
+    assert ("not a spread on a liquid ETF" in out) is flagged
+
+
 # ------------------------------------------------------------- §8 weekly
 def test_weekly_matches_hand_computed(store):
     """§10.16 — the acceptance test, on a fixture week.
