@@ -232,7 +232,7 @@ Alert channels for Phase 2 (email + push + desktop, per your decision):
   "port": 7497,
   "client_id": 11,
   "db_path": "band_lab/live/out/live.db",
-  "bar_poll_seconds": 20.0,
+  "bar_poll_seconds": 30.0,
   "symbols": ["SOXL", "SOXS"]
 }
 ```

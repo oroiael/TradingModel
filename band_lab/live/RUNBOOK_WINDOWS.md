@@ -365,7 +365,7 @@ For reference, if the balance ever ends up wrong:
 |---|---|
 | **Backbone** | The repo's 5-minute CSVs. They stop at **2026-07-21** (SOXL) and **2026-07-24** (SOXS) and are never rewritten |
 | **Top-up** | At pre-open the engine measures the gap to today and makes **one** paced `reqHistoricalData` call per symbol for the missing 5-minute bars |
-| **Today's bars** | Polled live from IBKR every 20 seconds through the session |
+| **Today's bars** | Polled live from IBKR every 30 seconds through the session |
 
 A failed top-up is now an explicit `[error]` and `features.check` refuses the
 run outright past 5 days of staleness — which is another reason §C.1's
@@ -738,7 +738,7 @@ The banner must read:
 > `"transmit": true` — but the flag is preferred because the intent is visible
 > in the command line and in the log.
 
-Other flags: `--poll <seconds>` overrides the 20 s bar poll, `--heartbeat
+Other flags: `--poll <seconds>` overrides the 30 s bar poll, `--heartbeat
 <seconds>` the 900 s status line (0 disables it — do not, the watchdog reads it).
 
 ---

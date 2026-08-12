@@ -423,7 +423,7 @@ How it works:
 |---|---|
 | **Backbone** | The repo's 5-minute CSVs. They stop at **2026-07-21** (SOXL) and **2026-07-24** (SOXS) and are never rewritten |
 | **Top-up** | At pre-open the engine measures the gap to today and makes **one** paced `reqHistoricalData` call per symbol for the missing 5-minute bars, appending any session after the CSV's last |
-| **Today's bars** | Polled live from IBKR every 20 seconds through the session — nothing to do with the CSVs |
+| **Today's bars** | Polled live from IBKR every 30 seconds through the session — nothing to do with the CSVs |
 
 So on Monday the engine will ask IBKR for roughly two weeks of 5-minute bars per
 symbol and expect to add **8 sessions for SOXL** (Jul 22, 23, 24, 27, 28, 29, 30,

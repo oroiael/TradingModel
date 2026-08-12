@@ -533,7 +533,7 @@ The banner must read:
 **If it says `DRY RUN` instead, `--transmit` did not take.** If the port is not
 7497, stop immediately.
 
-Other flags: `--poll <seconds>` overrides the 20 s bar poll, `--heartbeat
+Other flags: `--poll <seconds>` overrides the 30 s bar poll, `--heartbeat
 <seconds>` the 900 s status line (0 disables it — do not, the watchdog reads it),
 `--config <path.json>` loads a JSON config.
 

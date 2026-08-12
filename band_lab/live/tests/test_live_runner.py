@@ -350,3 +350,81 @@ def test_heartbeat_can_be_disabled():
     EngineConfig(heartbeat_seconds=0).validate()      # 0 disables, must not raise
     with pytest.raises(ConfigError):
         EngineConfig(heartbeat_seconds=-1).validate()
+
+
+# --------------------------------- the poll interval has two bounds (F27)
+def test_the_bar_feed_stays_inside_ibkrs_pacing_budget():
+    """IBKR: "no more than 60 API queries in more than 600 seconds".
+
+    One `reqHistoricalData` per symbol per poll. At the old 20s default with
+    two sleeves that was exactly 60 per 600s — the documented ceiling, with
+    nothing left for the pre-open top-up or the EOD tail fetch, and five
+    seconds clear of the separate "identical requests within 15 seconds" rule.
+    """
+    from config import (
+        EngineConfig, PACING_MAX_REQUESTS, PACING_RESERVE, PACING_WINDOW_SECONDS,
+    )
+    cfg = EngineConfig()
+    per_window = len(cfg.symbols) * PACING_WINDOW_SECONDS / cfg.bar_poll_seconds
+    assert per_window <= PACING_MAX_REQUESTS - PACING_RESERVE
+    assert per_window <= PACING_MAX_REQUESTS
+
+
+def test_a_poll_faster_than_pacing_is_refused_at_startup():
+    """§6.8 — fail at startup, not at 11:00 with an order in flight.
+
+    A pacing violation does not announce itself as one. It arrives as error
+    162, "Historical market data Service error message", which on 2026-08-03
+    was read as connection contention while the engine went on computing ATR5
+    from a fortnight-old history.
+    """
+    from config import EngineConfig
+    with pytest.raises(ConfigError):
+        EngineConfig(bar_poll_seconds=20.0).validate()      # the old default
+
+
+def test_a_poll_too_slow_for_the_watchdog_is_refused():
+    """The other bound, which pulls the opposite way.
+
+    `run.py` touches the heartbeat once per poll and the watchdog calls the
+    engine dead at 120s. Fixing pacing by polling ever more slowly would buy a
+    watchdog that fires on healthy sessions.
+    """
+    from config import EngineConfig
+    with pytest.raises(ConfigError):
+        EngineConfig(bar_poll_seconds=45.0).validate()
+
+
+def test_a_symbol_count_with_no_safe_interval_says_so():
+    """Three sleeves cannot satisfy both bounds, and the message must explain.
+
+    Telling the operator to raise the interval, when raising it breaches the
+    watchdog bound, is a dead end — so this case is diagnosed separately.
+    """
+    from config import EngineConfig
+    with pytest.raises(ConfigError, match="cannot be polled safely"):
+        EngineConfig(symbols=("SOXL", "SOXS", "TQQQ")).validate()
+
+
+def test_the_documented_sample_config_actually_starts():
+    """`DEPLOYMENT.md` §9 ships a JSON block an operator is told to copy.
+
+    It carried `"bar_poll_seconds": 20.0`, which the pacing bound now refuses —
+    so following the document exactly would have failed at startup. Parsed from
+    the markdown rather than restated here, because a copy would drift the same
+    way the original did. `PROJECT_STATUS.md` §4.3 lists six documentation
+    defects found by reading; this is the class of thing that finds them by
+    running.
+    """
+    import json
+    import os
+    import re
+
+    live = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    src = open(os.path.join(live, "DEPLOYMENT.md")).read()
+    block = re.search(r"```json\n(\{.*?\})\n```", src, re.S)
+    assert block, "DEPLOYMENT.md no longer contains a sample config block"
+
+    fields = json.loads(block.group(1))
+    cfg = EngineConfig(**{**fields, "symbols": tuple(fields["symbols"])})
+    cfg.validate()                       # must not raise
