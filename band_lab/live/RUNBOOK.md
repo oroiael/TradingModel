@@ -947,6 +947,64 @@ go to TWS immediately.
 | 16:10 | Confirm `EOD reconcile: AGREES`; save the day's notes |
 | 23:00 | TWS auto-restarts; engine reconnects by itself |
 
+## 7.5 — settling §6.1: does the stop survive the engine dying?
+
+**Do this on the first session where a bracket is on.** It is the last
+safety-critical unknown in the project, it takes about two minutes, and until
+it is answered `RUNBOOK.md` §8.1 is right that an unattended crash mid-position
+has no proven protection.
+
+`verify_stp.py` connects as a **separate API client** (`client_id + 60`) — an
+API client slot, not a login, so unlike opening TWS or the IBKR mobile app it
+does **not** disconnect the engine. It reads only; `dry_run=True` means the
+broker adapter refuses to transmit even if a future edit tries.
+
+**Before you start:** have the TWS Orders panel visible and know how to flatten
+by hand. If the answer is "no", you are holding an unprotected position the
+moment you read it.
+
+1. **Wait for an entry to fill.** The console shows `FILL E BOT ... ` and then
+   a bracket. You need a real position for this to test anything.
+
+2. **Snapshot, engine still running:**
+
+   ```powershell
+   python band_lab\live\verify_stp.py --label before
+   ```
+
+   It must print `✅ SOXL: position N, SELL STP covering N`. If the stop does
+   **not** cover the position, stop here — that is defect 8, not §6.1, and it is
+   a bigger problem than the question you were asking.
+
+3. **Kill the engine.** Close its PowerShell window, or Ctrl-C it. Not a clean
+   shutdown — the point is to simulate a crash.
+
+4. **Snapshot again, engine down:**
+
+   ```powershell
+   python band_lab\live\verify_stp.py --label after
+   ```
+
+5. **Read the verdict:**
+
+   ```powershell
+   python band_lab\live\verify_stp.py --compare
+   ```
+
+| Verdict | What to do |
+|---|---|
+| **CONFIRMED** | The stop is broker-side. Restart the engine (`on_connect` reconciles). Record the date in `PHASE2_PLAN.md` §6 and move the row out of the open-questions table. It does **not** by itself license unattended operation — alerting and service supervision are still open |
+| 🔴 **REFUTED** | **Flatten by hand in TWS now.** Do not restart into an unreconciled position. Nothing ever runs unattended until this is designed around |
+| **INCONCLUSIVE** | Nothing was held across the kill, so nothing was tested. Not a failure — run it again on a session with a bracket on |
+
+6. **Restart the engine** and confirm from the console that reconcile adopted
+   the position and the bracket rather than opening a second one.
+
+> **One observation is corroboration, not proof.** Run it a second time on a
+> later session before treating it as settled — the `ocaType` assumption looked
+> confirmed by one observation too, and it took reading IBKR's own client source
+> to find the reasoning behind it had been wrong.
+
 ## 8.1 Can it be left unattended?
 
 **Dry run (`--dry-run`): yes.** `IBBroker` refuses to transmit at the adapter, so
@@ -961,7 +1019,7 @@ nothing rather than consuming the prior session — and read the log afterwards.
 | Alerting | Half exists. `status.py` (§5.6) gives visibility from a phone; nothing **pushes** on a condition, so it only helps when you look |
 | `watchdog.py` | Engine hangs holding a position → nothing independently flattens it |
 | Service supervision | Process dies → the day ends silently, possibly with a position open |
-| §6.1 unverified | Whether the protective stop survives the engine dying is *still an open question*. Until confirmed, an unattended crash mid-position has no proven protection |
+| §6.1 unverified | Whether the protective stop survives the engine dying is *still an open question*. **§7.5 settles it in two minutes** — run it on the next session with a bracket on. Until then, an unattended crash mid-position has no proven protection |
 
 `IMPLEMENTATION_SPEC.md` §7 requires attended operation for the first 3–6 months
 regardless. Unattended becomes reasonable after Stage 7 — see

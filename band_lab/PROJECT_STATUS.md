@@ -435,10 +435,13 @@ difference between finding that at 08:30 and finding it at 11:00.
 
 - [x] **The exit path** — ✅ 2026-08-12, three targets and a real flatten (§4.8).
       A **stop** has still never filled, and neither has the 2-stop breaker
-- [ ] **§6.1 — the safety-critical one.** Once a bracket is on: confirm SELL LMT
-      and SELL STP in TWS, kill the engine, **check the stop is still there**.
-      If it vanishes, stop and report — nothing runs unattended until it is
-      resolved
+- [ ] 🔴 **§6.1 — the safety-critical one, and now a two-minute command.**
+      `verify_stp.py` (RUNBOOK §7.5) snapshots the broker from a *separate API
+      client* — a client slot, not a login, so it does not disconnect the engine
+      the way TWS or the mobile app would. Snapshot with a bracket on, kill the
+      engine, snapshot again, `--compare`. The verdict is recorded as JSON
+      rather than remembered. **If it comes back REFUTED, flatten by hand
+      immediately** — nothing runs unattended until it is resolved
 - [x] **§6.3** — ✅ corroborated 2026-08-12: no orphan stop after a target fill.
       One session is corroboration, not proof; keep watching it
 - [ ] **A bracket that covers the whole position.** After any entry, the stop's
