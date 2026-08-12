@@ -224,6 +224,48 @@ class OrderManager:
                       f"{px:.2f} x{qty:.0f} rather than placing a second")
         self._modify_entry(it)
 
+    def _affordable(self, px: float, qty: float) -> bool:
+        """§4.3's pre-order buying-power check, which had never existed.
+
+        `PHASE2_PLAN.md` §4.3: "A pre-order buying-power check is required...
+        Leveraged ETFs carry elevated margin requirements; to be verified
+        against the paper account, not assumed." At `w=0.50, f=1.00` both
+        sleeves in a position deploy the whole capital basis, so the second one
+        to arm is the one that finds out.
+
+        Asymmetric on purpose. IBKR saying the account would go into deficit is
+        positive evidence and refuses; IBKR not answering is *no* evidence and
+        proceeds with a warning. Refusing on silence is the 2026-08-06 mistake,
+        where the live-data guard stood a healthy sleeve down at 11:05 on a
+        confirmed-good subscription and cost the session.
+
+        The threshold is IBKR's own definition of a deficit — equity with loan
+        minus initial margin, after the order — not a buffer invented here.
+        """
+        preview = self.broker.preview_order(self.symbol, "BUY", qty, px)
+        if preview is None:
+            return True
+        # The commission is the point of logging this even when it passes:
+        # `phase1/COST_MODEL.md` §7.4 calls the real per-order cost the one
+        # input no further analysis can supply, and this is IBKR quoting it.
+        self.on_event("info",
+                      f"{self.symbol} margin preview for {qty:.0f} @ {px:.2f}: "
+                      f"init={preview.init_margin_after:,.0f} "
+                      f"equity={preview.equity_with_loan_after:,.0f} "
+                      f"available={preview.available_after:,.0f} "
+                      f"commission={preview.commission:.2f}"
+                      + (f" [{preview.warning}]" if preview.warning else ""))
+        if preview.affordable:
+            return True
+        self.on_event("critical",
+                      f"{self.symbol} NOT ARMING {qty:.0f} @ {px:.2f}: IBKR says "
+                      f"it would leave initial margin "
+                      f"{preview.init_margin_after:,.0f} against equity "
+                      f"{preview.equity_with_loan_after:,.0f} — a deficit of "
+                      f"{-preview.available_after:,.0f}. §4.3 requires this "
+                      f"check; both sleeves at f=1.00 deploy the full basis.")
+        return False
+
     def _place_entry(self, it: Intent) -> None:
         px, qty = self._px(it.limit_px), it.qty
         if qty <= 0:
@@ -232,6 +274,8 @@ class OrderManager:
         working = self._working_entry(refresh=True)
         if working is not None:
             return self._adopt_rather_than_duplicate(working, it, px, qty)
+        if not self._affordable(px, qty):
+            return
         self._assert_ratchet(px)
         self.entry_ref = self._next_ref(ROLE_ENTRY)
         self.entry_limit = px

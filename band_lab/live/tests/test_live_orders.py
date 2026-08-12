@@ -1138,3 +1138,81 @@ def test_a_ref_from_an_order_that_never_filled_is_not_reused(tmp_path):
     om2, _, _ = _om(tmp_path, ib=ib, sm=_sm("SOXL"), db=db)
     om2.reconcile()
     assert om2._next_ref(ROLE_ENTRY) != first
+
+
+# ------------------------- §4.3's pre-order buying-power check (F13)
+def _preview(init, equity, commission=1.15, warning=""):
+    from broker import MarginPreview
+    return MarginPreview(init_margin_after=init, maint_margin_after=init * 0.8,
+                         equity_with_loan_after=equity, commission=commission,
+                         warning=warning)
+
+
+def test_an_order_that_would_breach_margin_is_not_placed(tmp_path):
+    """§4.3 required this check and it had never existed.
+
+    At `w=0.50, f=1.00` both sleeves in a position deploy the whole capital
+    basis, so the second one to arm is the one that finds out — into 3x ETFs,
+    which §4.3 notes "carry elevated margin requirements; to be verified
+    against the paper account, not assumed".
+    """
+    om, ib, sm = _om(tmp_path)
+    ib.preview = _preview(init=200_000.0, equity=155_803.0)   # a deficit
+    said = []
+    om.on_event = lambda lvl, msg: said.append((lvl, msg))
+
+    om.apply([Intent(kind=IntentKind.PLACE_ENTRY, bar_idx=START_IDX,
+                     limit_px=99.0, qty=757)])
+
+    assert not [o for o in ib.orders.values() if o.action == "BUY"]
+    assert om.entry_id is None
+    assert any(lvl == "critical" and "NOT ARMING" in msg for lvl, msg in said)
+
+
+def test_an_affordable_order_is_placed_and_the_commission_recorded(tmp_path):
+    """Passing must still log the numbers.
+
+    `phase1/COST_MODEL.md` §7.4 calls the real per-order cost the one input no
+    further analysis can supply, and this is IBKR quoting it per order.
+    """
+    om, ib, sm = _om(tmp_path)
+    ib.preview = _preview(init=60_000.0, equity=155_803.0, commission=1.15)
+    said = []
+    om.on_event = lambda lvl, msg: said.append((lvl, msg))
+
+    om.apply([Intent(kind=IntentKind.PLACE_ENTRY, bar_idx=START_IDX,
+                     limit_px=99.0, qty=757)])
+
+    assert [o for o in ib.orders.values() if o.action == "BUY"]
+    assert any("commission=1.15" in msg for _, msg in said)
+
+
+def test_a_silent_margin_service_does_not_stand_the_sleeve_down(tmp_path):
+    """No answer is *no evidence*, not evidence of a problem.
+
+    Refusing on silence is the 2026-08-06 mistake: the live-data guard did
+    exactly that and stood a healthy sleeve down at 11:05 on a confirmed-good
+    subscription, costing the session.
+    """
+    om, ib, sm = _om(tmp_path)
+    assert ib.preview is None                 # IBKR said nothing
+
+    om.apply([Intent(kind=IntentKind.PLACE_ENTRY, bar_idx=START_IDX,
+                     limit_px=99.0, qty=757)])
+
+    assert [o for o in ib.orders.values() if o.action == "BUY"], \
+        "a diagnostic that times out must not stop the engine trading"
+
+
+def test_the_refusal_does_not_burn_a_sequence_number(tmp_path):
+    """It never reached the broker, so no ref identifies it.
+
+    A gap in the sequence would show up in `reconcile`'s reconstruction as an
+    order nobody can account for.
+    """
+    om, ib, sm = _om(tmp_path)
+    ib.preview = _preview(init=200_000.0, equity=155_803.0)
+    before = om.seq
+    om.apply([Intent(kind=IntentKind.PLACE_ENTRY, bar_idx=START_IDX,
+                     limit_px=99.0, qty=757)])
+    assert om.seq == before

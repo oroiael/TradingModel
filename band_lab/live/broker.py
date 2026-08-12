@@ -198,6 +198,47 @@ class Quote:
         return self.bid > 0 and self.ask > 0 and self.ask >= self.bid
 
 
+#: IBKR sends margin figures as strings and uses `UNSET_DOUBLE`
+#: (`sys.float_info.max`) for "no value". Anything of that magnitude is a
+#: sentinel, not an account with 1e308 of equity.
+_UNSET_MAGNITUDE = 1e307
+
+
+def _margin_float(raw) -> Optional[float]:
+    """A margin field as a number, or None when IBKR did not answer."""
+    try:
+        v = float(raw)
+    except (TypeError, ValueError):
+        return None
+    return None if abs(v) >= _UNSET_MAGNITUDE else v
+
+
+@dataclass(frozen=True)
+class MarginPreview:
+    """IBKR's own answer to "what would this order do to the account?".
+
+    `PHASE2_PLAN.md` §4.3 requires a pre-order buying-power check and notes why
+    it cannot be reasoned about: at `w=0.50, f=1.00` both sleeves in a position
+    deploy the full capital basis, and "leveraged ETFs carry elevated margin
+    requirements; to be verified against the paper account, not assumed".
+    """
+    init_margin_after: float
+    maint_margin_after: float
+    equity_with_loan_after: float
+    commission: float = 0.0
+    warning: str = ""
+
+    @property
+    def available_after(self) -> float:
+        """What is left once IBKR has taken its initial margin requirement."""
+        return self.equity_with_loan_after - self.init_margin_after
+
+    @property
+    def affordable(self) -> bool:
+        """IBKR's own definition of a deficit, not a threshold invented here."""
+        return self.available_after >= 0.0
+
+
 @dataclass(frozen=True)
 class Execution:
     exec_id: str
@@ -273,6 +314,16 @@ class Broker:
     def modify_limit(self, order_id: int, limit_px: float, qty: float) -> None: ...
     def cancel(self, order_id: int) -> None: ...
     def cancel_all(self) -> None: ...
+
+    def preview_order(self, symbol, action, qty, limit_px) -> Optional[MarginPreview]:
+        """§4.3's pre-order buying-power check, or None when unavailable.
+
+        None means "IBKR did not answer", and callers must treat that as *no
+        evidence* rather than as a refusal. Standing a sleeve down because a
+        diagnostic timed out is the 2026-08-06 mistake — the live-data guard
+        refused on silence and cost a healthy session.
+        """
+        return None
 
     def refresh_orders(self) -> None:
         """Re-read the open orders from TWS itself, not from the client's copy.
@@ -801,6 +852,40 @@ class IBBroker(Broker):
                        f"Cancelled on an error while IBKR still holds it — "
                        f"reconcile calls reqAllOpenOrders for exactly that case")
 
+    def preview_order(self, symbol, action, qty, limit_px) -> Optional[MarginPreview]:
+        """`IB.whatIfOrder` — margin and commission, without placing anything.
+
+        Verified rather than assumed, because getting this wrong places a real
+        order: `whatIfOrderAsync` takes `copy.copy(order)`, sets `whatIf = True`
+        on the copy and sends that, so the order handed in is untouched and TWS
+        answers instead of executing.
+
+        Runs in a dry run too. It sends no order, and rehearsing the check is
+        exactly what a dry run is for.
+        """
+        ib = self._require()
+        o = self._order(action, qty, "preview", "", True)
+        o.orderType = "LMT"
+        o.lmtPrice = round(float(limit_px), 2)
+        try:
+            st = ib.whatIfOrder(self.contract(symbol), o)
+        except Exception as exc:                              # noqa: BLE001
+            self._on_event("warn", f"{symbol}: margin preview unavailable "
+                                   f"({exc!r}) — proceeding without it")
+            return None
+        init = _margin_float(getattr(st, "initMarginAfter", None))
+        maint = _margin_float(getattr(st, "maintMarginAfter", None))
+        equity = _margin_float(getattr(st, "equityWithLoanAfter", None))
+        if init is None or equity is None:
+            self._on_event("warn", f"{symbol}: margin preview came back empty "
+                                   f"— proceeding without it")
+            return None
+        return MarginPreview(
+            init_margin_after=init, maint_margin_after=maint or 0.0,
+            equity_with_loan_after=equity,
+            commission=_margin_float(getattr(st, "commission", None)) or 0.0,
+            warning=str(getattr(st, "warningText", "") or ""))
+
     def refresh_orders(self) -> None:
         """`reqAllOpenOrders` — synchronous, and it pumps the event loop."""
         self._require().reqAllOpenOrders()
@@ -864,6 +949,10 @@ class FakeIB(Broker):
         #: that let `PendingCancel` go unmodelled until it cost a session.
         self.ghosts: set = set()
         self.refreshes = 0
+        #: What `preview_order` answers. None is "IBKR did not say", which is
+        #: what a broker with no margin service does and what every test that
+        #: predates §4.3's check expects.
+        self.preview: Optional[MarginPreview] = None
 
     # lifecycle
     def connect(self) -> None:
@@ -901,6 +990,9 @@ class FakeIB(Broker):
                              o.limit_px, o.aux_px, o.oca_group, o.status)
                 for o in self.orders.values()
                 if o.symbol == symbol and self._client_sees(o)]
+
+    def preview_order(self, symbol, action, qty, limit_px) -> Optional[MarginPreview]:
+        return self.preview
 
     def refresh_orders(self) -> None:
         """TWS re-reports what it holds, and the client's copy is corrected."""
