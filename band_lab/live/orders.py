@@ -297,11 +297,33 @@ class OrderManager:
         """
         if refresh:
             self.broker.refresh_orders()
+        found = []
         for w in self.broker.working_orders(self.symbol):
             p = parse_ref(w.order_ref)
             if p and p[2] == ROLE_ENTRY and w.remaining > 0:
-                return w
-        return None
+                found.append(w)
+        if not found:
+            return None
+        if len(found) > 1:
+            # §2.6 allows one position and therefore one entry, and the last
+            # several commits exist to keep it that way — the duplicate guard
+            # before arming, the ghost recovery, the refusal to re-place after a
+            # rejected modify. If two are working anyway, one of those failed
+            # and the sleeve is about to buy twice. Returning the first quietly
+            # made that a coin toss.
+            self.on_event("critical",
+                          f"{self.symbol} has {len(found)} working entries at "
+                          f"the broker, and §2.6 allows one: "
+                          + ", ".join(f"{w.order_ref} id={w.order_id} "
+                                      f"{w.remaining:.0f}@{w.limit_px:.2f}"
+                                      for w in found)
+                          + ". Adopting the highest limit; CANCEL THE OTHERS BY "
+                            "HAND — until then this sleeve can fill twice.")
+        # The highest limit is the one the ratchet would have produced, so
+        # adopting it keeps §2.5's witness monotone. Deliberately not cancelled
+        # here: which of two live orders is the real one is not knowable from
+        # this side, and 15:55's `_clear_working` takes them all anyway.
+        return max(found, key=lambda w: w.limit_px)
 
     def _resync_entry(self):
         """Adopt the broker's entry order before reasoning about it.

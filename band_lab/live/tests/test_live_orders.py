@@ -1216,3 +1216,37 @@ def test_the_refusal_does_not_burn_a_sequence_number(tmp_path):
     om.apply([Intent(kind=IntentKind.PLACE_ENTRY, bar_idx=START_IDX,
                      limit_px=99.0, qty=757)])
     assert om.seq == before
+
+
+# ------------------- two working entries is an alarm, not a choice (F20)
+def test_two_working_entries_are_reported_not_silently_picked(tmp_path):
+    """§2.6 allows one position and therefore one entry.
+
+    Several guards exist to keep it that way — the duplicate check before
+    arming, the ghost recovery, the refusal to re-place after a rejected
+    modify. If two are working anyway, one of them failed and the sleeve is
+    about to buy twice. Returning the first quietly made that a coin toss.
+    """
+    om, ib, sm = _om(tmp_path)
+    said = []
+    om.on_event = lambda lvl, msg: said.append((lvl, msg))
+    low = ib.place_limit("SOXL", "BUY", 100, 99.00, "20260803-SOXL-E-1")
+    high = ib.place_limit("SOXL", "BUY", 100, 99.50, "20260803-SOXL-E-2")
+
+    w = om._working_entry()
+
+    assert w.order_id == high, "the highest limit is what the ratchet produced"
+    assert any(lvl == "critical" and "2 working entries" in msg
+               for lvl, msg in said)
+    assert is_working(ib.orders[low].status), \
+        "not cancelled from here — which one is real is not knowable"
+
+
+def test_one_working_entry_stays_quiet(tmp_path):
+    om, ib, sm = _om(tmp_path)
+    said = []
+    om.on_event = lambda lvl, msg: said.append((lvl, msg))
+    oid = ib.place_limit("SOXL", "BUY", 100, 99.0, "20260803-SOXL-E-1")
+
+    assert om._working_entry().order_id == oid
+    assert not [m for lvl, m in said if lvl == "critical"]
