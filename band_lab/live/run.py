@@ -127,6 +127,10 @@ class Runner:
                 "ts": datetime.now(NY).isoformat(),
                 "session": self.session,
                 "pid": os.getpid(),
+                # So the watchdog can notice the one mismatch that matters: an
+                # engine rehearsing with transmit off while a watchdog armed to
+                # send real orders watches the same account.
+                "transmit": bool(self.cfg.transmit),
                 "sleeves": {s: ("dormant" if rt.dormant else
                                 getattr(rt.sm.state, "name", "?"))
                             for s, rt in self.engine.sleeves.items()},

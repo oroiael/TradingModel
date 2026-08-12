@@ -81,6 +81,15 @@ class EngineConfig:
     heartbeat_file: str = os.path.join(_HERE, "out", "heartbeat.json")
     #: The watchdog connects with its own client id (§6.2).
     watchdog_client_id: int = 12
+    #: The watchdog sends orders even when `transmit` is False, and defaults to
+    #: doing so on purpose: exposure on the account is real whether or not the
+    #: *engine* is rehearsing, and a position left over from a previous session
+    #: still has to be closed by 16:00. It is separate from `transmit` rather
+    #: than derived from it so the choice is visible, because it contradicts
+    #: what `DEPLOYMENT.md` §12.1 promises about a dry run — the same class of
+    #: surprise as §4.1's `readonly`, which three documents described wrongly.
+    #: Set False (or pass `--no-transmit`) to rehearse both processes together.
+    watchdog_transmit: bool = True
     #: Stage 4 acceptance runs a whole session with this True: decisions are
     #: computed and logged, nothing reaches the market.
     transmit: bool = False

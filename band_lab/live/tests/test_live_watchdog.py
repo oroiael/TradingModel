@@ -224,3 +224,84 @@ def test_the_watchdog_never_opens_a_position(tmp_path):
     src = inspect.getsource(watchdog)
     assert "place_limit" not in src, "the watchdog may not place a limit order"
     assert "place_stop" not in src, "nor a stop"
+
+
+# ------------------------------------------------ arming is explicit (F8)
+def test_armed_by_default_and_the_broker_agrees(tmp_path):
+    """Exposure is real whether or not the *engine* is rehearsing.
+
+    A position left by a previous session still has to be closed by 16:00, so
+    the default is armed. What must never happen is discovering that from a
+    fill.
+    """
+    cfg = EngineConfig(db_path=str(tmp_path / "w.db"))
+    wd = Watchdog(cfg, store=Store(str(tmp_path / "w.db")))
+    assert wd.armed is True
+    assert wd.broker.readonly is False
+
+
+def test_no_transmit_really_sends_nothing(tmp_path):
+    cfg = EngineConfig(db_path=str(tmp_path / "w.db"), watchdog_transmit=False)
+    wd = Watchdog(cfg, store=Store(str(tmp_path / "w.db")))
+    assert wd.armed is False
+    assert wd.broker.readonly is True, \
+        "readonly is what stops IBBroker transmitting (§4.1)"
+
+
+def test_a_rehearsal_does_not_cry_wolf(tmp_path):
+    """`HUMAN INTERVENTION REQUIRED` has to keep meaning something.
+
+    Nothing was sent because nothing was meant to be sent, so reporting a
+    failure to flatten would train the operator to discount the one message
+    that must never be discounted.
+    """
+    wd, ib = _wd(tmp_path, heartbeat_age=600, positions={"SOXS": 1680})
+    wd.cfg.watchdog_transmit = False
+
+    assert wd.intervene("rehearsal", attempts=2, settle=0) is False
+    assert not any(lvl == "critical" and "HUMAN INTERVENTION" in m
+                   for lvl, m in wd._said)
+    assert any("rehearsal" in m for _, m in wd._said)
+
+
+def test_it_says_so_when_the_engine_is_rehearsing_and_it_is_not(tmp_path):
+    """The §4.1 shape again: a document promising nothing reaches the market.
+
+    `--dry-run` is a flag on run.py, not a value in the shared config, so the
+    only way this side can know is the heartbeat the engine writes.
+    """
+    hb = tmp_path / "heartbeat.json"
+    hb.write_text(json.dumps({"ts": MIDDAY.isoformat(), "session": "20260807",
+                              "transmit": False}))
+    cfg = EngineConfig(db_path=str(tmp_path / "w.db"), heartbeat_file=str(hb))
+    ib = FakeIB(symbols=cfg.symbols)
+    ib.connect()
+    wd = Watchdog(cfg, broker=ib, store=Store(str(tmp_path / "w.db")))
+
+    wd.warn_if_the_engine_is_only_rehearsing()
+    assert any(lvl == "warn" and "transmit OFF" in m for lvl, m in wd._said)
+
+    n = len(wd._said)
+    wd.warn_if_the_engine_is_only_rehearsing()
+    assert len(wd._said) == n, "said once, not every 30 seconds"
+
+
+def test_it_stays_quiet_when_there_is_nothing_to_warn_about(tmp_path):
+    """A transmitting engine, and an older one that records no mode at all."""
+    for payload in ({"ts": MIDDAY.isoformat(), "transmit": True},
+                    {"ts": MIDDAY.isoformat()}):
+        hb = tmp_path / "hb.json"
+        hb.write_text(json.dumps(payload))
+        cfg = EngineConfig(db_path=str(tmp_path / "w.db"), heartbeat_file=str(hb))
+        ib = FakeIB(symbols=cfg.symbols)
+        ib.connect()
+        wd = Watchdog(cfg, broker=ib, store=Store(str(tmp_path / "w.db")))
+        wd.warn_if_the_engine_is_only_rehearsing()
+        assert not wd._said, f"nothing to say for {payload}"
+
+
+def test_the_engine_records_its_mode_in_the_heartbeat(tmp_path):
+    """The warning above is only possible if run.py actually writes it."""
+    import inspect
+    import run
+    assert '"transmit"' in inspect.getsource(run.Runner.touch_heartbeat)

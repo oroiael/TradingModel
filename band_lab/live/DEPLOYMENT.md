@@ -335,6 +335,16 @@ market.
 > `tests/test_live_broker_guards.py`. **Confirm the prefix is present on the
 > first arming; if an order appears in TWS during a dry run, stop the session.**
 
+> **The watchdog is not covered by that sentence.** "Nothing reaches the
+> market" describes `run.py`. `watchdog.py` is a separate process and is
+> **armed by default**, including while the engine is in a dry run: exposure on
+> the account is real whether or not the engine is rehearsing, and a position
+> left by an earlier session still has to be closed by 16:00. If you want a
+> rehearsal where genuinely nothing is sent, start it with `--no-transmit` —
+> and understand that nothing will then be closed for you either. The watchdog
+> reads the engine's mode from the heartbeat and says so once at startup when
+> the two disagree.
+
 Confirm four things:
 
 | check | where |

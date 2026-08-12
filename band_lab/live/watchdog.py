@@ -79,6 +79,7 @@ class Watchdog:
     #: *process*, and `run()` loops across days.
     fired_on: Optional[date] = None
     _said: list = field(default_factory=list)
+    _arming_said: bool = False
 
     def __post_init__(self) -> None:
         if self.store is None:
@@ -88,7 +89,12 @@ class Watchdog:
                 host=self.cfg.host, port=self.cfg.port,
                 client_id=self.cfg.watchdog_client_id,      # §6.2 — never the engine's
                 exchange=self.cfg.exchange, primary=self.cfg.primary,
-                readonly=False, on_event=self.say)
+                readonly=not self.cfg.watchdog_transmit, on_event=self.say)
+
+    @property
+    def armed(self) -> bool:
+        """Will an intervention actually reach the market?"""
+        return bool(self.cfg.watchdog_transmit)
 
     # ------------------------------------------------------------------ log
     def say(self, level: str, msg: str) -> None:
@@ -101,6 +107,42 @@ class Watchdog:
             pass                        # logging must never stop a flatten
 
     # ------------------------------------------------------------- sensing
+    def _heartbeat(self) -> Optional[dict]:
+        """The engine's last proof of life, or None if it never wrote one."""
+        try:
+            with open(self.cfg.heartbeat_file) as fh:
+                return json.load(fh)
+        except Exception:                                   # noqa: BLE001
+            return None
+
+    def warn_if_the_engine_is_only_rehearsing(self) -> None:
+        """Said once, because it contradicts what the runbook promises.
+
+        `DEPLOYMENT.md` §12.1 tells an operator that during a dry run "nothing
+        reaches the market". That covers the engine. This process is armed by
+        default and will send real market orders against real exposure, which
+        is the point of it — but discovering that from a fill is exactly the
+        §4.1 failure again, where three documents described `readonly` as
+        something it was not.
+
+        The engine's mode cannot be inferred from this side: `--dry-run` is a
+        flag on `run.py`, not a value in the shared config file. So it is read
+        from the heartbeat the engine writes. An older engine that does not
+        record it leaves this silent rather than guessing.
+        """
+        if self._arming_said or not self.armed:
+            return
+        if (self._heartbeat() or {}).get("transmit") is not False:
+            return
+        self._arming_said = True
+        self.say("warn",
+                 "the engine is running with transmit OFF while this watchdog "
+                 "is ARMED — if the account is exposed past "
+                 f"{self.hard_flat:%H:%M} it will send real market orders. That "
+                 "is deliberate (exposure is real whether or not the engine is "
+                 "rehearsing), but it is not what DEPLOYMENT.md §12.1 promises "
+                 "about a dry run. Pass --no-transmit to rehearse both.")
+
     def heartbeat_age(self, now: Optional[datetime] = None) -> Optional[float]:
         """Seconds since the engine last wrote. None if it never has.
 
@@ -109,10 +151,11 @@ class Watchdog:
         mtime alone would read that as a living engine.
         """
         now = now or datetime.now(NY)
-        path = self.cfg.heartbeat_file
+        beat = self._heartbeat()
+        if beat is None:
+            return None
         try:
-            with open(path) as fh:
-                stamp = datetime.fromisoformat(json.load(fh)["ts"])
+            stamp = datetime.fromisoformat(beat["ts"])
         except Exception:                                   # noqa: BLE001
             return None
         if stamp.tzinfo is None:
@@ -264,6 +307,15 @@ class Watchdog:
 
         positions, working = self.exposure()
         if positions:
+            if not self.armed:
+                # Not a failure: nothing was sent because nothing was meant to
+                # be. Saying HUMAN INTERVENTION REQUIRED here would train the
+                # operator to discount the one message that must never be
+                # discounted.
+                self.say("warn",
+                         f"rehearsal (--no-transmit): would have flattened "
+                         f"{positions}; the orders above were logged, not sent")
+                return False
             self.say("critical",
                      f"WATCHDOG COULD NOT FLATTEN {positions} "
                      f"({working} orders working) — HUMAN INTERVENTION REQUIRED")
@@ -280,6 +332,7 @@ class Watchdog:
         except BrokerError as exc:
             self.say("error", f"cannot reach the broker: {exc!r}")
             return "no-broker"
+        self.warn_if_the_engine_is_only_rehearsing()
         act, why = self.verdict(now)
         if act:
             self.intervene(why, now=now)
@@ -288,10 +341,15 @@ class Watchdog:
 
     def run(self, interval: float = 30.0, quiet_every: int = 20) -> None:
         """§6.2 — check every 30 seconds, for as long as the session lasts."""
-        self.say("info", f"watching | port {self.cfg.port} "
-                         f"clientId={self.cfg.watchdog_client_id} | "
-                         f"stale>{self.stale_seconds:.0f}s or past "
-                         f"{self.hard_flat:%H:%M} while exposed")
+        self.say("info" if self.armed else "warn",
+                 f"watching | port {self.cfg.port} "
+                 f"clientId={self.cfg.watchdog_client_id} | "
+                 f"stale>{self.stale_seconds:.0f}s or past "
+                 f"{self.hard_flat:%H:%M} while exposed | "
+                 + ("ARMED — an intervention sends real market orders"
+                    if self.armed else
+                    "NOT ARMED (--no-transmit) — it will decide and log, and "
+                    "send nothing. Nothing will be closed for you."))
         ticks = 0
         while True:
             now = datetime.now(NY)
@@ -319,9 +377,16 @@ def main() -> int:
                     help="run a single check and exit (cron, or a smoke test)")
     ap.add_argument("--interval", type=float, default=30.0)
     ap.add_argument("--stale", type=float, default=STALE_SECONDS)
+    ap.add_argument("--no-transmit", action="store_true",
+                    help="decide and log, but send nothing — for rehearsing "
+                         "alongside `run.py --dry-run`. NOTHING WILL BE CLOSED "
+                         "FOR YOU: the default is armed, because exposure is "
+                         "real whether or not the engine is rehearsing.")
     args = ap.parse_args()
 
     cfg = EngineConfig.load(args.config)
+    if args.no_transmit:
+        cfg.watchdog_transmit = False
     wd = Watchdog(cfg, stale_seconds=args.stale)
     try:
         if args.once:
