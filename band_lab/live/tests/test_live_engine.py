@@ -14,7 +14,7 @@ from zoneinfo import ZoneInfo
 
 import pytest
 
-from broker import FakeIB, NotLiveDataError, SessionHours
+from broker import FakeIB, NotLiveDataError, SessionHours, is_working
 from engine import Engine, FILTER_IDX, FLATTEN_IDX, START_IDX
 from store import Store
 from strategy_core import Bar, FeatureHistory, SessionStats, session_stats
@@ -679,3 +679,68 @@ def test_an_unexplained_close_is_never_booked_at_zero(tmp_path):
     sm = eng.sleeves["SOXL"].sm
     assert not sm.trades, "no trade may be booked at a price nothing traded at"
     assert sm.pnl == 0.0
+
+
+# ------------------------- a dormant sleeve stops being able to trade (F12)
+def test_a_gated_off_day_cancels_an_entry_left_by_a_dead_process(tmp_path):
+    """`sleeve.py` has always documented DORMANT as cancel-all; it only logged.
+
+    Latent until `pre_open` began reconciling before the gate. Now a gate-OFF
+    morning can start holding a resting buy limit from a process that died
+    yesterday — and left alone it fills in the afternoon, into a sleeve that
+    decided at 06:00 not to trade and is watching nothing.
+    """
+    ib = FakeIB(symbols=("SOXL",))
+    ib.connect()
+    stale = ib.place_limit("SOXL", "BUY", 500, 99.0, "20260803-SOXL-E-1")
+    store = Store(str(tmp_path / "d.db"))
+    eng = Engine(ib, store, symbols=("SOXL",), on_event=lambda l, m: None)
+
+    eng.pre_open(DAY, {"SOXL": _history(range_pct=2.0)})     # ATR5 too low
+
+    assert eng.sleeves["SOXL"].dormant
+    assert not is_working(ib.orders[stale].status), \
+        "a sleeve that will not trade must not leave a live entry behind"
+
+
+def test_a_dormant_sleeve_keeps_the_bracket_on_a_real_position(tmp_path):
+    """Cancel-all taken literally would strip the only protection there is.
+
+    §6.1's guarantee is a stop resting for whatever is held. The reconcile that
+    surfaces the entry above surfaces the bracket too, and they must not be
+    treated the same way.
+    """
+    ib = FakeIB(symbols=("SOXL",))
+    ib.connect()
+    ib.positions["SOXL"] = 500.0
+    tgt = ib.place_limit("SOXL", "SELL", 500, 101.0, "20260803-SOXL-T-2",
+                         oca_group="g")
+    stp = ib.place_stop("SOXL", "SELL", 500, 95.0, "20260803-SOXL-S-3",
+                        oca_group="g")
+    store = Store(str(tmp_path / "d2.db"))
+    said = []
+    eng = Engine(ib, store, symbols=("SOXL",),
+                 on_event=lambda lvl, msg: said.append((lvl, msg)))
+
+    eng.pre_open(DAY, {"SOXL": _history(range_pct=2.0)})     # gate OFF
+
+    assert eng.sleeves["SOXL"].dormant
+    assert is_working(ib.orders[tgt].status) and is_working(ib.orders[stp].status)
+    assert any("keeping the bracket" in m for _, m in said)
+
+
+def test_a_dormant_flat_sleeve_does_not_leave_orphan_sell_orders(tmp_path):
+    """Flat, so the two legs have nothing to sell. They are just exposure."""
+    ib = FakeIB(symbols=("SOXL",))
+    ib.connect()
+    tgt = ib.place_limit("SOXL", "SELL", 500, 101.0, "20260803-SOXL-T-2",
+                         oca_group="g")
+    stp = ib.place_stop("SOXL", "SELL", 500, 95.0, "20260803-SOXL-S-3",
+                        oca_group="g")
+    store = Store(str(tmp_path / "d3.db"))
+    eng = Engine(ib, store, symbols=("SOXL",), on_event=lambda l, m: None)
+
+    eng.pre_open(DAY, {"SOXL": _history(range_pct=2.0)})
+
+    assert not is_working(ib.orders[tgt].status)
+    assert not is_working(ib.orders[stp].status)

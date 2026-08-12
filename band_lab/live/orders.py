@@ -460,7 +460,49 @@ class OrderManager:
                         order_id=oid, qty=qty)
 
     def _dormant(self, it: Intent) -> None:
+        """A dormant sleeve places no more orders — and must not still be able
+        to acquire a position it has stopped managing.
+
+        `sleeve.py:_arm` has said "going dormant cancels everything working; the
+        OrderManager treats DORMANT as cancel-all" since Stage 1, and this
+        method only logged. That was latent while every reachable DORMANT path
+        happened to have nothing working, which is no longer true:
+        `Engine.pre_open` reconciles *before* the gate, so a gate-OFF or
+        stood-down day can begin holding a resting entry left by a process that
+        died. Left alone it fills at some point in the afternoon, into a sleeve
+        that has already decided not to trade and is not watching.
+
+        **The bracket is not treated the same way.** Cancel-all taken literally
+        would strip the two protective legs off a position the same reconcile
+        just adopted, and §6.1's guarantee is that a stop is always resting for
+        whatever is held. The entry always goes; the bracket goes only when the
+        broker says there is nothing left to protect.
+        """
         self.on_event("info", f"{self.symbol} dormant: {it.reason}")
+        had_entry = self.entry_id is not None
+        self._cancel_entry()
+        if had_entry:
+            self.on_event("warn",
+                          f"{self.symbol} cancelled a resting entry on going "
+                          f"dormant ({it.reason}) — it could still have filled "
+                          f"into a sleeve that has stopped trading")
+
+        pos = abs(self.broker.position(self.symbol))
+        if pos > 1e-9:
+            if self.target_id is not None or self.stop_id is not None:
+                self.on_event("warn",
+                              f"{self.symbol} dormant while holding {pos:.0f} "
+                              f"shares — keeping the bracket, which is the only "
+                              f"thing protecting them. The 15:55 flatten still "
+                              f"applies.")
+            else:
+                self.on_event("critical",
+                              f"{self.symbol} dormant while holding {pos:.0f} "
+                              f"shares with NO protective bracket. §6.1 wants a "
+                              f"stop resting for whatever is held. Check TWS.")
+            return
+        if self.target_id is not None or self.stop_id is not None:
+            self._cancel_bracket()
 
     # -------------------------------------------------------------- events
     def on_executions(self, bar_idx: int) -> list[Execution]:
