@@ -15,7 +15,7 @@ from zoneinfo import ZoneInfo
 
 import pytest
 
-from broker import FakeIB, IBBroker, NotLiveDataError, bar_time_et
+from broker import BrokerError, FakeIB, IBBroker, NotLiveDataError, bar_time_et
 
 NY = ZoneInfo("America/New_York")
 
@@ -70,6 +70,9 @@ class _StubIB:
         self.errorEvent = _StubEvent()
         self.connect_kwargs = None
         self.mkt_data_requests = []
+        self._account_values = []
+        self._account_summary = []
+        self.summary_requested = 0
         self._quote = quote
         self._connected = True
         self.placed = []
@@ -122,6 +125,13 @@ class _StubIB:
 
     def reqHistoricalData(self, *a, **kw):
         return self._bars
+
+    def accountValues(self, account=""):
+        return self._account_values
+
+    def accountSummary(self, account=""):
+        self.summary_requested += 1
+        return self._account_summary
 
 
 def _broker(dry_run, bars=(), mdt=1, quote=None):
@@ -702,3 +712,54 @@ def test_a_dry_run_connects_as_a_full_client():
     assert b.dry_run is True, "and it still must not transmit"
     b.place_limit("SOXL", "BUY", 100, 50.0, "ref")
     assert b._ib.placed == []
+
+
+# --------------- one client at a time may hold reqAccountUpdates (F29)
+def _acct(tag, value, currency="USD"):
+    return SimpleNamespace(tag=tag, value=str(value), currency=currency,
+                           account="DU123")
+
+
+def test_net_liquidation_reads_account_values_first():
+    b = _broker(dry_run=True)
+    b._ib._account_values = [_acct("NetLiquidation", 155803.0)]
+    assert b.net_liquidation() == pytest.approx(155803.0)
+    assert b._ib.summary_requested == 0, "no need for the fallback"
+
+
+def test_net_liquidation_falls_back_when_the_subscription_was_taken():
+    """TWS allows one `reqAccountUpdates` at a time — errors 2100 and 2101.
+
+    The engine and the watchdog each issue it through `connectAsync`, so
+    whichever connects second takes it. Losing it does not misprice anything;
+    it stops the day starting, because `pre_open` cannot compute sleeve capital
+    and raises. `accountSummary` is a separate subscription and lists
+    NetLiquidation among its tags.
+    """
+    said = []
+    b = _broker(dry_run=True)
+    b._on_event = lambda lvl, msg: said.append((lvl, msg))
+    b._ib._account_values = []                        # unsubscribed
+    b._ib._account_summary = [_acct("NetLiquidation", 155803.0)]
+
+    assert b.net_liquidation() == pytest.approx(155803.0)
+    assert b._ib.summary_requested == 1
+    assert any(lvl == "warn" and "accountSummary" in msg for lvl, msg in said)
+
+
+def test_net_liquidation_says_what_to_check_when_both_are_empty():
+    b = _broker(dry_run=True)
+    with pytest.raises(BrokerError, match="2100/2101"):
+        b.net_liquidation()
+
+
+def test_the_account_subscription_errors_explain_themselves():
+    """2100 in a log is meaningless without knowing the two processes collide."""
+    said = []
+    b = _broker(dry_run=True)
+    b._on_event = lambda lvl, msg: said.append((lvl, msg))
+    b._on_ib_error(-1, 2100, "New account data requested from TWS. API client "
+                             "has been unsubscribed from account data.")
+    level, msg = said[-1]
+    assert level == "warn"
+    assert "watchdog" in msg and "accountSummary" in msg

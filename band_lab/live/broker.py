@@ -59,6 +59,13 @@ IB_WARNING_CODES = frozenset({105, 110, 165, 321, 329, 399, 404, 434, 492, 10167
 #: engine, so they are not worth a line each. Same list `diagnose.py` filters.
 IB_STATUS_CHATTER = frozenset({2104, 2106, 2107, 2119, 2158})
 
+#: TWS allows **one** `reqAccountUpdates` subscription at a time. 2100 is "New
+#: account data requested from TWS. API client has been unsubscribed from
+#: account data"; 2101 is the rejection when another client already holds it.
+#: The engine and the watchdog each issue it through `ib_async`'s
+#: `connectAsync`, so whichever connects second can take it from the first.
+ACCOUNT_SUBSCRIPTION_ERRORS = frozenset({2100, 2101})
+
 
 def is_warning(code: int) -> bool:
     """Would `ib_async` leave the order working after this code?"""
@@ -450,7 +457,15 @@ class IBBroker(Broker):
         # all. The session had to be reconstructed from TWS's log afterwards,
         # and the cause was then inferred rather than read.
         if errorCode not in IB_STATUS_CHATTER:
-            if is_warning(errorCode):
+            if errorCode in ACCOUNT_SUBSCRIPTION_ERRORS:
+                self._on_event(
+                    "warn",
+                    f"IBKR {errorCode} req={reqId}: {errorString} — another "
+                    f"client (the watchdog connects too) now holds the "
+                    f"reqAccountUpdates subscription. `accountValues` will stop "
+                    f"updating here; `net_liquidation` falls back to "
+                    f"`accountSummary`, which is a separate subscription.")
+            elif is_warning(errorCode):
                 self._on_event("warn", f"IBKR {errorCode} req={reqId} {symbol}: "
                                        f"{errorString}")
             else:
@@ -631,12 +646,51 @@ class IBBroker(Broker):
                             is_half_day=(c - o) < timedelta(hours=6, minutes=15))
 
     # -------------------------------------------------------------- state
-    def net_liquidation(self) -> float:
-        ib = self._require()
-        for v in ib.accountValues():
+    @staticmethod
+    def _net_liq(values) -> Optional[float]:
+        """NetLiquidation in USD from an AccountValue list, or None."""
+        for v in values:
             if v.tag == "NetLiquidation" and v.currency == "USD":
                 return float(v.value)
-        raise BrokerError("NetLiquidation (USD) not reported")
+        return None
+
+    def net_liquidation(self) -> float:
+        """§4.2's capital basis, sampled once at 06:00 and frozen for the day.
+
+        `accountValues` is fed by `reqAccountUpdates`, and TWS allows exactly
+        one client that subscription: error 2100 says the API client "has been
+        unsubscribed from account data", 2101 is the rejection when someone
+        else holds it. `ib_async.connectAsync` issues it on every connect, and
+        this project runs two processes — the engine on client 11 and the
+        watchdog on 12 — so whichever connects second takes it.
+
+        Losing it here does not misprice anything; it stops the day starting,
+        because `pre_open` cannot compute sleeve capital and raises. So there is
+        a fallback: `accountSummary` is a *different* subscription
+        (`reqAccountSummary`), it lists NetLiquidation among its tags, and it is
+        not subject to the same exclusivity.
+        """
+        ib = self._require()
+        value = self._net_liq(ib.accountValues())
+        if value is not None:
+            return value
+        try:
+            value = self._net_liq(ib.accountSummary())
+        except Exception as exc:                              # noqa: BLE001
+            raise BrokerError(f"NetLiquidation (USD) not reported, and "
+                              f"accountSummary failed: {exc!r}") from exc
+        if value is None:
+            raise BrokerError(
+                "NetLiquidation (USD) not reported by accountValues or "
+                "accountSummary. If IBKR logged 2100/2101, another client holds "
+                "the account subscription — check nothing else is connected on "
+                "this account.")
+        self._on_event("warn",
+                       "NetLiquidation came from accountSummary, not "
+                       "accountValues — the reqAccountUpdates subscription is "
+                       "held by another client (2100/2101). The figure is "
+                       "IBKR's own and is used as normal.")
+        return value
 
     def position(self, symbol: str) -> float:
         ib = self._require()
