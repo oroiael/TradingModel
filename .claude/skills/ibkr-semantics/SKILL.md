@@ -37,9 +37,14 @@ verified-from-source or inferred, in code comments and in prose.
 | `interactivebrokers.github.io/tws-api` | ❌ egress-blocked |
 | `ibkrcampus.com` / `interactivebrokers.com` | ❌ egress-blocked |
 | `InteractiveBrokers/tws-api-public` on GitHub | ⚠️ reachable but contains only a link page |
+| `TWS API/` in this repo (official 10.39.01 source + samples) | ✅ committed 2026-08-11 |
+| `TWS API/TWS Documentation - Copy Paste from Online.pdf` | ✅ 131 pages — **the full error-code table** |
 
-So **TWS-side behaviour cannot be verified here.** Anything about what the *server*
-does — what an error code means, whether `reqGlobalCancel` frees a stuck OCA leg —
+**The error codes are now readable.** The PDF carries IBKR's message-code tables,
+which is what settled the 103/2102 correction below; `ibapi/order.py` settled
+`ocaType`. What is still unreachable is TWS *behaviour* — whether `reqGlobalCancel`
+frees a stuck OCA leg, whether a `STP` survives the client dying. Anything of that
+kind
 is inference until a live session shows it. `broker.py`'s header has said this
 since the Stage 2 build; keep it true.
 
@@ -158,10 +163,34 @@ These are inference, not verification, and each is marked at its use site:
 | assumption | where | how it gets settled |
 |---|---|---|
 | a broker-side `STP` survives the client dying | `PHASE2_PLAN.md` §6.1 | kill the engine with a bracket on, look at TWS |
-| `ocaType=1` gives cancel-with-block | `broker.py:_order` | observe a stop fill cancelling its target |
 | `reqGlobalCancel` frees a stalled `PendingCancel` | `orders.py:ensure_flat` | a session where the escalation fires |
-| modifying an unacknowledged order causes `103` | `orders.py:_modify_entry` | arm and ratchet in the same second, deliberately |
 | `1 D` historical inside RTH may reach into the prior session | `PHASE2_PLAN.md` §6.4 | compare a request's span against the session |
 
 When one of these is settled by a live session, move it out of this table and into
 the verified sections above, with the date and what was observed.
+
+### Settled 2026-08-11, and it was wrong
+
+`ocaType=1` is **CANCEL_WITH_BLOCK** — `ibapi/order.py:51`, IBKR's own client:
+`ocaType = 0  # 1 = CANCEL_WITH_BLOCK, 2 = REDUCE_WITH_BLOCK, 3 = REDUCE_NON_BLOCK`.
+`broker.py:_order`'s `ASSUMPTION §6.3` can cite that.
+
+This table also carried **"modifying an unacknowledged order causes 103"**, and the
+message tables say otherwise:
+
+| code | meaning |
+|---|---|
+| `103` | Duplicate order ID — *"an order was placed with an order ID that is less than or equal to the order ID of a previous order from this client"* |
+| `2102` | *"Unable to modify this order as it is still being processed... Wait until the order has been fully processed before modifying it."* |
+
+Modify-before-processed is **2102**, which is inside the 2100–2199 warning band, so
+the order stays working. **103 is not a warning**, so it marks the trade `Cancelled`
+while IBKR keeps working it — the ghost above. `orders.py:_modify_entry` defers the
+ratchet on `PendingSubmit`, which 2102 says is correct; only its stated reason was
+wrong.
+
+**The cause of the 2026-08-10 `103` is therefore unknown, not explained.** One thing
+that is ruled out: `Client.getReqId` is a single counter shared by all 35 request
+types and seeded with `max()`, so an id cannot regress inside one process.
+`broker._on_ib_error` now records every code, warning or not, so the next occurrence
+is read rather than reconstructed.

@@ -350,3 +350,166 @@ def test_heartbeat_can_be_disabled():
     EngineConfig(heartbeat_seconds=0).validate()      # 0 disables, must not raise
     with pytest.raises(ConfigError):
         EngineConfig(heartbeat_seconds=-1).validate()
+
+
+# --------------------------------- the poll interval has two bounds (F27)
+def test_the_bar_feed_stays_inside_ibkrs_pacing_budget():
+    """IBKR: "no more than 60 API queries in more than 600 seconds".
+
+    One `reqHistoricalData` per symbol per poll. At the old 20s default with
+    two sleeves that was exactly 60 per 600s — the documented ceiling, with
+    nothing left for the pre-open top-up or the EOD tail fetch, and five
+    seconds clear of the separate "identical requests within 15 seconds" rule.
+    """
+    from config import (
+        EngineConfig, PACING_MAX_REQUESTS, PACING_RESERVE, PACING_WINDOW_SECONDS,
+    )
+    cfg = EngineConfig()
+    per_window = len(cfg.symbols) * PACING_WINDOW_SECONDS / cfg.bar_poll_seconds
+    assert per_window <= PACING_MAX_REQUESTS - PACING_RESERVE
+    assert per_window <= PACING_MAX_REQUESTS
+
+
+def test_a_poll_faster_than_pacing_is_refused_at_startup():
+    """§6.8 — fail at startup, not at 11:00 with an order in flight.
+
+    A pacing violation does not announce itself as one. It arrives as error
+    162, "Historical market data Service error message", which on 2026-08-03
+    was read as connection contention while the engine went on computing ATR5
+    from a fortnight-old history.
+    """
+    from config import EngineConfig
+    with pytest.raises(ConfigError):
+        EngineConfig(bar_poll_seconds=20.0).validate()      # the old default
+
+
+def test_a_poll_too_slow_for_the_watchdog_is_refused():
+    """The other bound, which pulls the opposite way.
+
+    `run.py` touches the heartbeat once per poll and the watchdog calls the
+    engine dead at 120s. Fixing pacing by polling ever more slowly would buy a
+    watchdog that fires on healthy sessions.
+    """
+    from config import EngineConfig
+    with pytest.raises(ConfigError):
+        EngineConfig(bar_poll_seconds=45.0).validate()
+
+
+def test_a_symbol_count_with_no_safe_interval_says_so():
+    """Three sleeves cannot satisfy both bounds, and the message must explain.
+
+    Telling the operator to raise the interval, when raising it breaches the
+    watchdog bound, is a dead end — so this case is diagnosed separately.
+    """
+    from config import EngineConfig
+    with pytest.raises(ConfigError, match="cannot be polled safely"):
+        EngineConfig(symbols=("SOXL", "SOXS", "TQQQ")).validate()
+
+
+def test_the_documented_sample_config_actually_starts():
+    """`DEPLOYMENT.md` §9 ships a JSON block an operator is told to copy.
+
+    It carried `"bar_poll_seconds": 20.0`, which the pacing bound now refuses —
+    so following the document exactly would have failed at startup. Parsed from
+    the markdown rather than restated here, because a copy would drift the same
+    way the original did. `PROJECT_STATUS.md` §4.3 lists six documentation
+    defects found by reading; this is the class of thing that finds them by
+    running.
+    """
+    import json
+    import os
+    import re
+
+    live = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    src = open(os.path.join(live, "DEPLOYMENT.md")).read()
+    block = re.search(r"```json\n(\{.*?\})\n```", src, re.S)
+    assert block, "DEPLOYMENT.md no longer contains a sample config block"
+
+    fields = json.loads(block.group(1))
+    cfg = EngineConfig(**{**fields, "symbols": tuple(fields["symbols"])})
+    cfg.validate()                       # must not raise
+
+
+# ------------------- a dormant day still owes the account a flatten (F15)
+def _bare_runner(tmp_path, positions=None):
+    """A Runner whose `pre_open` is stubbed, so no CSV backbone is needed."""
+    ib = FakeIB(symbols=("SOXL",))
+    ib.connect()
+    for symbol, qty in (positions or {}).items():
+        ib.positions[symbol] = qty
+    store = Store(str(tmp_path / "b.db"))
+    cfg = EngineConfig(symbols=("SOXL",), db_path=str(tmp_path / "b.db"))
+    r = Runner(cfg, broker=ib, store=store, root=_repo_root())
+    return r, ib, store
+
+
+def _stand_down(r, reason="gate_off"):
+    """Every sleeve dormant, the way pre_open leaves them on a gated-off day."""
+    r.pre_open = lambda d: False
+    r.engine.sleeves = {"SOXL": SimpleNamespace(dormant=True,
+                                                dormant_reason=reason)}
+    seen = []
+    r.run_session = lambda *a, **kw: seen.append("session")
+    r.close_out = lambda *a, **kw: (seen.append("close_out"), {"SOXL": {}})[1]
+    r.engine.reconcile = lambda: {"SOXL": {"agrees": True}}
+    return seen
+
+
+def test_a_flat_dormant_day_does_nothing(tmp_path):
+    """The ordinary gated-off morning. Nothing held, so nothing owed."""
+    r, ib, store = _bare_runner(tmp_path)
+    seen = _stand_down(r)
+    r.day(DAY)
+    assert seen == [], "no session, no flatten — there is nothing to flatten"
+
+
+def test_a_dormant_day_still_flattens_an_inherited_position(tmp_path):
+    """"No session to run" was read as "nothing to do", and the day returned.
+
+    Past the 15:55 flatten and past the 16:00 verify. But the gate is a decision
+    not to *open* anything: a position left by a process that died is exactly as
+    real on a gated-off day, and §1's first priority does not take the day off
+    with the gate.
+    """
+    r, ib, store = _bare_runner(tmp_path, positions={"SOXL": 500.0})
+    seen = _stand_down(r)
+    said = []
+    r._event = lambda lvl, msg: said.append((lvl, msg))
+
+    r.day(DAY)
+
+    assert seen == ["session", "close_out"], "the day must still reach 15:55"
+    assert any(lvl == "critical" and "500" in msg for lvl, msg in said)
+
+
+def test_a_closed_market_says_so_and_does_not_try_to_trade(tmp_path):
+    """A holiday with an inherited position: nothing can be done from here.
+
+    Sending a market order at a closed exchange is not a fix, so this is the
+    one exposed case that must stop — loudly.
+    """
+    r, ib, store = _bare_runner(tmp_path, positions={"SOXL": 500.0})
+    seen = _stand_down(r, reason="market_closed")
+    said = []
+    r._event = lambda lvl, msg: said.append((lvl, msg))
+
+    r.day(DAY)
+
+    assert seen == [], "there is no RTH to flatten into"
+    assert any(lvl == "critical" and "NOT FLAT" in msg for lvl, msg in said)
+
+
+def test_the_feed_stops_once_every_sleeve_is_dormant(tmp_path):
+    """A dormant day that stays up must not spend the pacing budget on bars.
+
+    One `reqHistoricalData` per symbol per poll against IBKR's 60-per-600s, for
+    bars that cannot change a decision any of the sleeves is still able to make.
+    """
+    r, ib, store = _bare_runner(tmp_path)
+    assert list(r.feeds_to_poll()), "with no sleeves yet, poll normally"
+
+    r.engine.sleeves = {"SOXL": SimpleNamespace(dormant=False)}
+    assert list(r.feeds_to_poll()), "a live sleeve is polled"
+
+    r.engine.sleeves = {"SOXL": SimpleNamespace(dormant=True)}
+    assert list(r.feeds_to_poll()) == []

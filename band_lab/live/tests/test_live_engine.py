@@ -14,7 +14,7 @@ from zoneinfo import ZoneInfo
 
 import pytest
 
-from broker import FakeIB, NotLiveDataError, SessionHours
+from broker import FakeIB, NotLiveDataError, SessionHours, is_working
 from engine import Engine, FILTER_IDX, FLATTEN_IDX, START_IDX
 from store import Store
 from strategy_core import Bar, FeatureHistory, SessionStats, session_stats
@@ -542,3 +542,303 @@ def test_a_stood_down_sleeve_is_not_armed_by_the_clock(tmp_path):
         eng.on_bar("SOXL", Bar(i, 100.0, 108.0, 100.0, 100.5, 1.0))
     assert eng.sleeves["SOXL"].dormant
     assert eng.activate_due(_at_1100()) == []
+
+
+# --------------------------------- the cold start is a restart path too (F2)
+def test_a_cold_start_never_places_a_second_entry(tmp_path):
+    """§3 says every path is the restart path. The first one was not.
+
+    `Runner.pre_open` connects before `engine.sleeves` exists, so `on_connect`
+    iterated an empty dict and reconciled nothing, and `pre_open` then built
+    fresh state machines without asking the broker anything. Only a *re*connect
+    ever reconciled. A process that armed at 11:00 and died therefore came back
+    believing it had never armed, replayed the session from the feed, and put a
+    second live buy limit behind one that could still fill.
+    """
+    eng, ib, store, feats = _engine(tmp_path)
+    eng.pre_open(DAY, feats)
+    for b in _session_bars(n=START_IDX + 1):
+        eng.on_bar("SOXL", b)
+    resting = [o for o in ib.orders.values() if o.action == "BUY"]
+    assert len(resting) == 1, "the dead process armed exactly once"
+
+    # The replacement process: same broker, same database, nothing in memory.
+    eng2 = Engine(ib, store, symbols=("SOXL",), on_event=lambda l, m: None)
+    eng2.pre_open(DAY, feats)
+    assert eng2.sleeves["SOXL"].om.entry_id == resting[0].order_id, \
+        "pre-open must establish state from the broker, not from memory"
+
+    for b in _session_bars(n=START_IDX + 1):
+        eng2.on_bar("SOXL", b)
+
+    live = [o for o in ib.orders.values()
+            if o.action == "BUY" and o.status not in ("Cancelled", "Filled")]
+    assert len(live) == 1, f"one sleeve, one resting entry — found {len(live)}"
+
+
+def test_pre_open_reconciles_even_when_the_market_is_closed(tmp_path):
+    """A position left by a dead process is just as real on a holiday.
+
+    The gate and the market-closed check both stand the sleeve down before
+    anything else looks at the broker, so a holiday is precisely the day a
+    forgotten position would go unnoticed.
+    """
+    ib = FakeIB(symbols=("SOXL",))
+    store = Store(str(tmp_path / "closed.db"))
+    said = []
+    eng = Engine(ib, store, symbols=("SOXL",),
+                 on_event=lambda lvl, msg: said.append((lvl, msg)))
+    o = DAY.replace(hour=9, minute=30)
+    ib.hours["SOXL"] = SessionHours(o, o.replace(hour=13), is_half_day=True)
+    ib.positions["SOXL"] = 500.0        # left behind by a process that died
+
+    eng.pre_open(DAY, {"SOXL": _history()})
+
+    assert eng.sleeves["SOXL"].dormant, "a half day still gates the sleeve off"
+    # Asserted on what pre_open itself did — calling reconcile() from the test
+    # would write the same row and pass whether or not the engine ever looked.
+    rows = store.rows("SELECT state FROM counters WHERE symbol='SOXL'")
+    assert rows, "pre-open must reconcile even when the sleeve stands down"
+    assert any(lvl == "warn" and "500" in msg for lvl, msg in said), \
+        "and must say so — a holiday is the day nobody else would look"
+
+
+# ------------------- a close the engine did not order (2026-08-10 shape, F3)
+def _in_position(tmp_path, entry_px=90.0):
+    eng, ib, store, feats = _engine(tmp_path)
+    eng.pre_open(DAY, feats)
+    for b in _session_bars(n=START_IDX + 1):
+        eng.on_bar("SOXL", b)
+    entry = [o for o in ib.orders.values() if o.order_type == "LMT"][-1]
+    ib.fill(entry.order_id, price=entry_px)
+    eng.poll(START_IDX + 1)
+    assert eng.sleeves["SOXL"].sm.in_position
+    return eng, ib, store
+
+
+def test_a_watchdog_flatten_is_booked_at_the_price_it_filled(tmp_path):
+    """The watchdog's refs are `WATCHDOG-<date>-<time>-<symbol>`.
+
+    `parse_ref` cannot decode one — `int("SOXL")` raises — so the execution was
+    logged as a fill and routed nowhere. `exit_qty` stayed 0, the sleeve went on
+    believing it held 757 shares it no longer had, and 15:55 booked the trade at
+    a price nobody traded at: -9084 bp against a real +101.
+    """
+    eng, ib, store = _in_position(tmp_path, entry_px=90.0)
+    held = abs(ib.position("SOXL"))
+
+    oid = ib.place_market("SOXL", "SELL", held, "WATCHDOG-20260803-155830-SOXL")
+    ib.fill(oid, price=91.0)
+
+    eng.flatten_all(bar_idx=FLATTEN_IDX, settle=0)
+
+    sm = eng.sleeves["SOXL"].sm
+    assert len(sm.trades) == 1
+    t = sm.trades[-1]
+    assert t.exit_px == pytest.approx(91.0), "the price it actually filled at"
+    assert t.outcome == "external", "not a target, a stop, or our own flatten"
+    assert t.ret > 0, "a +1.00 move on a long is not a loss"
+
+
+def test_an_external_close_stands_the_sleeve_down(tmp_path):
+    """It must not re-arm into the position that was just taken off it.
+
+    Every actor that closes a position behind the engine's back — the watchdog,
+    a hand in TWS, a liquidation — is trying to reduce exposure. Re-arming is
+    the exact opposite, and it would let the engine undo a watchdog
+    intervention that fired for a reason.
+    """
+    eng, ib, store = _in_position(tmp_path, entry_px=90.0)
+    oid = ib.place_market("SOXL", "SELL", abs(ib.position("SOXL")),
+                          "WATCHDOG-20260803-155830-SOXL")
+    ib.fill(oid, price=91.0)
+
+    eng.poll(START_IDX + 2)                    # mid-session, not at the close
+
+    sm = eng.sleeves["SOXL"].sm
+    assert not sm.in_position
+    assert sm.state.value == "closed"
+    assert not [o for o in ib.orders.values()
+                if o.action == "BUY" and o.status == "Submitted"], \
+        "no new entry may rest after someone else flattened the sleeve"
+
+
+def test_an_unexplained_close_is_never_booked_at_zero(tmp_path):
+    """The half the earlier fix left open.
+
+    `sm.flatten` books whenever the sleeve is in a position and is only ever
+    handed 0.0, so guarding on `not flat` covered a real open position and
+    missed its mirror image: broker flat, sleeve still holding, and no
+    execution to explain the difference. Here the position simply vanishes.
+    """
+    eng, ib, store = _in_position(tmp_path, entry_px=90.0)
+    ib.positions["SOXL"] = 0.0                 # gone, with no execution at all
+
+    eng.flatten_all(bar_idx=FLATTEN_IDX, settle=0)
+
+    sm = eng.sleeves["SOXL"].sm
+    assert not sm.trades, "no trade may be booked at a price nothing traded at"
+    assert sm.pnl == 0.0
+
+
+# ------------------------- a dormant sleeve stops being able to trade (F12)
+def test_a_gated_off_day_cancels_an_entry_left_by_a_dead_process(tmp_path):
+    """`sleeve.py` has always documented DORMANT as cancel-all; it only logged.
+
+    Latent until `pre_open` began reconciling before the gate. Now a gate-OFF
+    morning can start holding a resting buy limit from a process that died
+    yesterday — and left alone it fills in the afternoon, into a sleeve that
+    decided at 06:00 not to trade and is watching nothing.
+    """
+    ib = FakeIB(symbols=("SOXL",))
+    ib.connect()
+    stale = ib.place_limit("SOXL", "BUY", 500, 99.0, "20260803-SOXL-E-1")
+    store = Store(str(tmp_path / "d.db"))
+    eng = Engine(ib, store, symbols=("SOXL",), on_event=lambda l, m: None)
+
+    eng.pre_open(DAY, {"SOXL": _history(range_pct=2.0)})     # ATR5 too low
+
+    assert eng.sleeves["SOXL"].dormant
+    assert not is_working(ib.orders[stale].status), \
+        "a sleeve that will not trade must not leave a live entry behind"
+
+
+def test_a_dormant_sleeve_keeps_the_bracket_on_a_real_position(tmp_path):
+    """Cancel-all taken literally would strip the only protection there is.
+
+    §6.1's guarantee is a stop resting for whatever is held. The reconcile that
+    surfaces the entry above surfaces the bracket too, and they must not be
+    treated the same way.
+    """
+    ib = FakeIB(symbols=("SOXL",))
+    ib.connect()
+    ib.positions["SOXL"] = 500.0
+    tgt = ib.place_limit("SOXL", "SELL", 500, 101.0, "20260803-SOXL-T-2",
+                         oca_group="g")
+    stp = ib.place_stop("SOXL", "SELL", 500, 95.0, "20260803-SOXL-S-3",
+                        oca_group="g")
+    store = Store(str(tmp_path / "d2.db"))
+    said = []
+    eng = Engine(ib, store, symbols=("SOXL",),
+                 on_event=lambda lvl, msg: said.append((lvl, msg)))
+
+    eng.pre_open(DAY, {"SOXL": _history(range_pct=2.0)})     # gate OFF
+
+    assert eng.sleeves["SOXL"].dormant
+    assert is_working(ib.orders[tgt].status) and is_working(ib.orders[stp].status)
+    assert any("keeping the bracket" in m for _, m in said)
+
+
+def test_a_dormant_flat_sleeve_does_not_leave_orphan_sell_orders(tmp_path):
+    """Flat, so the two legs have nothing to sell. They are just exposure."""
+    ib = FakeIB(symbols=("SOXL",))
+    ib.connect()
+    tgt = ib.place_limit("SOXL", "SELL", 500, 101.0, "20260803-SOXL-T-2",
+                         oca_group="g")
+    stp = ib.place_stop("SOXL", "SELL", 500, 95.0, "20260803-SOXL-S-3",
+                        oca_group="g")
+    store = Store(str(tmp_path / "d3.db"))
+    eng = Engine(ib, store, symbols=("SOXL",), on_event=lambda l, m: None)
+
+    eng.pre_open(DAY, {"SOXL": _history(range_pct=2.0)})
+
+    assert not is_working(ib.orders[tgt].status)
+    assert not is_working(ib.orders[stp].status)
+
+
+# ------------- one sleeve's entitlement is not the whole session's (F22)
+def test_standing_down_one_sleeve_leaves_the_other_trading(tmp_path):
+    """Entitlements are per contract, and the error now says which.
+
+    `NotLiveDataError` carries the symbol so a caller that catches it outside
+    the per-sleeve guards can still contain it. Parsing it out of the message
+    is the alternative, and the message is prose.
+    """
+    eng, ib, store, feats = _engine(tmp_path, symbols=("SOXL", "SOXS"))
+    eng.pre_open(DAY, feats)
+
+    stood = eng.stand_down("SOXL", "not_live_data", "SOXL: delayed")
+
+    assert stood == ["SOXL"]
+    assert eng.sleeves["SOXL"].dormant
+    assert not eng.sleeves["SOXS"].dormant
+
+
+def test_an_unattributed_failure_stands_every_sleeve_down(tmp_path):
+    """§4 forbids trading on delayed data, and an error naming no symbol
+    could be either sleeve. Refusing both is the safe reading."""
+    eng, ib, store, feats = _engine(tmp_path, symbols=("SOXL", "SOXS"))
+    eng.pre_open(DAY, feats)
+
+    stood = eng.stand_down(None, "not_live_data", "account: no subscription")
+
+    assert sorted(stood) == ["SOXL", "SOXS"]
+    assert all(rt.dormant for rt in eng.sleeves.values())
+
+
+def test_standing_down_takes_the_resting_entry_off_the_market(tmp_path):
+    """The gap the two `not_live_data` paths had.
+
+    Both set `rt.dormant` directly, which skipped `_dormant` — so a sleeve that
+    lost its feed while armed went dormant with its buy limit still resting at
+    IBKR, free to fill into a sleeve that had stopped watching.
+    """
+    eng, ib, store, feats = _engine(tmp_path)
+    eng.pre_open(DAY, feats)
+    for b in _session_bars(n=START_IDX + 1):
+        eng.on_bar("SOXL", b)
+    entry = [o for o in ib.orders.values() if o.action == "BUY"][0]
+    assert is_working(entry.status), "armed, with a live buy limit"
+
+    eng.stand_down("SOXL", "not_live_data", "SOXL: delayed")
+
+    assert not is_working(entry.status), \
+        "a sleeve that stops watching must not leave an order that can fill"
+
+
+def test_a_second_stand_down_is_quiet(tmp_path):
+    """It runs from a loop handler, so it must not shout every 30 seconds."""
+    eng, ib, store, feats = _engine(tmp_path)
+    eng.pre_open(DAY, feats)
+    assert eng.stand_down("SOXL", "not_live_data") == ["SOXL"]
+    assert eng.stand_down("SOXL", "not_live_data") == []
+
+
+# ------------------- a ref must identify exactly one order (F24)
+def test_reconcile_reports_a_ref_that_covers_two_orders(tmp_path):
+    """Deterministic refs are what make §2.7's counters reconstructible.
+
+    `reconcile` counts entries as a *set* of refs, so a collision under-counts
+    the breaker without saying so. This is the detector for the sequence
+    recovery regressing.
+    """
+    eng, ib, store, feats = _engine(tmp_path)
+    said = []
+    eng.on_event = lambda lvl, msg: said.append((lvl, msg))
+    eng.pre_open(DAY, feats)
+
+    store.order("SOXL", eng.session, "20260803-SOXL-E-1", "E", "BUY", "LMT",
+                "placed", order_id=1)
+    store.order("SOXL", eng.session, "20260803-SOXL-E-1", "E", "BUY", "LMT",
+                "placed", order_id=2)
+
+    eng.reconcile()
+
+    assert any(lvl == "critical" and "no longer unique" in msg
+               for lvl, msg in said)
+
+
+def test_the_ordinary_event_log_is_not_a_collision(tmp_path):
+    """One ref legitimately has many rows — placed, modified, cancelled."""
+    eng, ib, store, feats = _engine(tmp_path)
+    said = []
+    eng.on_event = lambda lvl, msg: said.append((lvl, msg))
+    eng.pre_open(DAY, feats)
+
+    for event in ("placed", "modified", "cancelled"):
+        store.order("SOXL", eng.session, "20260803-SOXL-E-1", "E", "BUY",
+                    "LMT", event, order_id=1)
+
+    eng.reconcile()
+
+    assert not [m for lvl, m in said if "no longer unique" in m]

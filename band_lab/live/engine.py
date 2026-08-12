@@ -40,7 +40,9 @@ from broker import (                                        # noqa: E402
     Broker, MarketClosedError, NotLiveDataError, SessionHours,
 )
 from orders import OrderManager                             # noqa: E402
-from sleeve import SleeveConfig, SleeveStateMachine         # noqa: E402
+from sleeve import (                                        # noqa: E402
+    Intent, IntentKind, SleeveConfig, SleeveStateMachine,
+)
 from store import Store                                     # noqa: E402
 from strategy_core import (                                 # noqa: E402
     Bar, FeatureHistory, session_stats,
@@ -128,6 +130,26 @@ class Engine:
             rt = SleeveRuntime(symbol=symbol, sm=sm, om=om, history=hist)
             self.sleeves[symbol] = rt
 
+            # §3 — reconciliation from the broker is the only way state is ever
+            # established, "so there is no distinct restart path, because every
+            # path is the restart path". The cold path was the exception, and
+            # nothing said so: `Runner.pre_open` connects before `self.sleeves`
+            # exists, so `on_connect` iterated an empty dict and reconciled
+            # nothing, and this method then built fresh state machines without
+            # asking the broker anything. Only a *re*connect ever reconciled.
+            #
+            # It runs before the gate, and before the market-closed check, on
+            # purpose: a position left by a dead process is exactly as real on a
+            # holiday or a gated-off day, and those are the days nothing else
+            # would look.
+            summary = om.reconcile()
+            if summary["position"] or summary["working"]:
+                self.on_event("warn",
+                              f"{symbol} pre-open reconcile found broker state "
+                              f"already in place: position={summary['position']:.0f}, "
+                              f"{summary['working']} working order(s) — adopted, "
+                              f"not replaced")
+
             try:
                 sh = (hours or {}).get(symbol) or self.broker.session_hours(symbol, day)
             except MarketClosedError as exc:
@@ -150,6 +172,36 @@ class Engine:
                              gate_reason=gate.reason, atr5=atr5,
                              thr80=hist.thr80(), account_equity=equity,
                              sleeve_capital=self.sleeve_capital)
+
+    def stand_down(self, symbol: Optional[str], reason: str,
+                   detail: str = "") -> list[str]:
+        """Stop a sleeve trading, and take its resting order off the market.
+
+        One sleeve when the caller knows which — entitlements are per contract,
+        and on 2026-08-06 a `NotLiveDataError` on SOXL ended the session for
+        SOXS too. **All** of them when it does not: an unattributed live-data
+        failure could be either, and §4 forbids trading on delayed data.
+
+        The DORMANT intent is applied rather than the flag merely being set.
+        Both `not_live_data` paths used to set `rt.dormant` directly, which
+        skipped `_dormant` entirely — so a sleeve that lost its feed while armed
+        went dormant with its buy limit still resting at IBKR, free to fill into
+        a sleeve that had stopped watching.
+        """
+        targets = [symbol] if symbol in self.sleeves else list(self.sleeves)
+        stood_down = []
+        for s in targets:
+            rt = self.sleeves[s]
+            if rt.dormant:
+                continue
+            rt.dormant, rt.dormant_reason = True, reason
+            stood_down.append(s)
+            self.on_event("critical", f"{s} STANDING DOWN ({reason})"
+                                      + (f": {detail}" if detail else ""))
+            self.store.daily(self.session, s, filter_ok=0, filter_reason=reason)
+            rt.om.apply([Intent(kind=IntentKind.DORMANT,
+                                bar_idx=rt.sm._last_bar_idx, reason=reason)])
+        return stood_down
 
     # ----------------------------------------------------------- 10:00
     def apply_morning_filter(self, symbol: str, bars: list[Bar]) -> bool:
@@ -200,12 +252,9 @@ class Engine:
             try:
                 self.broker.assert_live_data(symbol)   # never arm on delayed data
             except NotLiveDataError as exc:
-                rt.dormant, rt.dormant_reason = True, "not_live_data"
-                self.on_event("critical", f"{symbol} NOT LIVE DATA: {exc} — "
-                                          f"this sleeve stands down; the other "
-                                          f"is unaffected")
-                self.store.daily(self.session, symbol, filter_ok=0,
-                                 filter_reason="not_live_data")
+                self.stand_down(symbol, "not_live_data",
+                                f"{exc} — this sleeve only; the other is "
+                                f"unaffected, entitlements are per contract")
                 return
             rt.activated = True
         rt.sm.on_bar_open(bar.idx)
@@ -269,11 +318,7 @@ class Engine:
             try:
                 self.broker.assert_live_data(symbol)
             except NotLiveDataError as exc:
-                rt.dormant, rt.dormant_reason = True, "not_live_data"
-                self.on_event("critical", f"{symbol} NOT LIVE DATA: {exc} — "
-                                          f"this sleeve stands down")
-                self.store.daily(self.session, symbol, filter_ok=0,
-                                 filter_reason="not_live_data")
+                self.stand_down(symbol, "not_live_data", str(exc))
                 continue
             rt.activated = True
             rt.sm.on_bar_open(START_IDX)
@@ -336,6 +381,12 @@ class Engine:
         started = time.monotonic()
         out = {}
         for symbol, rt in self.sleeves.items():
+            # Drain before deciding. `ensure_flat` returns immediately when the
+            # broker is already flat, without draining, so an exit that had
+            # already settled — above all one this engine did not order — was
+            # never attributed before the sleeve was asked whether it still held
+            # anything. It answered yes, and the booking below did the rest.
+            rt.om.on_executions(bar_idx)
             # Share what is left between the sleeves that still hold something.
             # Sequential and un-shared, the first stuck sleeve would spend the
             # whole budget and leave the second with none — turning one
@@ -347,13 +398,35 @@ class Engine:
                               if abs(self.broker.position(s)) > 1e-9)
                 share = left / max(1, holding)
             flat = rt.om.ensure_flat(settle=settle, budget=share)
-            if rt.sm.in_position and not flat:
+            # `sm.flatten` books a trade whenever the sleeve is in a position,
+            # and it is only ever handed 0.0 — so the guard is `in_position`,
+            # not `not flat`. Guarding on `not flat` left the other half open:
+            # a position closed by something the engine could not attribute
+            # leaves the sleeve in_position with the broker already flat, and
+            # that booked the trade at zero. On 2026-08-06 the same arithmetic
+            # reported a day as -4018 bp; a reproduction against a watchdog
+            # flatten reports -9084 against a real +101.
+            if rt.sm.in_position:
                 pos = self.broker.position(symbol)
-                self.on_event("critical",
-                              f"{symbol} STILL HOLDS {pos:.0f} SHARES — not "
-                              f"booking a trade, because the position is real "
-                              f"and still open. Close it by hand now: §1's first "
-                              f"design priority is never holding overnight.")
+                if not flat:
+                    self.on_event("critical",
+                                  f"{symbol} STILL HOLDS {pos:.0f} SHARES — not "
+                                  f"booking a trade, because the position is real "
+                                  f"and still open. Close it by hand now: §1's first "
+                                  f"design priority is never holding overnight.")
+                else:
+                    # Flat at the broker, still holding as far as the sleeve
+                    # knows, and no execution explained the difference — so
+                    # there is no price to book. A missing trade is recoverable
+                    # from IBKR's own log; a fabricated one looks like a
+                    # catastrophic loss and buries whatever really happened.
+                    self.on_event("critical",
+                                  f"{symbol} is flat at the broker but the sleeve "
+                                  f"still holds {rt.sm._qty:.0f} shares from bar "
+                                  f"{rt.sm.entry_bar} @ {rt.sm._entry_px:.4f}, and "
+                                  f"no execution accounts for the close. NOT "
+                                  f"booking a trade — reconcile this against "
+                                  f"IBKR's execution log by hand.")
             else:
                 rt.sm.flatten(price=0.0, bar_idx=bar_idx)
                 rt.om.apply(rt.sm.drain_intents())
@@ -420,6 +493,22 @@ class Engine:
     # ----------------------------------------------------------- 16:10
     def reconcile(self) -> dict[str, dict]:
         out = {}
+        # Deterministic refs are what make §2.7's counters reconstructible from
+        # IBKR's execution log alone. If one ever covers two orders, that
+        # property is gone and `reconcile` under-counts without saying so —
+        # `entries` is a set of refs. Cheap to check once a day, and it is the
+        # detector for the sequence recovery regressing.
+        try:
+            clashes = self.store.duplicate_order_refs(self.session)
+        except Exception:                                   # noqa: BLE001
+            clashes = []
+        if clashes:
+            self.on_event("critical",
+                          "order refs are no longer unique: "
+                          + ", ".join(f"{r['order_ref']} covers {r['n']} orders"
+                                      for r in clashes)
+                          + " — the counters below are under-counted and the "
+                            "audit trail cannot identify which order is which.")
         for symbol, rt in self.sleeves.items():
             summary = rt.om.reconcile()
             realised = sum(t.ret for t in rt.sm.trades)

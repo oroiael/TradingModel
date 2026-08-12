@@ -58,8 +58,8 @@ class Runner:
         self.store = store or Store(cfg.db_path)
         self.broker = broker or IBBroker(
             host=cfg.host, port=cfg.port, client_id=cfg.client_id,
-            exchange=cfg.exchange, primary=cfg.primary,
-            readonly=not cfg.transmit, on_event=self._event)
+            exchange=cfg.exchange, primary=cfg.primary, account=cfg.account,
+            dry_run=not cfg.transmit, on_event=self._event)
         self.engine = Engine(self.broker, self.store, symbols=cfg.symbols,
                              f=cfg.f, w=cfg.w, capital_cap=cfg.capital_cap,
                              on_event=self._event)
@@ -127,6 +127,10 @@ class Runner:
                 "ts": datetime.now(NY).isoformat(),
                 "session": self.session,
                 "pid": os.getpid(),
+                # So the watchdog can notice the one mismatch that matters: an
+                # engine rehearsing with transmit off while a watchdog armed to
+                # send real orders watches the same account.
+                "transmit": bool(self.cfg.transmit),
                 "sleeves": {s: ("dormant" if rt.dormant else
                                 getattr(rt.sm.state, "name", "?"))
                             for s, rt in self.engine.sleeves.items()},
@@ -162,6 +166,21 @@ class Runner:
             parts.append(bit)
         self._event("info", "heartbeat | " + " | ".join(parts or ["no sleeves"]))
 
+    def feeds_to_poll(self):
+        """The feeds worth a `reqHistoricalData` on this pass.
+
+        Once every sleeve is dormant no bar can change a decision, and the feed
+        becomes pure cost — one historical request per symbol per poll, out of
+        the 60-per-600s IBKR documents. The loop itself keeps running, because a
+        dormant day can still owe the account a 15:55 flatten: `day` no longer
+        returns early when the sleeves are all dormant but the account is not
+        flat.
+        """
+        if self.engine.sleeves and all(rt.dormant
+                                       for rt in self.engine.sleeves.values()):
+            return ()
+        return self.feeds.items()
+
     def run_session(self, day: datetime, sleep: float = None,
                     heartbeat: float = None) -> None:
         """09:30 -> 15:55. Polls the feed, drives the engine, drains fills."""
@@ -172,7 +191,7 @@ class Runner:
         while datetime.now(NY) < flatten_at:
             try:
                 self._connect()
-                for symbol, feed in self.feeds.items():
+                for symbol, feed in self.feeds_to_poll():
                     for bar in feed.poll(datetime.now(NY)):
                         try:
                             self.engine.on_bar(symbol, bar)
@@ -197,8 +216,18 @@ class Runner:
                     self._event("critical", "day-loss condition — flattening early")
                     break
             except NotLiveDataError as exc:
-                self._event("critical", f"{exc} — standing down for the session")
-                break
+                # Containment lives in `on_bar` and `activate_due`, which stand
+                # one sleeve down. Reaching here means some other path raised
+                # it, and this handler used to `break` — ending the session for
+                # both sleeves over one symbol's entitlement, which is the
+                # 2026-08-06 failure the containment was added to prevent.
+                #
+                # Stand down what the error names, or everything when it names
+                # nothing, and keep the loop running. A dormant session costs a
+                # heartbeat (`feeds_to_poll` returns empty) and still owes the
+                # account its 15:55 flatten.
+                self.engine.stand_down(getattr(exc, "symbol", None),
+                                       "not_live_data", str(exc))
             except BrokerError as exc:
                 self._event("error", f"broker: {exc}; will reconnect")
             except Exception as exc:                        # noqa: BLE001
@@ -253,11 +282,34 @@ class Runner:
             return {}
         if not self.pre_open(day):
             reasons = {s: rt.dormant_reason for s, rt in self.engine.sleeves.items()}
-            if all(r == "market_closed" for r in reasons.values()):
-                self._event("info", "market closed today — nothing to do")
-            else:
-                self._event("info", f"all sleeves dormant — no session to run: {reasons}")
-            return self.engine.reconcile()
+            closed = all(r == "market_closed" for r in reasons.values())
+            self._event("info", "market closed today — nothing to do" if closed
+                        else f"all sleeves dormant — no session to run: {reasons}")
+
+            # "No session to run" was taken to mean "nothing to do", and the day
+            # returned here — past the 15:55 flatten and past the 16:00 verify.
+            # But a dormant sleeve is only a decision not to *open* anything; a
+            # position inherited from a process that died is exactly as real on
+            # a gated-off day, and §1's first priority does not take the day off
+            # with the gate.
+            held = {s: self.broker.position(s) for s in self.cfg.symbols}
+            held = {s: p for s, p in held.items() if abs(p) > 1e-9}
+            if not held:
+                return self.engine.reconcile()
+            if closed:
+                # No RTH to flatten into. Say so as loudly as possible and stop:
+                # sending a market order at a closed exchange is not a fix.
+                self._event("critical",
+                            f"market closed and the account is NOT FLAT: {held}. "
+                            f"Nothing can be done from here — close it by hand at "
+                            f"the next open.")
+                return self.engine.reconcile()
+            self._event("critical",
+                        f"every sleeve is dormant but the account holds {held}. "
+                        f"Staying up to flatten at 15:55 — the gate stops this "
+                        f"engine opening a position, not closing one.")
+            # Falls through. `run_session` skips the bar feed while every sleeve
+            # is dormant, so this costs a heartbeat and nothing else.
         self.heartbeat()
         self.run_session(day, sleep=sleep, heartbeat=heartbeat)
         return self.close_out()

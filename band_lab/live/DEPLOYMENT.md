@@ -232,7 +232,7 @@ Alert channels for Phase 2 (email + push + desktop, per your decision):
   "port": 7497,
   "client_id": 11,
   "db_path": "band_lab/live/out/live.db",
-  "bar_poll_seconds": 20.0,
+  "bar_poll_seconds": 30.0,
   "symbols": ["SOXL", "SOXS"]
 }
 ```
@@ -322,18 +322,32 @@ Then run one real session against TWS with transmit off:
 python3 band_lab/live/run.py --dry-run
 ```
 
-`--dry-run` forces `transmit=False`, which puts the adapter in `readonly` mode
+`--dry-run` forces `transmit=False`, which puts the adapter in `dry_run` mode
 — decisions are computed, logged to SQLite and printed; nothing reaches the
-market.
+market. The API **connection** is a full one either way: a dry run has to
+rehearse the engine that will actually run, and everything the reconcile path
+depends on reads `openTrades()`.
 
 > **This was not true until 2026-08-02.** `readonly` in `ib_async` is a
 > client-side flag that skips two startup requests; it never stopped
 > `placeOrder`, and `OrderManager` always called the broker with the default
 > `transmit=True`. A dry run following this document would have placed real
-> paper orders. `IBBroker` now refuses to transmit while `readonly` is set —
-> every order is logged as `DRY RUN — not sent: …` instead. Guaranteed by
+> paper orders. `IBBroker` now refuses to transmit while its own `dry_run` flag
+> is set — every order is logged as `DRY RUN — not sent: …` instead. The flag
+> was called `readonly` until 2026-08-11, borrowing the name that caused this
+> defect; it no longer touches the connection at all. Guaranteed by
 > `tests/test_live_broker_guards.py`. **Confirm the prefix is present on the
 > first arming; if an order appears in TWS during a dry run, stop the session.**
+
+> **The watchdog is not covered by that sentence.** "Nothing reaches the
+> market" describes `run.py`. `watchdog.py` is a separate process and is
+> **armed by default**, including while the engine is in a dry run: exposure on
+> the account is real whether or not the engine is rehearsing, and a position
+> left by an earlier session still has to be closed by 16:00. If you want a
+> rehearsal where genuinely nothing is sent, start it with `--no-transmit` —
+> and understand that nothing will then be closed for you either. The watchdog
+> reads the engine's mode from the heartbeat and says so once at startup when
+> the two disagree.
 
 Confirm four things:
 

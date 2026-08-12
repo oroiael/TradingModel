@@ -41,6 +41,14 @@ from spec_constants import round_to_tick                   # noqa: E402
 
 ROLE_ENTRY, ROLE_TARGET, ROLE_STOP, ROLE_FLAT = "E", "T", "S", "F"
 
+#: Not a role this engine ever writes into an `orderRef` — it is what an
+#: execution gets when *something else* closed the position. The watchdog
+#: (whose refs are `WATCHDOG-<date>-<time>-<symbol>`, which `parse_ref` cannot
+#: decode), a hand in TWS, an IBKR liquidation. Before this existed such an
+#: execution was recorded and then ignored, so the sleeve went on believing it
+#: held shares it no longer had.
+ROLE_EXTERNAL = "X"
+
 
 class RatchetViolation(AssertionError):
     """The entry limit moved down. §2.5 forbids this; fail loudly."""
@@ -117,6 +125,23 @@ class OrderManager:
             self.on_event("info", f"{self.symbol} recovered {len(recovered)} "
                                   f"execution(s) already handled today")
 
+        # And the highest sequence this session has already issued. `reconcile`
+        # recovers it from the broker, but only for orders that are still
+        # working or that executed — an order placed and then cancelled without
+        # a fill is invisible to both, and its number would be handed out again.
+        # The `orders` table is the one record that has every ref written today.
+        try:
+            refs = self.store.rows(
+                "SELECT order_ref FROM orders WHERE symbol=? AND session=?",
+                (self.symbol, self.session))
+        except Exception:                                   # noqa: BLE001
+            return
+        used = [p[3] for p in (parse_ref(r["order_ref"]) for r in refs) if p]
+        if used:
+            self.seq = max(self.seq, max(used))
+            self.on_event("info", f"{self.symbol} order refs resume at "
+                                  f"{self.seq + 1}")
+
     # ------------------------------------------------------------- helpers
     def _next_ref(self, role: str) -> str:
         self.seq += 1
@@ -158,9 +183,98 @@ class OrderManager:
                 f"{self.highest_limit:.2f} — §2.5 forbids the limit moving down")
         self.highest_limit = max(self.highest_limit, limit_px)
 
+    def _adopt_rather_than_duplicate(self, working: WorkingOrder, it: Intent,
+                                     px: float, qty: float) -> None:
+        """The broker already has an entry for this sleeve. Never add a second.
+
+        A restart rebuilds the state machine from nothing and replays the
+        session from the feed, so it reaches 11:00 believing it has never armed
+        — while the order the dead process placed is still resting at IBKR.
+        Arming again gives one sleeve two live buy limits. `_modify_entry`
+        already refuses to cause that and logs `critical` about it; it must not
+        be reachable through the front door either.
+        """
+        if working.status == "PendingCancel":
+            # On its way out, but not gone. Adopting means modifying an order
+            # mid-cancel; placing means a duplicate if the cancel never lands.
+            # Neither is acceptable, so do nothing and say so — the next ratchet
+            # retries once TWS has confirmed it one way or the other.
+            self.on_event("critical",
+                          f"{self.symbol} not arming: entry {working.order_id} "
+                          f"is still {working.status} at the broker, so it can "
+                          f"be neither modified nor safely replaced. Check TWS.")
+            return
+        self.entry_id, self.entry_ref = working.order_id, working.order_ref
+        self.entry_limit = working.limit_px
+        self.highest_limit = max(self.highest_limit, working.limit_px)
+        if (abs(working.limit_px - px) < self.tick / 2
+                and abs(working.remaining - qty) < 1e-9):
+            # The ordinary restart: same bars in, same arithmetic, same order.
+            # Sending a modify that changes nothing is pointless traffic.
+            self.on_event("info",
+                          f"{self.symbol} adopted the resting entry "
+                          f"{working.order_ref} @ {working.limit_px:.2f} "
+                          f"x{working.remaining:.0f} — already exactly what this "
+                          f"session would have placed")
+            return
+        self.on_event("warn",
+                      f"{self.symbol} adopted the resting entry "
+                      f"{working.order_ref} @ {working.limit_px:.2f} "
+                      f"x{working.remaining:.0f} and is ratcheting it to "
+                      f"{px:.2f} x{qty:.0f} rather than placing a second")
+        self._modify_entry(it)
+
+    def _affordable(self, px: float, qty: float) -> bool:
+        """§4.3's pre-order buying-power check, which had never existed.
+
+        `PHASE2_PLAN.md` §4.3: "A pre-order buying-power check is required...
+        Leveraged ETFs carry elevated margin requirements; to be verified
+        against the paper account, not assumed." At `w=0.50, f=1.00` both
+        sleeves in a position deploy the whole capital basis, so the second one
+        to arm is the one that finds out.
+
+        Asymmetric on purpose. IBKR saying the account would go into deficit is
+        positive evidence and refuses; IBKR not answering is *no* evidence and
+        proceeds with a warning. Refusing on silence is the 2026-08-06 mistake,
+        where the live-data guard stood a healthy sleeve down at 11:05 on a
+        confirmed-good subscription and cost the session.
+
+        The threshold is IBKR's own definition of a deficit — equity with loan
+        minus initial margin, after the order — not a buffer invented here.
+        """
+        preview = self.broker.preview_order(self.symbol, "BUY", qty, px)
+        if preview is None:
+            return True
+        # The commission is the point of logging this even when it passes:
+        # `phase1/COST_MODEL.md` §7.4 calls the real per-order cost the one
+        # input no further analysis can supply, and this is IBKR quoting it.
+        self.on_event("info",
+                      f"{self.symbol} margin preview for {qty:.0f} @ {px:.2f}: "
+                      f"init={preview.init_margin_after:,.0f} "
+                      f"equity={preview.equity_with_loan_after:,.0f} "
+                      f"available={preview.available_after:,.0f} "
+                      f"commission={preview.commission:.2f}"
+                      + (f" [{preview.warning}]" if preview.warning else ""))
+        if preview.affordable:
+            return True
+        self.on_event("critical",
+                      f"{self.symbol} NOT ARMING {qty:.0f} @ {px:.2f}: IBKR says "
+                      f"it would leave initial margin "
+                      f"{preview.init_margin_after:,.0f} against equity "
+                      f"{preview.equity_with_loan_after:,.0f} — a deficit of "
+                      f"{-preview.available_after:,.0f}. §4.3 requires this "
+                      f"check; both sleeves at f=1.00 deploy the full basis.")
+        return False
+
     def _place_entry(self, it: Intent) -> None:
         px, qty = self._px(it.limit_px), it.qty
         if qty <= 0:
+            return
+        # The broker is the fact; this state machine is only a belief about it.
+        working = self._working_entry(refresh=True)
+        if working is not None:
+            return self._adopt_rather_than_duplicate(working, it, px, qty)
+        if not self._affordable(px, qty):
             return
         self._assert_ratchet(px)
         self.entry_ref = self._next_ref(ROLE_ENTRY)
@@ -172,13 +286,44 @@ class OrderManager:
         self.on_event("info", f"{self.symbol} ARM  buy limit {qty:.0f} @ {px:.2f} "
                               f"({self.entry_ref})")
 
-    def _working_entry(self):
-        """The entry order the *broker* actually has, or None."""
+    def _working_entry(self, refresh: bool = False):
+        """The entry order the *broker* actually has, or None.
+
+        `refresh` re-reads the book from TWS first. It is off for the ratchet,
+        which runs on every rising bar and can afford to trust the client's
+        copy, and on before arming, where being wrong means a second live buy
+        limit: a ghost order is invisible to `openTrades()`, so without this the
+        duplicate guard below would look, see nothing, and place.
+        """
+        if refresh:
+            self.broker.refresh_orders()
+        found = []
         for w in self.broker.working_orders(self.symbol):
             p = parse_ref(w.order_ref)
             if p and p[2] == ROLE_ENTRY and w.remaining > 0:
-                return w
-        return None
+                found.append(w)
+        if not found:
+            return None
+        if len(found) > 1:
+            # §2.6 allows one position and therefore one entry, and the last
+            # several commits exist to keep it that way — the duplicate guard
+            # before arming, the ghost recovery, the refusal to re-place after a
+            # rejected modify. If two are working anyway, one of those failed
+            # and the sleeve is about to buy twice. Returning the first quietly
+            # made that a coin toss.
+            self.on_event("critical",
+                          f"{self.symbol} has {len(found)} working entries at "
+                          f"the broker, and §2.6 allows one: "
+                          + ", ".join(f"{w.order_ref} id={w.order_id} "
+                                      f"{w.remaining:.0f}@{w.limit_px:.2f}"
+                                      for w in found)
+                          + ". Adopting the highest limit; CANCEL THE OTHERS BY "
+                            "HAND — until then this sleeve can fill twice.")
+        # The highest limit is the one the ratchet would have produced, so
+        # adopting it keeps §2.5's witness monotone. Deliberately not cancelled
+        # here: which of two live orders is the real one is not knowable from
+        # this side, and 15:55's `_clear_working` takes them all anyway.
+        return max(found, key=lambda w: w.limit_px)
 
     def _resync_entry(self):
         """Adopt the broker's entry order before reasoning about it.
@@ -231,11 +376,31 @@ class OrderManager:
                           f"order may still be live at IBKR. Check TWS.")
             return
         if working.status == "PendingSubmit":
-            # Inference, not documented behaviour: on 2026-08-10 the arm and the
-            # ratchet were 2 ms apart and IBKR answered `Error 103`. Modifying
-            # an order it has not acknowledged is at best untestable from here,
-            # so the ratchet waits a bar. The anchor does not decay, and §2.5's
-            # invariant is that the limit never moves *down*.
+            # Documented, and no longer an inference — but not by the code that
+            # was cited here. IBKR's message table gives this its own entry:
+            #
+            #   2102  Unable to modify this order as it is still being
+            #         processed. "If you attempt to modify an order before it
+            #         gets processed by the system, the modification will be
+            #         rejected. Wait until the order has been fully processed
+            #         before modifying it."
+            #
+            # So waiting a bar is exactly right. What was wrong was the reason
+            # given: this comment used to attribute it to `Error 103` on
+            # 2026-08-10, and 103 means something else entirely — "Duplicate
+            # order ID. An order was placed with an order ID that is less than
+            # or equal to the order ID of a previous order from this client".
+            #
+            # The difference is not academic. 2102 is inside ib_async's
+            # 2100-2199 warning band, so the order stays working. 103 is not,
+            # so it marks the trade `Cancelled` while IBKR keeps filling it —
+            # which is what that session's 1,703 shares against a believed
+            # 1,701 actually look like. **The cause of that 103 is still
+            # unknown**; `_on_ib_error` now records every code so the next one
+            # can be read instead of reconstructed.
+            #
+            # The anchor does not decay, and §2.5's invariant is that the limit
+            # never moves *down*, so a deferred ratchet costs at most a bar.
             self.on_event("info",
                           f"{self.symbol} ratchet deferred — entry "
                           f"{working.order_id} is not acknowledged yet "
@@ -361,7 +526,49 @@ class OrderManager:
                         order_id=oid, qty=qty)
 
     def _dormant(self, it: Intent) -> None:
+        """A dormant sleeve places no more orders — and must not still be able
+        to acquire a position it has stopped managing.
+
+        `sleeve.py:_arm` has said "going dormant cancels everything working; the
+        OrderManager treats DORMANT as cancel-all" since Stage 1, and this
+        method only logged. That was latent while every reachable DORMANT path
+        happened to have nothing working, which is no longer true:
+        `Engine.pre_open` reconciles *before* the gate, so a gate-OFF or
+        stood-down day can begin holding a resting entry left by a process that
+        died. Left alone it fills at some point in the afternoon, into a sleeve
+        that has already decided not to trade and is not watching.
+
+        **The bracket is not treated the same way.** Cancel-all taken literally
+        would strip the two protective legs off a position the same reconcile
+        just adopted, and §6.1's guarantee is that a stop is always resting for
+        whatever is held. The entry always goes; the bracket goes only when the
+        broker says there is nothing left to protect.
+        """
         self.on_event("info", f"{self.symbol} dormant: {it.reason}")
+        had_entry = self.entry_id is not None
+        self._cancel_entry()
+        if had_entry:
+            self.on_event("warn",
+                          f"{self.symbol} cancelled a resting entry on going "
+                          f"dormant ({it.reason}) — it could still have filled "
+                          f"into a sleeve that has stopped trading")
+
+        pos = abs(self.broker.position(self.symbol))
+        if pos > 1e-9:
+            if self.target_id is not None or self.stop_id is not None:
+                self.on_event("warn",
+                              f"{self.symbol} dormant while holding {pos:.0f} "
+                              f"shares — keeping the bracket, which is the only "
+                              f"thing protecting them. The 15:55 flatten still "
+                              f"applies.")
+            else:
+                self.on_event("critical",
+                              f"{self.symbol} dormant while holding {pos:.0f} "
+                              f"shares with NO protective bracket. §6.1 wants a "
+                              f"stop resting for whatever is held. Check TWS.")
+            return
+        if self.target_id is not None or self.stop_id is not None:
+            self._cancel_bracket()
 
     # -------------------------------------------------------------- events
     def on_executions(self, bar_idx: int) -> list[Execution]:
@@ -383,6 +590,13 @@ class OrderManager:
                 self._on_entry_exec(e, bar_idx)
             elif role in (ROLE_TARGET, ROLE_STOP, ROLE_FLAT):
                 self._on_exit_exec(e, bar_idx, role)
+            elif self.sm.in_position and e.side == "SLD":
+                # A sale this engine did not order, while it holds a position.
+                # Routing on the ref alone meant these were counted as fills in
+                # the log and nowhere else: the position went to zero, the
+                # sleeve still believed it held shares, and the 15:55 close then
+                # booked the trade at a price nobody traded at.
+                self._on_exit_exec(e, bar_idx, ROLE_EXTERNAL)
         # A position can go flat between executions, so re-check even when this
         # poll brought nothing new — otherwise a settled exit never books.
         self._book_exit_if_flat(bar_idx)
@@ -461,9 +675,16 @@ class OrderManager:
         sold — a race that can leave two positions open at once. The trade is
         booked when the broker says the position is actually closed.
         """
-        outcome = {ROLE_TARGET: "target", ROLE_STOP: "stop", ROLE_FLAT: "flatten"}[role]
+        outcome = {ROLE_TARGET: "target", ROLE_STOP: "stop",
+                   ROLE_FLAT: "flatten", ROLE_EXTERNAL: "external"}[role]
         if not self.sm.in_position:
             return
+        if role == ROLE_EXTERNAL:
+            self.on_event("critical",
+                          f"{self.symbol} {e.qty:.0f} shares sold @ {e.price:.4f} "
+                          f"by an order this engine did not place "
+                          f"({e.order_ref or 'no ref'}) — booking it as the exit "
+                          f"and standing the sleeve down for the day")
         self.exit_qty += e.qty
         self.exit_notional += e.qty * e.price
         self.exit_outcome = outcome
@@ -506,6 +727,11 @@ class OrderManager:
         decides what to do about a mismatch, because the right response differs
         between pre-open, intraday and post-close.
         """
+        # Ask TWS what it holds before reading the client's copy of it. A
+        # non-warning error buries a trade locally while IBKR keeps working it,
+        # and reconcile is the one place whose entire job is to be right about
+        # this. See `Broker.refresh_orders`.
+        self.broker.refresh_orders()
         pos = self.broker.position(self.symbol)
         working = self.broker.working_orders(self.symbol)
         execs = self.broker.executions(self.symbol)
@@ -550,6 +776,17 @@ class OrderManager:
                 self.target_id = w.order_id
             elif p and p[2] == ROLE_STOP:
                 self.stop_id = w.order_id
+            if p:
+                self.seq = max(self.seq, p[3])
+        # Executions count too. Seeding `seq` from working orders alone reset it
+        # to 0 whenever the day's orders were all done, so `_next_ref` re-issued
+        # `…-E-1` and two distinct orders carried one ref. That is not cosmetic:
+        # `entries` above is a *set* of refs, so the duplicate collapsed and
+        # `broker_fills` under-counted — in a counter §2.7 uses as a breaker,
+        # and in the reconstruction the deterministic-ref design exists to
+        # guarantee.
+        for e in execs:
+            p = parse_ref(e.order_ref)
             if p:
                 self.seq = max(self.seq, p[3])
         return summary
@@ -648,6 +885,9 @@ class OrderManager:
                 return (time.time() - start) >= budget
             return i >= attempts
 
+        def remaining() -> float:
+            return max(0.0, budget - (time.time() - start)) if budget else 0.0
+
         def clear_timeout(default: float) -> float:
             # `_clear_working` blocks, so an unbounded timeout can overshoot the
             # whole budget in a single call and turn a deadline into a suggestion.
@@ -722,15 +962,22 @@ class OrderManager:
                         # is not optional.
                         self.on_executions(bar_idx=-1)
                         continue
+            if spent():
+                # Checked before the pause, not after. Sleeping a full `settle`
+                # on a budget that is already gone pushes the 16:00 verify past
+                # its deadline for no gain — there is no attempt left to give
+                # the fill time for.
+                self.on_executions(bar_idx=-1)
+                break
             if settle > 0:
                 # This is the pause the market order fills during. Under
                 # `time.sleep` the fill could not be observed at all: both
                 # `position()` and `executions()` are local reads of state the
-                # event loop populates.
-                self.broker.wait(settle)
+                # event loop populates. Clamped to what is left, so the last
+                # pause of a budgeted flatten cannot overshoot it.
+                self.broker.wait(min(settle, remaining()) if budget is not None
+                                 else settle)
             self.on_executions(bar_idx=-1)
-            if spent():
-                break
 
         flat = abs(self.broker.position(self.symbol)) < 1e-9
         if not flat:

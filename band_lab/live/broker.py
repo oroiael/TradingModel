@@ -21,7 +21,7 @@ import os
 import sys
 import time
 from dataclasses import dataclass, field
-from datetime import datetime, timedelta
+from datetime import date as dt_date, datetime, time as dtime, timedelta
 from typing import Any, Callable, Optional
 from zoneinfo import ZoneInfo
 
@@ -43,8 +43,45 @@ MARKET_DATA_LIVE = 1
 #: below is the backstop for a silent downgrade, not the primary detector.
 NO_LIVE_DATA_ERRORS = frozenset({354, 10089, 10090, 10167, 10168})
 
+#: `ib_async.Wrapper.error`'s own warning set, transcribed from the installed
+#: package and asserted against it by `test_the_warning_set_matches_ib_async`.
+#:
+#: The distinction is the whole reason this matters. A code **in** here leaves
+#: the order working and sets `ValidationError`, which is an ActiveState.
+#: Anything **outside** it makes `wrapper.error` set the trade `Cancelled` — a
+#: DoneState — so `openTrades()` drops it even when IBKR is still working the
+#: order. ib_async's own comment on that line: *"modification to existing order
+#: just has an update error, but the order is STILL LIVE"*.
+IB_WARNING_CODES = frozenset({105, 110, 165, 321, 329, 399, 404, 434, 492, 10167})
+
+#: Connection-status notices TWS emits constantly ("market data farm connection
+#: is OK"). They are in the 2100-2199 warning band but say nothing about this
+#: engine, so they are not worth a line each. Same list `diagnose.py` filters.
+IB_STATUS_CHATTER = frozenset({2104, 2106, 2107, 2119, 2158})
+
+#: TWS allows **one** `reqAccountUpdates` subscription at a time. 2100 is "New
+#: account data requested from TWS. API client has been unsubscribed from
+#: account data"; 2101 is the rejection when another client already holds it.
+#: The engine and the watchdog each issue it through `ib_async`'s
+#: `connectAsync`, so whichever connects second can take it from the first.
+ACCOUNT_SUBSCRIPTION_ERRORS = frozenset({2100, 2101})
+
+
+def is_warning(code: int) -> bool:
+    """Would `ib_async` leave the order working after this code?"""
+    return code in IB_WARNING_CODES or 2100 <= code < 2200
+
+#: Minutes per bar, for turning a clock time into `Bar.idx`. Only the sizes the
+#: engine actually requests are listed: anything else is a mis-index waiting to
+#: happen, so it raises rather than guessing.
+_BAR_STEP_MINUTES = {"1 min": 1, "5 mins": 5}
+
 #: How long to wait for TWS to describe the feed before warning and proceeding.
 PROBE_SECONDS = 5.0
+
+#: How long a *new* market-data subscription may take to produce its first
+#: quote. Paid once per symbol per connection, not once per read — see `quote`.
+QUOTE_WARMUP_SECONDS = 2.0
 
 
 def _has_quote(ticker) -> bool:
@@ -86,7 +123,17 @@ class BrokerError(RuntimeError):
 
 
 class NotLiveDataError(BrokerError):
-    """Raised when the feed is not real-time. Never trade through this."""
+    """Raised when the feed is not real-time. Never trade through this.
+
+    Carries the symbol, because entitlements are per contract and the caller
+    has to know whether one sleeve is affected or the account is. Parsing it
+    back out of the message is how that would otherwise be done, and the
+    message is prose.
+    """
+
+    def __init__(self, message: str, symbol: Optional[str] = None) -> None:
+        super().__init__(message)
+        self.symbol = symbol
 
 
 class MarketClosedError(BrokerError):
@@ -114,6 +161,12 @@ def bar_time_et(raw) -> datetime:
     directly, and only because a zone-less TWS timestamp is already exchange
     time — the same convention the repository's CSVs use.
     """
+    if isinstance(raw, dt_date) and not isinstance(raw, datetime):
+        # `parseIBDatetime` returns a bare `date` for a daily bar. Reading an
+        # hour off it raised a ValueError from `strptime` two lines down that
+        # named neither the cause nor the caller. The session open is the only
+        # defensible reading, and it puts the bar at index 0.
+        return datetime.combine(raw, dtime(9, 30))
     if not isinstance(raw, datetime):
         try:
             return datetime.strptime(str(raw), "%Y%m%d  %H:%M:%S")
@@ -171,6 +224,47 @@ class Quote:
     @property
     def ok(self) -> bool:
         return self.bid > 0 and self.ask > 0 and self.ask >= self.bid
+
+
+#: IBKR sends margin figures as strings and uses `UNSET_DOUBLE`
+#: (`sys.float_info.max`) for "no value". Anything of that magnitude is a
+#: sentinel, not an account with 1e308 of equity.
+_UNSET_MAGNITUDE = 1e307
+
+
+def _margin_float(raw) -> Optional[float]:
+    """A margin field as a number, or None when IBKR did not answer."""
+    try:
+        v = float(raw)
+    except (TypeError, ValueError):
+        return None
+    return None if abs(v) >= _UNSET_MAGNITUDE else v
+
+
+@dataclass(frozen=True)
+class MarginPreview:
+    """IBKR's own answer to "what would this order do to the account?".
+
+    `PHASE2_PLAN.md` §4.3 requires a pre-order buying-power check and notes why
+    it cannot be reasoned about: at `w=0.50, f=1.00` both sleeves in a position
+    deploy the full capital basis, and "leveraged ETFs carry elevated margin
+    requirements; to be verified against the paper account, not assumed".
+    """
+    init_margin_after: float
+    maint_margin_after: float
+    equity_with_loan_after: float
+    commission: float = 0.0
+    warning: str = ""
+
+    @property
+    def available_after(self) -> float:
+        """What is left once IBKR has taken its initial margin requirement."""
+        return self.equity_with_loan_after - self.init_margin_after
+
+    @property
+    def affordable(self) -> bool:
+        """IBKR's own definition of a deficit, not a threshold invented here."""
+        return self.available_after >= 0.0
 
 
 @dataclass(frozen=True)
@@ -249,6 +343,43 @@ class Broker:
     def cancel(self, order_id: int) -> None: ...
     def cancel_all(self) -> None: ...
 
+    def preview_order(self, symbol, action, qty, limit_px) -> Optional[MarginPreview]:
+        """§4.3's pre-order buying-power check, or None when unavailable.
+
+        None means "IBKR did not answer", and callers must treat that as *no
+        evidence* rather than as a refusal. Standing a sleeve down because a
+        diagnostic timed out is the 2026-08-06 mistake — the live-data guard
+        refused on silence and cost a healthy session.
+        """
+        return None
+
+    def refresh_orders(self) -> None:
+        """Re-read the open orders from TWS itself, not from the client's copy.
+
+        The client's copy can be wrong in the one direction that matters.
+        `ib_async.Wrapper.error` marks a trade `Cancelled` — a DoneState — for
+        every error code outside its warning set, and its own comment says why
+        that is not always true: *"modification to existing order just has an
+        update error, but the order is STILL LIVE"*. `openTrades()` then drops
+        it, so `working_orders`, `_clear_working`, `verify_flat` and the
+        watchdog's `exposure()` all report a clean book while IBKR holds a live
+        order. That is the shape of 2026-08-10.
+
+        `IB.reqAllOpenOrders` is the documented way back. IBKR's own client:
+        *"request the open orders placed from all clients and also from TWS.
+        Each open order will be fed back through the openOrder() and
+        orderStatus() functions"* — and `orderStatus` overwrites the local
+        status with whatever TWS reports, which is exactly what revives a trade
+        the client wrongly buried.
+
+        Note from the same docstring: *"No association is made between the
+        returned orders and the requesting client."* So this can also surface
+        orders placed by hand in TWS or by the watchdog. Callers must keep
+        filtering on `orderRef`, which is what `parse_ref` is for.
+
+        Default is a no-op: nothing to re-read without a real TWS.
+        """
+
     def wait(self, seconds: float) -> None:
         """Pause **without going deaf**. Never call `time.sleep` on this path.
 
@@ -284,17 +415,30 @@ class IBBroker(Broker):
     """ib_async implementation. Imported lazily so tests never need ib_async."""
 
     def __init__(self, host="127.0.0.1", port=7497, client_id=11,
-                 exchange="SMART", primary="ARCA", readonly=False,
+                 exchange="SMART", primary="ARCA", dry_run=False, account="",
                  on_event: Optional[Callable[[str, str], None]] = None) -> None:
         self.host, self.port, self.client_id = host, port, client_id
         self.exchange, self.primary = exchange, primary
-        self.readonly = readonly
+        #: Which account to read. Empty means "the only one", and `connect`
+        #: refuses to guess when TWS reports more than one: `positions()` and
+        #: `accountValues()` both sum across every account when unfiltered, so
+        #: a linked or FA login would silently size off the wrong capital and
+        #: flatten against a position this engine does not hold.
+        self.account = account
+        #: Refuse to transmit. Named for what it does, because the old name —
+        #: `readonly`, borrowed from ib_async — is precisely what led three
+        #: documents to promise that a dry run reached the market with nothing
+        #: while every order went through (§4.1). ib_async's flag of that name
+        #: is unrelated: it skips two startup requests and stops no order.
+        self.dry_run = dry_run
         self._on_event = on_event or (lambda level, msg: None)
         self._ib = None
         self._contracts: dict[str, Any] = {}
         self._dry_seq = 0
         self._no_live_data: set = set()
         self._error_hooked = False
+        #: One live market-data subscription per symbol. See `_ticker`.
+        self._tickers: dict[str, Any] = {}
 
     # ---------------------------------------------------------- lifecycle
     def connect(self) -> None:
@@ -304,14 +448,34 @@ class IBBroker(Broker):
         if self._ib.isConnected():
             return
         self._ib.connect(self.host, self.port, clientId=self.client_id,
-                         timeout=30, readonly=self.readonly)
+                         # Always a full client, dry run or not. ib_async's
+                         # `readonly` skips `reqOpenOrders` and
+                         # `reqCompletedOrders` at startup and does not stop
+                         # `placeOrder`, so passing it bought nothing but an
+                         # `openTrades()` the live path fills and the dry run
+                         # leaves empty. Every guard that matters now reads
+                         # `openTrades()`: reconcile on startup, the duplicate
+                         # -entry check before arming, the dormant cancel. A
+                         # rehearsal that skips them rehearses a different
+                         # engine.
+                         timeout=30, readonly=False)
         if not self._error_hooked:
             # Once per IB object, not per connect — `+=` on an ib_async Event
             # registers a second handler and would double-fire on every reconnect.
             self._ib.errorEvent += self._on_ib_error
             self._error_hooked = True
+        accounts = list(self._ib.client.getAccounts() or ())
+        if not self.account and len(accounts) > 1:
+            raise BrokerError(
+                f"TWS reports {len(accounts)} accounts {accounts} and no "
+                f"`account` is configured. Every read here would sum across "
+                f"all of them — the capital basis, the position the flatten "
+                f"acts on, everything. Set `account` in the config.")
+        if not self.account and accounts:
+            self.account = accounts[0]
         self._on_event("info", f"connected {self.host}:{self.port} "
-                               f"clientId={self.client_id}")
+                               f"clientId={self.client_id} "
+                               f"account={self.account or '(default)'}")
 
     def _on_ib_error(self, reqId, errorCode, errorString, contract=None) -> None:
         """Record the subscription errors that mean the feed is not live.
@@ -321,16 +485,49 @@ class IBBroker(Broker):
         where §4's "must detect delayed-data mode and refuse to trade" is
         actually decided.
         """
+        symbol = getattr(contract, "symbol", None) or "*"
+
+        # Everything IBKR says, not only the market-data codes. Until now every
+        # other code was dropped here, so when `Error 103` arrived on
+        # 2026-08-10 — and `ib_async` marked the trade Cancelled while IBKR went
+        # on to fill 1,703 shares — this engine's own record said nothing at
+        # all. The session had to be reconstructed from TWS's log afterwards,
+        # and the cause was then inferred rather than read.
+        if errorCode not in IB_STATUS_CHATTER:
+            if errorCode in ACCOUNT_SUBSCRIPTION_ERRORS:
+                self._on_event(
+                    "warn",
+                    f"IBKR {errorCode} req={reqId}: {errorString} — another "
+                    f"client (the watchdog connects too) now holds the "
+                    f"reqAccountUpdates subscription. `accountValues` will stop "
+                    f"updating here; `net_liquidation` falls back to "
+                    f"`accountSummary`, which is a separate subscription.")
+            elif is_warning(errorCode):
+                self._on_event("warn", f"IBKR {errorCode} req={reqId} {symbol}: "
+                                       f"{errorString}")
+            else:
+                self._on_event(
+                    "error",
+                    f"IBKR {errorCode} req={reqId} {symbol}: {errorString} "
+                    f"— not in ib_async's warning set, so it has marked this "
+                    f"trade Cancelled locally. The order may still be live at "
+                    f"IBKR; reconcile before believing it is gone.")
+
         if errorCode not in NO_LIVE_DATA_ERRORS:
             return
-        symbol = getattr(contract, "symbol", None) or "*"
-        if symbol not in self._no_live_data:
-            self._on_event("error", f"IBKR {errorCode} on {symbol}: {errorString}")
         self._no_live_data.add(symbol)
 
     def disconnect(self) -> None:
         if self._ib is not None and self._ib.isConnected():
+            # Release the streaming subscriptions rather than leaving them for
+            # TWS to reap. The reconnect path re-creates them on first read.
+            for symbol in list(self._tickers):
+                try:
+                    self._ib.cancelMktData(self.contract(symbol))
+                except Exception:                 # noqa: BLE001
+                    pass                          # never block a disconnect
             self._ib.disconnect()
+        self._tickers.clear()
 
     @property
     def connected(self) -> bool:
@@ -413,7 +610,7 @@ class IBBroker(Broker):
         ib.reqMarketDataType(MARKET_DATA_LIVE)
 
         def _refuse(why: str) -> None:
-            raise NotLiveDataError(f"{symbol or 'account'}: {why}")
+            raise NotLiveDataError(f"{symbol or 'account'}: {why}", symbol=symbol)
 
         if "*" in self._no_live_data or (symbol and symbol in self._no_live_data):
             _refuse("IBKR reported no live market-data subscription "
@@ -442,6 +639,12 @@ class IBBroker(Broker):
                 ib.cancelMktData(contract)
             except Exception:                     # noqa: BLE001
                 pass                              # tidying up must not refuse
+            # `cancelMktData` is looked up by *contract*, so it cancels whatever
+            # subscription this symbol currently has — including the streaming
+            # one `_ticker` holds. Forget it, or `quote` would go on reading a
+            # Ticker that TWS has stopped updating and report a frozen book as
+            # a live one.
+            self._tickers.pop(symbol, None)
 
         if symbol in self._no_live_data:
             _refuse("IBKR reported no live market-data subscription")
@@ -480,16 +683,55 @@ class IBBroker(Broker):
                             is_half_day=(c - o) < timedelta(hours=6, minutes=15))
 
     # -------------------------------------------------------------- state
-    def net_liquidation(self) -> float:
-        ib = self._require()
-        for v in ib.accountValues():
+    @staticmethod
+    def _net_liq(values) -> Optional[float]:
+        """NetLiquidation in USD from an AccountValue list, or None."""
+        for v in values:
             if v.tag == "NetLiquidation" and v.currency == "USD":
                 return float(v.value)
-        raise BrokerError("NetLiquidation (USD) not reported")
+        return None
+
+    def net_liquidation(self) -> float:
+        """§4.2's capital basis, sampled once at 06:00 and frozen for the day.
+
+        `accountValues` is fed by `reqAccountUpdates`, and TWS allows exactly
+        one client that subscription: error 2100 says the API client "has been
+        unsubscribed from account data", 2101 is the rejection when someone
+        else holds it. `ib_async.connectAsync` issues it on every connect, and
+        this project runs two processes — the engine on client 11 and the
+        watchdog on 12 — so whichever connects second takes it.
+
+        Losing it here does not misprice anything; it stops the day starting,
+        because `pre_open` cannot compute sleeve capital and raises. So there is
+        a fallback: `accountSummary` is a *different* subscription
+        (`reqAccountSummary`), it lists NetLiquidation among its tags, and it is
+        not subject to the same exclusivity.
+        """
+        ib = self._require()
+        value = self._net_liq(ib.accountValues(self.account))
+        if value is not None:
+            return value
+        try:
+            value = self._net_liq(ib.accountSummary(self.account))
+        except Exception as exc:                              # noqa: BLE001
+            raise BrokerError(f"NetLiquidation (USD) not reported, and "
+                              f"accountSummary failed: {exc!r}") from exc
+        if value is None:
+            raise BrokerError(
+                "NetLiquidation (USD) not reported by accountValues or "
+                "accountSummary. If IBKR logged 2100/2101, another client holds "
+                "the account subscription — check nothing else is connected on "
+                "this account.")
+        self._on_event("warn",
+                       "NetLiquidation came from accountSummary, not "
+                       "accountValues — the reqAccountUpdates subscription is "
+                       "held by another client (2100/2101). The figure is "
+                       "IBKR's own and is used as normal.")
+        return value
 
     def position(self, symbol: str) -> float:
         ib = self._require()
-        return float(sum(p.position for p in ib.positions()
+        return float(sum(p.position for p in ib.positions(self.account)
                          if p.contract.symbol == symbol))
 
     def working_orders(self, symbol: str) -> list[WorkingOrder]:
@@ -521,10 +763,39 @@ class IBBroker(Broker):
                                  price=float(e.price), time=e.time))
         return out
 
-    def quote(self, symbol: str) -> Quote:
+    def _ticker(self, symbol: str):
+        """One streaming subscription per symbol, held for the connection.
+
+        `IB.reqMktData` takes a **new reqId from `getReqId()` on every call**
+        and `wrapper.startTicker` overwrites `ticker2ReqId[tickType][ticker]`
+        with it. The `Ticker` object is reused, so the data still arrives and
+        nothing looks wrong — but the previous reqId is orphaned at TWS, and
+        `cancelMktData` can only ever cancel the newest. Calling it per read
+        therefore leaks a market-data line per read, against a concurrent-line
+        limit that is typically 100.
+
+        `_record_fill` reads a quote on **every execution** — §1's evidence for
+        whether IBKR's simulator fills a resting limit without the quote
+        reaching it — and IBKR settles one order in as many executions as the
+        book requires. Eleven executions was eleven orphaned lines.
+        """
+        t = self._tickers.get(symbol)
+        if t is not None:
+            return t
         ib = self._require()
         t = ib.reqMktData(self.contract(symbol), "", False, False)
-        ib.sleep(0.4)
+        self._tickers[symbol] = t
+        # A fresh subscription is empty. Wait here, once, rather than on every
+        # read: the old code slept 0.4s per call, which an eleven-execution
+        # entry paid eleven times — 4.4 seconds, some of it out of the 15:55
+        # flatten's budget.
+        deadline = time.time() + QUOTE_WARMUP_SECONDS
+        while time.time() < deadline and not _has_quote(t):
+            ib.sleep(0.05)
+        return t
+
+    def quote(self, symbol: str) -> Quote:
+        t = self._ticker(symbol)
         def _f(x):
             return float(x) if x is not None and x == x else 0.0
         return Quote(_f(t.bid), _f(t.ask), _f(t.last), _f(t.bidSize), _f(t.askSize))
@@ -538,7 +809,15 @@ class IBBroker(Broker):
             endDateTime=end.strftime("%Y%m%d %H:%M:%S US/Eastern") if end else "",
             durationStr=duration, barSizeSetting=bar_size, whatToShow="TRADES",
             useRTH=True, formatDate=1, keepUpToDate=False)
-        step = 5 if bar_size.startswith("5") else 1
+        step = _BAR_STEP_MINUTES.get(bar_size)
+        if step is None:
+            # `Bar.idx` is a fixed-width clock offset from 09:30, so a size
+            # this does not know would silently mis-index every bar in the
+            # session. The old expression read `startswith("5")`, which gave
+            # "15 mins" a 1-minute grid and "5 secs" a 5-minute one.
+            raise BrokerError(
+                f"bar size {bar_size!r} has no index grid; "
+                f"known: {sorted(_BAR_STEP_MINUTES)}")
         out = []
         for b in bars:
             dt = bar_time_et(b.date)
@@ -599,7 +878,13 @@ class IBBroker(Broker):
         o.transmit = transmit
         if oca_group:
             o.ocaGroup = oca_group
-            # ASSUMPTION §6.3: ocaType 1 = cancel remaining with block.
+            # VERIFIED 2026-08-11, no longer §6.3's assumption. IBKR's own
+            # client says so in the field's declaration — `ibapi/order.py:51`:
+            #   ocaType = 0  # 1 = CANCEL_WITH_BLOCK, 2 = REDUCE_WITH_BLOCK,
+            #                #                        3 = REDUCE_NON_BLOCK
+            # The default of 0 is why it has to be set at all. What is still
+            # unverified is the behaviour under a *partial* fill, which the
+            # committed documentation does not cover.
             o.ocaType = 1
         return o
 
@@ -607,7 +892,7 @@ class IBBroker(Broker):
                     oca_group="", transmit=True) -> int:
         ib = self._require()
         px = round(float(limit_px), 2)
-        if self.readonly:
+        if self.dry_run:
             return self._dry(f"{action} LMT {qty} {symbol} @ {px} ({order_ref})")
         o = self._order(action, qty, order_ref, oca_group, transmit)
         o.orderType = "LMT"
@@ -618,7 +903,7 @@ class IBBroker(Broker):
                    oca_group="", transmit=True) -> int:
         ib = self._require()
         px = round(float(stop_px), 2)
-        if self.readonly:
+        if self.dry_run:
             return self._dry(f"{action} STP {qty} {symbol} @ {px} ({order_ref})")
         o = self._order(action, qty, order_ref, oca_group, transmit)
         o.orderType = "STP"
@@ -629,7 +914,7 @@ class IBBroker(Broker):
 
     def place_market(self, symbol, action, qty, order_ref) -> int:
         ib = self._require()
-        if self.readonly:
+        if self.dry_run:
             return self._dry(f"{action} MKT {qty} {symbol} ({order_ref})")
         o = self._order(action, qty, order_ref, "", True)
         o.orderType = "MKT"          # §4.7 — MKT, not MOC
@@ -637,7 +922,7 @@ class IBBroker(Broker):
 
     def modify_limit(self, order_id: int, limit_px: float, qty: float) -> None:
         ib = self._require()
-        if self.readonly or order_id < 0:
+        if self.dry_run or order_id < 0:
             self._dry(f"modify {order_id} -> {qty} @ {round(float(limit_px), 2)}")
             return
         for t in ib.openTrades():
@@ -650,15 +935,62 @@ class IBBroker(Broker):
 
     def cancel(self, order_id: int) -> None:
         ib = self._require()
-        if self.readonly or order_id < 0:
+        if self.dry_run or order_id < 0:
             return
         for t in ib.openTrades():
             if t.order.orderId == order_id:
                 ib.cancelOrder(t.order)
                 return
+        # Silence here made "cancelled" and "never found" the same outcome to
+        # every caller. `_cancel_entry` then set `entry_id = None` and moved on,
+        # which is right when the order is done and wrong when the client has
+        # merely lost sight of it.
+        self._on_event("warn",
+                       f"cancel({order_id}): no working order with that id. "
+                       f"Either it is already done, or the client marked it "
+                       f"Cancelled on an error while IBKR still holds it — "
+                       f"reconcile calls reqAllOpenOrders for exactly that case")
+
+    def preview_order(self, symbol, action, qty, limit_px) -> Optional[MarginPreview]:
+        """`IB.whatIfOrder` — margin and commission, without placing anything.
+
+        Verified rather than assumed, because getting this wrong places a real
+        order: `whatIfOrderAsync` takes `copy.copy(order)`, sets `whatIf = True`
+        on the copy and sends that, so the order handed in is untouched and TWS
+        answers instead of executing.
+
+        Runs in a dry run too. It sends no order, and rehearsing the check is
+        exactly what a dry run is for.
+        """
+        ib = self._require()
+        o = self._order(action, qty, "preview", "", True)
+        o.orderType = "LMT"
+        o.lmtPrice = round(float(limit_px), 2)
+        try:
+            st = ib.whatIfOrder(self.contract(symbol), o)
+        except Exception as exc:                              # noqa: BLE001
+            self._on_event("warn", f"{symbol}: margin preview unavailable "
+                                   f"({exc!r}) — proceeding without it")
+            return None
+        init = _margin_float(getattr(st, "initMarginAfter", None))
+        maint = _margin_float(getattr(st, "maintMarginAfter", None))
+        equity = _margin_float(getattr(st, "equityWithLoanAfter", None))
+        if init is None or equity is None:
+            self._on_event("warn", f"{symbol}: margin preview came back empty "
+                                   f"— proceeding without it")
+            return None
+        return MarginPreview(
+            init_margin_after=init, maint_margin_after=maint or 0.0,
+            equity_with_loan_after=equity,
+            commission=_margin_float(getattr(st, "commission", None)) or 0.0,
+            warning=str(getattr(st, "warningText", "") or ""))
+
+    def refresh_orders(self) -> None:
+        """`reqAllOpenOrders` — synchronous, and it pumps the event loop."""
+        self._require().reqAllOpenOrders()
 
     def cancel_all(self) -> None:
-        if self.readonly:
+        if self.dry_run:
             self._dry("reqGlobalCancel")
             return
         self._require().reqGlobalCancel()
@@ -707,6 +1039,19 @@ class FakeIB(Broker):
         #: reproducing the 2026-08-10 stall. See `cancel`.
         self.stall_cancels = False
         self.connect_count = 0
+        #: Order ids TWS still holds that the *client* has wrongly buried — the
+        #: state a non-warning error such as 103 leaves behind, where
+        #: `wrapper.error` sets the trade `Cancelled` while it is still live
+        #: upstream. Hidden from `working_orders` until `refresh_orders()`
+        #: re-reads them, which is what `reqAllOpenOrders` does. Without this
+        #: the ghost could not be expressed in a test at all — the same gap
+        #: that let `PendingCancel` go unmodelled until it cost a session.
+        self.ghosts: set = set()
+        self.refreshes = 0
+        #: What `preview_order` answers. None is "IBKR did not say", which is
+        #: what a broker with no margin service does and what every test that
+        #: predates §4.3's check expects.
+        self.preview: Optional[MarginPreview] = None
 
     # lifecycle
     def connect(self) -> None:
@@ -743,7 +1088,19 @@ class FakeIB(Broker):
                              o.action, o.order_type, o.qty, o.filled,
                              o.limit_px, o.aux_px, o.oca_group, o.status)
                 for o in self.orders.values()
-                if o.symbol == symbol and is_working(o.status)]
+                if o.symbol == symbol and self._client_sees(o)]
+
+    def preview_order(self, symbol, action, qty, limit_px) -> Optional[MarginPreview]:
+        return self.preview
+
+    def refresh_orders(self) -> None:
+        """TWS re-reports what it holds, and the client's copy is corrected."""
+        self.refreshes += 1
+        self.ghosts.clear()
+
+    def hide(self, order_id: int) -> None:
+        """Test control: the client loses sight of a still-live order."""
+        self.ghosts.add(order_id)
 
     def executions(self, symbol) -> list[Execution]:
         return [e for e in self.execs if e.symbol == symbol]
@@ -780,10 +1137,30 @@ class FakeIB(Broker):
     def place_market(self, symbol, action, qty, order_ref) -> int:
         return self._add(symbol, action, qty, "MKT", order_ref)
 
+    def _client_sees(self, o: _FakeOrder) -> bool:
+        """Would `IB.openTrades()` return this order?
+
+        `IBBroker` asks that question exactly once, through `openTrades()`, and
+        every path it has — `working_orders`, `modify_limit`, `cancel` — is
+        downstream of it. So the double asks it once too. Hand-writing the
+        answer per method is what let `FakeIB` diverge before, and the skill is
+        blunt about it: never write a status list.
+        """
+        return is_working(o.status) and o.order_id not in self.ghosts
+
     def modify_limit(self, order_id, limit_px, qty) -> None:
-        o = self.orders[order_id]
-        if o.status not in ("Submitted", "PreSubmitted"):
-            raise BrokerError(f"order {order_id} not working")
+        # `IBBroker` scans `openTrades()` and raises `BrokerError` when the id
+        # is not there. It does **not** care which working state the order is
+        # in: `IB.placeOrder`-as-modify asserts only that the status is not a
+        # DoneState, so a `PendingCancel` or `ValidationError` order is modified
+        # without complaint. This used to accept `Submitted`/`PreSubmitted`
+        # only, and to raise `KeyError` rather than `BrokerError` on an unknown
+        # id — so the engine's behaviour against four reachable states was
+        # untestable, and its behaviour against a missing one was tested
+        # against the wrong exception.
+        o = self.orders.get(order_id)
+        if o is None or not self._client_sees(o):
+            raise BrokerError(f"order {order_id} not working; cannot modify")
         o.limit_px = float(limit_px)
         o.qty = float(qty)
 
@@ -802,7 +1179,9 @@ class FakeIB(Broker):
         is the ordinary case and keeps the happy path fast.
         """
         o = self.orders.get(order_id)
-        if o is None or not is_working(o.status):
+        if o is None or not self._client_sees(o):
+            # `IBBroker.cancel` scans `openTrades()` and warns when the id is
+            # not there — a ghost included, which is the whole point of one.
             return
         o.status = "PendingCancel"
         if not self.stall_cancels:
@@ -846,6 +1225,13 @@ class FakeIB(Broker):
         if o.status == "Filled" and o.oca_group:
             for other in self.orders.values():
                 if (other is not o and other.oca_group == o.oca_group
-                        and other.status in ("Submitted", "PreSubmitted")):
+                        and is_working(other.status)):
+                    # Every working sibling, not just the two states someone
+                    # happened to list — `ocaType=1` is CANCEL_WITH_BLOCK and
+                    # `PendingSubmit`, `ValidationError` and the rest are all
+                    # orders IBKR still has. Set directly rather than through
+                    # `cancel()`: this is the broker acting, so it lands as
+                    # `Cancelled` and never passes through the client-side
+                    # `PendingCancel` limbo that `IB.cancelOrder` creates.
                     other.status = "Cancelled"
         return e

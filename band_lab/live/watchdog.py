@@ -42,7 +42,7 @@ import json
 import os
 import sys
 from dataclasses import dataclass, field
-from datetime import date, datetime, time as dtime
+from datetime import date, datetime, time as dtime, timedelta
 from typing import Optional
 from zoneinfo import ZoneInfo
 
@@ -51,7 +51,9 @@ for _p in (_HERE, os.path.join(os.path.dirname(_HERE), "phase1")):
     if _p not in sys.path:
         sys.path.insert(0, _p)
 
-from broker import Broker, BrokerError, IBBroker    # noqa: E402
+from broker import (                                # noqa: E402
+    Broker, BrokerError, IBBroker, MarketClosedError,
+)
 from config import EngineConfig                     # noqa: E402
 from store import Store                             # noqa: E402
 
@@ -79,6 +81,9 @@ class Watchdog:
     #: *process*, and `run()` loops across days.
     fired_on: Optional[date] = None
     _said: list = field(default_factory=list)
+    _arming_said: bool = False
+    _hours: object = None
+    _hours_date: object = None
 
     def __post_init__(self) -> None:
         if self.store is None:
@@ -88,7 +93,13 @@ class Watchdog:
                 host=self.cfg.host, port=self.cfg.port,
                 client_id=self.cfg.watchdog_client_id,      # §6.2 — never the engine's
                 exchange=self.cfg.exchange, primary=self.cfg.primary,
-                readonly=False, on_event=self.say)
+                account=self.cfg.account,
+                dry_run=not self.cfg.watchdog_transmit, on_event=self.say)
+
+    @property
+    def armed(self) -> bool:
+        """Will an intervention actually reach the market?"""
+        return bool(self.cfg.watchdog_transmit)
 
     # ------------------------------------------------------------------ log
     def say(self, level: str, msg: str) -> None:
@@ -101,6 +112,42 @@ class Watchdog:
             pass                        # logging must never stop a flatten
 
     # ------------------------------------------------------------- sensing
+    def _heartbeat(self) -> Optional[dict]:
+        """The engine's last proof of life, or None if it never wrote one."""
+        try:
+            with open(self.cfg.heartbeat_file) as fh:
+                return json.load(fh)
+        except Exception:                                   # noqa: BLE001
+            return None
+
+    def warn_if_the_engine_is_only_rehearsing(self) -> None:
+        """Said once, because it contradicts what the runbook promises.
+
+        `DEPLOYMENT.md` §12.1 tells an operator that during a dry run "nothing
+        reaches the market". That covers the engine. This process is armed by
+        default and will send real market orders against real exposure, which
+        is the point of it — but discovering that from a fill is exactly the
+        §4.1 failure again, where three documents described `readonly` as
+        something it was not.
+
+        The engine's mode cannot be inferred from this side: `--dry-run` is a
+        flag on `run.py`, not a value in the shared config file. So it is read
+        from the heartbeat the engine writes. An older engine that does not
+        record it leaves this silent rather than guessing.
+        """
+        if self._arming_said or not self.armed:
+            return
+        if (self._heartbeat() or {}).get("transmit") is not False:
+            return
+        self._arming_said = True
+        self.say("warn",
+                 "the engine is running with transmit OFF while this watchdog "
+                 "is ARMED — if the account is exposed past "
+                 f"{self.hard_flat:%H:%M} it will send real market orders. That "
+                 "is deliberate (exposure is real whether or not the engine is "
+                 "rehearsing), but it is not what DEPLOYMENT.md §12.1 promises "
+                 "about a dry run. Pass --no-transmit to rehearse both.")
+
     def heartbeat_age(self, now: Optional[datetime] = None) -> Optional[float]:
         """Seconds since the engine last wrote. None if it never has.
 
@@ -109,10 +156,11 @@ class Watchdog:
         mtime alone would read that as a living engine.
         """
         now = now or datetime.now(NY)
-        path = self.cfg.heartbeat_file
+        beat = self._heartbeat()
+        if beat is None:
+            return None
         try:
-            with open(path) as fh:
-                stamp = datetime.fromisoformat(json.load(fh)["ts"])
+            stamp = datetime.fromisoformat(beat["ts"])
         except Exception:                                   # noqa: BLE001
             return None
         if stamp.tzinfo is None:
@@ -143,10 +191,55 @@ class Watchdog:
         return sum(w.remaining for w in self.broker.working_orders(symbol)
                    if w.order_type == "MKT")
 
-    @staticmethod
-    def in_session(now: datetime) -> bool:
-        return (now.weekday() < 5
-                and SESSION_OPEN <= now.time() <= SESSION_CLOSE)
+    def _hours_today(self, now: datetime):
+        """Today's real RTH from the broker, or None when it cannot say.
+
+        Cached per date: `session_hours` is a `reqContractDetails` round trip
+        and this runs every thirty seconds all day.
+        """
+        today = now.astimezone(NY).date()
+        if self._hours_date == today:
+            return self._hours
+        self._hours_date, self._hours = today, None
+        try:
+            self._hours = self.broker.session_hours(self.cfg.symbols[0], now)
+        except MarketClosedError:
+            self._hours = None                # a real answer: nothing trades
+        except Exception:                                   # noqa: BLE001
+            self._hours_date = None           # no answer; ask again next tick
+        return self._hours
+
+    def in_session(self, now: datetime) -> bool:
+        """Is there a market to flatten into right now?
+
+        The weekday check stays as a floor — cheap, and true whatever the
+        broker says. Beyond it the exchange's own hours are used when they are
+        available, so a holiday is not treated as an ordinary Tuesday and a
+        half day is not treated as running to 16:00. Falling back to the static
+        window when the broker cannot answer keeps the watchdog awake rather
+        than blind.
+        """
+        if now.weekday() >= 5:
+            return False
+        hours = self._hours_today(now)
+        if hours is None and self._hours_date is not None:
+            return False                      # the broker said: closed today
+        if hours is None:
+            return SESSION_OPEN <= now.time() <= SESSION_CLOSE
+        return hours.open.time() <= now.time() <= hours.close.time()
+
+    def hard_flat_at(self, now: datetime) -> dtime:
+        """§6.2's deadline, pulled in on a short session.
+
+        15:58 is two minutes before an ordinary close. On a half day the market
+        is gone at 13:00, so a fixed 15:58 would mean the watchdog never fired
+        at all on the one kind of day the engine is gated off and least likely
+        to be watched.
+        """
+        hours = self._hours_today(now)
+        if hours is None:
+            return self.hard_flat
+        return min(self.hard_flat, (hours.close - timedelta(minutes=2)).time())
 
     # -------------------------------------------------------------- deciding
     def _roll_session(self, now: datetime) -> None:
@@ -191,8 +284,9 @@ class Watchdog:
             # reqGlobalCancel at it would be pure risk with nothing to gain.
             return False, "flat and no working orders"
 
-        if now.time() >= self.hard_flat:
-            return True, (f"past {self.hard_flat:%H:%M} and still exposed "
+        deadline = self.hard_flat_at(now)
+        if now.time() >= deadline:
+            return True, (f"past {deadline:%H:%M} and still exposed "
                           f"({positions or 'no position'}, {working} working) — "
                           f"§1 forbids holding overnight")
 
@@ -264,6 +358,15 @@ class Watchdog:
 
         positions, working = self.exposure()
         if positions:
+            if not self.armed:
+                # Not a failure: nothing was sent because nothing was meant to
+                # be. Saying HUMAN INTERVENTION REQUIRED here would train the
+                # operator to discount the one message that must never be
+                # discounted.
+                self.say("warn",
+                         f"rehearsal (--no-transmit): would have flattened "
+                         f"{positions}; the orders above were logged, not sent")
+                return False
             self.say("critical",
                      f"WATCHDOG COULD NOT FLATTEN {positions} "
                      f"({working} orders working) — HUMAN INTERVENTION REQUIRED")
@@ -280,6 +383,7 @@ class Watchdog:
         except BrokerError as exc:
             self.say("error", f"cannot reach the broker: {exc!r}")
             return "no-broker"
+        self.warn_if_the_engine_is_only_rehearsing()
         act, why = self.verdict(now)
         if act:
             self.intervene(why, now=now)
@@ -288,20 +392,24 @@ class Watchdog:
 
     def run(self, interval: float = 30.0, quiet_every: int = 20) -> None:
         """§6.2 — check every 30 seconds, for as long as the session lasts."""
-        self.say("info", f"watching | port {self.cfg.port} "
-                         f"clientId={self.cfg.watchdog_client_id} | "
-                         f"stale>{self.stale_seconds:.0f}s or past "
-                         f"{self.hard_flat:%H:%M} while exposed")
+        self.say("info" if self.armed else "warn",
+                 f"watching | port {self.cfg.port} "
+                 f"clientId={self.cfg.watchdog_client_id} | "
+                 f"stale>{self.stale_seconds:.0f}s or past "
+                 f"{self.hard_flat:%H:%M} while exposed | "
+                 + ("ARMED — an intervention sends real market orders"
+                    if self.armed else
+                    "NOT ARMED (--no-transmit) — it will decide and log, and "
+                    "send nothing. Nothing will be closed for you."))
         ticks = 0
         while True:
             now = datetime.now(NY)
-            if now.time() > SESSION_CLOSE and self.in_session(now) is False:
-                verdict = self.check(now)
-                if verdict == "intervened":
-                    ticks = 0
-            else:
-                verdict = self.check(now)
-            ticks += 1
+            verdict = self.check(now)
+            # An intervention restarts the quiet counter so the next status
+            # line lands soon after it rather than up to `quiet_every` ticks
+            # later. The two branches this replaces both called `check` and
+            # differed only here, behind a condition that could not be true.
+            ticks = 0 if verdict == "intervened" else ticks + 1
             if ticks % quiet_every == 0:        # a periodic "still here"
                 self.say("info", f"ok — {verdict}")
             # The watchdog's whole job is sensing, and every sensor it has
@@ -319,9 +427,16 @@ def main() -> int:
                     help="run a single check and exit (cron, or a smoke test)")
     ap.add_argument("--interval", type=float, default=30.0)
     ap.add_argument("--stale", type=float, default=STALE_SECONDS)
+    ap.add_argument("--no-transmit", action="store_true",
+                    help="decide and log, but send nothing — for rehearsing "
+                         "alongside `run.py --dry-run`. NOTHING WILL BE CLOSED "
+                         "FOR YOU: the default is armed, because exposure is "
+                         "real whether or not the engine is rehearsing.")
     args = ap.parse_args()
 
     cfg = EngineConfig.load(args.config)
+    if args.no_transmit:
+        cfg.watchdog_transmit = False
     wd = Watchdog(cfg, stale_seconds=args.stale)
     try:
         if args.once:

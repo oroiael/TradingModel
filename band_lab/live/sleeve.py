@@ -72,6 +72,17 @@ class SleeveState(str, Enum):
 DORMANT_STATES = (SleeveState.GATE_OFF, SleeveState.STOOD_DOWN,
                   SleeveState.DONE, SleeveState.CLOSED)
 
+#: Exits after which the sleeve does **not** re-arm.
+#:
+#: "flatten" is §2.8's 15:55 close. "external" is a position closed by
+#: something that is not this engine — the watchdog, a hand in TWS, a
+#: liquidation — and it is terminal for the same reason but a stronger one:
+#: re-arming would put the sleeve straight back into the position that was just
+#: taken off it, which is the opposite of what every one of those actors
+#: intended. `replay.py` produces only "stop", "target" and "flatten", so this
+#: is live-only and the Stage 1 equivalence proof is untouched.
+TERMINAL_OUTCOMES = ("flatten", "external")
+
 
 # ------------------------------------------------------------------ intents
 class IntentKind(str, Enum):
@@ -383,7 +394,7 @@ class SleeveStateMachine:
             self.stop_outs += 1
         self._bracket = None
         self._qty = 0.0
-        if outcome == "flatten" or bar_idx > self.cfg.last_holding_idx:
+        if outcome in TERMINAL_OUTCOMES or bar_idx > self.cfg.last_holding_idx:
             self.state = SleeveState.CLOSED
             self._entry = None
             return trade

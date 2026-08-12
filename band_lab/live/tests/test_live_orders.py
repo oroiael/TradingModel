@@ -11,8 +11,12 @@ from __future__ import annotations
 import pytest
 
 from broker import BrokerError, FakeIB, WorkingOrder, is_working
-from orders import OrderManager, RatchetViolation, order_ref, parse_ref
-from sleeve import Bar, SleeveConfig, SleeveStateMachine, START_IDX
+from orders import (
+    ROLE_ENTRY, OrderManager, RatchetViolation, order_ref, parse_ref,
+)
+from sleeve import (
+    Bar, Intent, IntentKind, SleeveConfig, SleeveStateMachine, START_IDX,
+)
 from store import Store
 
 
@@ -983,3 +987,298 @@ def test_reconcile_counts_two_separate_entries_as_two(tmp_path):
         ib.fill(target.order_id, price=99.99)
         om.on_executions(START_IDX)
     assert om.reconcile()["broker_fills"] == 2 == sm.fills
+
+
+# ------------- a second entry is never placed behind a resting one (fix F2)
+def test_arming_adopts_a_resting_entry_instead_of_placing_a_second(tmp_path):
+    """§3's restart path, at the point where it actually costs money.
+
+    A process that armed and died leaves its buy limit at IBKR. Its
+    replacement rebuilds the state machine from nothing and replays the
+    session, so it reaches 11:00 believing it has never armed. Placing here
+    gives one sleeve two live buy limits — the outcome `_modify_entry` refuses
+    to cause and logs `critical` about, arrived at through the front door.
+    """
+    om, ib, sm = _armed(tmp_path, high=100.0)
+    resting = ib.orders[om.entry_id]
+    assert resting.action == "BUY"
+
+    # A new OrderManager against the same broker: the dead process's successor.
+    om2, _, sm2 = _om(tmp_path, ib=ib, sm=_sm("SOXL"))
+    om2.apply([Intent(kind=IntentKind.PLACE_ENTRY, bar_idx=START_IDX,
+                      limit_px=resting.limit_px, qty=resting.qty)])
+
+    live = [o for o in ib.orders.values()
+            if o.action == "BUY" and is_working(o.status)]
+    assert len(live) == 1, f"one sleeve, one resting entry — found {len(live)}"
+    assert om2.entry_id == resting.order_id, "it must adopt, not ignore"
+    assert om2.highest_limit == pytest.approx(resting.limit_px), \
+        "the ratchet witness has to survive the restart too"
+
+
+def test_adopting_still_ratchets_the_resting_entry_up(tmp_path):
+    """Adopting must not mean freezing. §2.5's limit still has to track."""
+    om, ib, sm = _armed(tmp_path, high=100.0)
+    resting = ib.orders[om.entry_id]
+    higher = resting.limit_px + 1.00
+
+    om2, _, _ = _om(tmp_path, ib=ib, sm=_sm("SOXL"))
+    om2.apply([Intent(kind=IntentKind.PLACE_ENTRY, bar_idx=START_IDX,
+                      limit_px=higher, qty=resting.qty)])
+
+    live = [o for o in ib.orders.values()
+            if o.action == "BUY" and is_working(o.status)]
+    assert len(live) == 1
+    assert ib.orders[om2.entry_id].limit_px == pytest.approx(higher), \
+        "the adopted order is modified, not left where the dead process put it"
+
+
+def test_a_cancelling_entry_is_neither_adopted_nor_replaced(tmp_path):
+    """`PendingCancel` is the one state where both moves are wrong.
+
+    Modifying an order mid-cancel is undefined; replacing it duplicates the
+    position if the cancel never lands. Doing nothing loudly is the only safe
+    answer, and the next ratchet retries once TWS has confirmed either way.
+    """
+    om, ib, sm = _armed(tmp_path, high=100.0)
+    ib.stall_cancels = True
+    ib.cancel(om.entry_id)
+    assert ib.orders[om.entry_id].status == "PendingCancel"
+
+    said = []
+    om2, _, _ = _om(tmp_path, ib=ib, sm=_sm("SOXL"))
+    om2.on_event = lambda lvl, msg: said.append((lvl, msg))
+    om2.apply([Intent(kind=IntentKind.PLACE_ENTRY, bar_idx=START_IDX,
+                      limit_px=99.0, qty=100)])
+
+    assert len([o for o in ib.orders.values()
+                if o.action == "BUY" and is_working(o.status)]) == 1
+    assert om2.entry_id is None, "nothing was armed"
+    assert any(lvl == "critical" and "PendingCancel" in msg for lvl, msg in said)
+
+
+# ------------------------------- ghost orders and repeating refs (F5, F4)
+def test_arming_sees_through_an_order_the_client_has_buried(tmp_path):
+    """The hole F2's guard alone left open.
+
+    `wrapper.error` marks a trade `Cancelled` — a DoneState — for every error
+    code outside its warning set, and 103 is not in it. `openTrades()` then
+    drops an order IBKR is still working, so the duplicate guard looks, sees
+    nothing, and places a second live buy limit behind one that can still fill.
+    On 2026-08-10 the engine believed 43.78 x1701 and the fill settled 1,703.
+    """
+    om, ib, sm = _armed(tmp_path, high=100.0)
+    resting = ib.orders[om.entry_id]
+    ib.hide(resting.order_id)                 # live at TWS, invisible locally
+    assert ib.working_orders("SOXL") == [], "the client cannot see it"
+
+    om2, _, _ = _om(tmp_path, ib=ib, sm=_sm("SOXL"))
+    om2.apply([Intent(kind=IntentKind.PLACE_ENTRY, bar_idx=START_IDX,
+                      limit_px=resting.limit_px, qty=resting.qty)])
+
+    assert ib.refreshes >= 1, "arming must re-read the book from TWS"
+    live = [o for o in ib.orders.values()
+            if o.action == "BUY" and is_working(o.status)]
+    assert len(live) == 1, f"one sleeve, one resting entry — found {len(live)}"
+
+
+def test_reconcile_recovers_an_order_the_client_had_lost(tmp_path):
+    """§3's whole job is being right about what the broker holds."""
+    om, ib, sm = _armed(tmp_path, high=100.0)
+    ib.hide(om.entry_id)
+    assert om.reconcile()["working"] == 1, \
+        "reqAllOpenOrders is what makes a buried order countable again"
+
+
+def test_order_refs_do_not_repeat_after_a_restart(tmp_path):
+    """`…-E-1` twice is not cosmetic — `reconcile` counts refs in a *set*.
+
+    Seeding `seq` from working orders alone reset it to 0 once the day's orders
+    were done, so two distinct entries carried one ref, the set collapsed them,
+    and `broker_fills` under-counted a §2.7 breaker. Driven with `store=None`
+    so only the broker-side recovery is under test.
+    """
+    om, ib, sm = _armed(tmp_path, high=100.0)
+    first = om.entry_ref
+    ib.fill(om.entry_id, price=99.0)
+    om.on_executions(START_IDX)
+    target = next(o for o in ib.orders.values()
+                  if o.order_type == "LMT" and o.action == "SELL")
+    ib.fill(target.order_id, price=99.99)
+    om.on_executions(START_IDX)
+    # §4.5 re-arms on the exit, so clear that too: the state this guards is a
+    # restart with nothing left working and the day's executions still there.
+    om._cancel_entry()
+    ib.confirm_cancels("SOXL")
+    assert not ib.working_orders("SOXL")
+    assert ib.executions("SOXL"), "the executions are what must be honoured"
+
+    om2 = OrderManager(broker=ib, symbol="SOXL", session="20260803",
+                       sm=_sm("SOXL"), store=None)
+    assert om2.seq == 0, "nothing in memory, and no store to read"
+    om2.reconcile()
+    assert om2._next_ref(ROLE_ENTRY) != first, \
+        "a restart must not re-issue a ref that already identifies a fill"
+
+
+def test_a_ref_from_an_order_that_never_filled_is_not_reused(tmp_path):
+    """Neither working nor executed, so only the audit log remembers it.
+
+    `reconcile` cannot recover this one from the broker at all — the order was
+    cancelled without a fill, so it is in no execution and in no open-order
+    reply. The `orders` table is the only record that it was ever issued.
+    """
+    db = str(tmp_path / "seq2.db")
+    om, ib, sm = _armed(tmp_path, high=100.0, db=db)
+    first = om.entry_ref
+    om._cancel_entry()
+    ib.confirm_cancels("SOXL")
+    assert not ib.working_orders("SOXL") and not ib.executions("SOXL")
+
+    om2, _, _ = _om(tmp_path, ib=ib, sm=_sm("SOXL"), db=db)
+    om2.reconcile()
+    assert om2._next_ref(ROLE_ENTRY) != first
+
+
+# ------------------------- §4.3's pre-order buying-power check (F13)
+def _preview(init, equity, commission=1.15, warning=""):
+    from broker import MarginPreview
+    return MarginPreview(init_margin_after=init, maint_margin_after=init * 0.8,
+                         equity_with_loan_after=equity, commission=commission,
+                         warning=warning)
+
+
+def test_an_order_that_would_breach_margin_is_not_placed(tmp_path):
+    """§4.3 required this check and it had never existed.
+
+    At `w=0.50, f=1.00` both sleeves in a position deploy the whole capital
+    basis, so the second one to arm is the one that finds out — into 3x ETFs,
+    which §4.3 notes "carry elevated margin requirements; to be verified
+    against the paper account, not assumed".
+    """
+    om, ib, sm = _om(tmp_path)
+    ib.preview = _preview(init=200_000.0, equity=155_803.0)   # a deficit
+    said = []
+    om.on_event = lambda lvl, msg: said.append((lvl, msg))
+
+    om.apply([Intent(kind=IntentKind.PLACE_ENTRY, bar_idx=START_IDX,
+                     limit_px=99.0, qty=757)])
+
+    assert not [o for o in ib.orders.values() if o.action == "BUY"]
+    assert om.entry_id is None
+    assert any(lvl == "critical" and "NOT ARMING" in msg for lvl, msg in said)
+
+
+def test_an_affordable_order_is_placed_and_the_commission_recorded(tmp_path):
+    """Passing must still log the numbers.
+
+    `phase1/COST_MODEL.md` §7.4 calls the real per-order cost the one input no
+    further analysis can supply, and this is IBKR quoting it per order.
+    """
+    om, ib, sm = _om(tmp_path)
+    ib.preview = _preview(init=60_000.0, equity=155_803.0, commission=1.15)
+    said = []
+    om.on_event = lambda lvl, msg: said.append((lvl, msg))
+
+    om.apply([Intent(kind=IntentKind.PLACE_ENTRY, bar_idx=START_IDX,
+                     limit_px=99.0, qty=757)])
+
+    assert [o for o in ib.orders.values() if o.action == "BUY"]
+    assert any("commission=1.15" in msg for _, msg in said)
+
+
+def test_a_silent_margin_service_does_not_stand_the_sleeve_down(tmp_path):
+    """No answer is *no evidence*, not evidence of a problem.
+
+    Refusing on silence is the 2026-08-06 mistake: the live-data guard did
+    exactly that and stood a healthy sleeve down at 11:05 on a confirmed-good
+    subscription, costing the session.
+    """
+    om, ib, sm = _om(tmp_path)
+    assert ib.preview is None                 # IBKR said nothing
+
+    om.apply([Intent(kind=IntentKind.PLACE_ENTRY, bar_idx=START_IDX,
+                     limit_px=99.0, qty=757)])
+
+    assert [o for o in ib.orders.values() if o.action == "BUY"], \
+        "a diagnostic that times out must not stop the engine trading"
+
+
+def test_the_refusal_does_not_burn_a_sequence_number(tmp_path):
+    """It never reached the broker, so no ref identifies it.
+
+    A gap in the sequence would show up in `reconcile`'s reconstruction as an
+    order nobody can account for.
+    """
+    om, ib, sm = _om(tmp_path)
+    ib.preview = _preview(init=200_000.0, equity=155_803.0)
+    before = om.seq
+    om.apply([Intent(kind=IntentKind.PLACE_ENTRY, bar_idx=START_IDX,
+                     limit_px=99.0, qty=757)])
+    assert om.seq == before
+
+
+# ------------------- two working entries is an alarm, not a choice (F20)
+def test_two_working_entries_are_reported_not_silently_picked(tmp_path):
+    """§2.6 allows one position and therefore one entry.
+
+    Several guards exist to keep it that way — the duplicate check before
+    arming, the ghost recovery, the refusal to re-place after a rejected
+    modify. If two are working anyway, one of them failed and the sleeve is
+    about to buy twice. Returning the first quietly made that a coin toss.
+    """
+    om, ib, sm = _om(tmp_path)
+    said = []
+    om.on_event = lambda lvl, msg: said.append((lvl, msg))
+    low = ib.place_limit("SOXL", "BUY", 100, 99.00, "20260803-SOXL-E-1")
+    high = ib.place_limit("SOXL", "BUY", 100, 99.50, "20260803-SOXL-E-2")
+
+    w = om._working_entry()
+
+    assert w.order_id == high, "the highest limit is what the ratchet produced"
+    assert any(lvl == "critical" and "2 working entries" in msg
+               for lvl, msg in said)
+    assert is_working(ib.orders[low].status), \
+        "not cancelled from here — which one is real is not knowable"
+
+
+def test_one_working_entry_stays_quiet(tmp_path):
+    om, ib, sm = _om(tmp_path)
+    said = []
+    om.on_event = lambda lvl, msg: said.append((lvl, msg))
+    oid = ib.place_limit("SOXL", "BUY", 100, 99.0, "20260803-SOXL-E-1")
+
+    assert om._working_entry().order_id == oid
+    assert not [m for lvl, m in said if lvl == "critical"]
+
+
+# --------------------------- the settle pause respects the budget (F21)
+def test_the_last_pause_cannot_overshoot_the_budget(tmp_path):
+    """A budgeted flatten has until 16:00, and not a second past it.
+
+    `settle` was slept in full even when the budget was already gone, which
+    pushes the 16:00 verify past its deadline to give a fill time when there is
+    no attempt left to give it time for.
+    """
+    om, ib, sm = _om(tmp_path)
+    ib.positions["SOXL"] = 500.0
+    waits = []
+    ib.wait = waits.append
+
+    om.ensure_flat(settle=3.0, budget=0.0)
+
+    assert all(w <= 3.0 for w in waits)
+    assert sum(waits) <= 3.0, f"slept {sum(waits)}s against a 0s budget: {waits}"
+
+
+def test_an_unbudgeted_flatten_still_settles_fully(tmp_path):
+    """The attempt-based path is what the tests drive and what a non-deadline
+    caller gets; clamping must not quietly shorten it."""
+    om, ib, sm = _om(tmp_path)
+    ib.positions["SOXL"] = 500.0
+    waits = []
+    ib.wait = waits.append
+
+    om.ensure_flat(attempts=2, settle=3.0)
+
+    assert waits and all(w == 3.0 for w in waits)
