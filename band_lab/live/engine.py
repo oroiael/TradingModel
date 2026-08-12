@@ -356,6 +356,12 @@ class Engine:
         started = time.monotonic()
         out = {}
         for symbol, rt in self.sleeves.items():
+            # Drain before deciding. `ensure_flat` returns immediately when the
+            # broker is already flat, without draining, so an exit that had
+            # already settled — above all one this engine did not order — was
+            # never attributed before the sleeve was asked whether it still held
+            # anything. It answered yes, and the booking below did the rest.
+            rt.om.on_executions(bar_idx)
             # Share what is left between the sleeves that still hold something.
             # Sequential and un-shared, the first stuck sleeve would spend the
             # whole budget and leave the second with none — turning one
@@ -367,13 +373,35 @@ class Engine:
                               if abs(self.broker.position(s)) > 1e-9)
                 share = left / max(1, holding)
             flat = rt.om.ensure_flat(settle=settle, budget=share)
-            if rt.sm.in_position and not flat:
+            # `sm.flatten` books a trade whenever the sleeve is in a position,
+            # and it is only ever handed 0.0 — so the guard is `in_position`,
+            # not `not flat`. Guarding on `not flat` left the other half open:
+            # a position closed by something the engine could not attribute
+            # leaves the sleeve in_position with the broker already flat, and
+            # that booked the trade at zero. On 2026-08-06 the same arithmetic
+            # reported a day as -4018 bp; a reproduction against a watchdog
+            # flatten reports -9084 against a real +101.
+            if rt.sm.in_position:
                 pos = self.broker.position(symbol)
-                self.on_event("critical",
-                              f"{symbol} STILL HOLDS {pos:.0f} SHARES — not "
-                              f"booking a trade, because the position is real "
-                              f"and still open. Close it by hand now: §1's first "
-                              f"design priority is never holding overnight.")
+                if not flat:
+                    self.on_event("critical",
+                                  f"{symbol} STILL HOLDS {pos:.0f} SHARES — not "
+                                  f"booking a trade, because the position is real "
+                                  f"and still open. Close it by hand now: §1's first "
+                                  f"design priority is never holding overnight.")
+                else:
+                    # Flat at the broker, still holding as far as the sleeve
+                    # knows, and no execution explained the difference — so
+                    # there is no price to book. A missing trade is recoverable
+                    # from IBKR's own log; a fabricated one looks like a
+                    # catastrophic loss and buries whatever really happened.
+                    self.on_event("critical",
+                                  f"{symbol} is flat at the broker but the sleeve "
+                                  f"still holds {rt.sm._qty:.0f} shares from bar "
+                                  f"{rt.sm.entry_bar} @ {rt.sm._entry_px:.4f}, and "
+                                  f"no execution accounts for the close. NOT "
+                                  f"booking a trade — reconcile this against "
+                                  f"IBKR's execution log by hand.")
             else:
                 rt.sm.flatten(price=0.0, bar_idx=bar_idx)
                 rt.om.apply(rt.sm.drain_intents())

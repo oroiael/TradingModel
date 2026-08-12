@@ -41,6 +41,14 @@ from spec_constants import round_to_tick                   # noqa: E402
 
 ROLE_ENTRY, ROLE_TARGET, ROLE_STOP, ROLE_FLAT = "E", "T", "S", "F"
 
+#: Not a role this engine ever writes into an `orderRef` — it is what an
+#: execution gets when *something else* closed the position. The watchdog
+#: (whose refs are `WATCHDOG-<date>-<time>-<symbol>`, which `parse_ref` cannot
+#: decode), a hand in TWS, an IBKR liquidation. Before this existed such an
+#: execution was recorded and then ignored, so the sleeve went on believing it
+#: held shares it no longer had.
+ROLE_EXTERNAL = "X"
+
 
 class RatchetViolation(AssertionError):
     """The entry limit moved down. §2.5 forbids this; fail loudly."""
@@ -428,6 +436,13 @@ class OrderManager:
                 self._on_entry_exec(e, bar_idx)
             elif role in (ROLE_TARGET, ROLE_STOP, ROLE_FLAT):
                 self._on_exit_exec(e, bar_idx, role)
+            elif self.sm.in_position and e.side == "SLD":
+                # A sale this engine did not order, while it holds a position.
+                # Routing on the ref alone meant these were counted as fills in
+                # the log and nowhere else: the position went to zero, the
+                # sleeve still believed it held shares, and the 15:55 close then
+                # booked the trade at a price nobody traded at.
+                self._on_exit_exec(e, bar_idx, ROLE_EXTERNAL)
         # A position can go flat between executions, so re-check even when this
         # poll brought nothing new — otherwise a settled exit never books.
         self._book_exit_if_flat(bar_idx)
@@ -506,9 +521,16 @@ class OrderManager:
         sold — a race that can leave two positions open at once. The trade is
         booked when the broker says the position is actually closed.
         """
-        outcome = {ROLE_TARGET: "target", ROLE_STOP: "stop", ROLE_FLAT: "flatten"}[role]
+        outcome = {ROLE_TARGET: "target", ROLE_STOP: "stop",
+                   ROLE_FLAT: "flatten", ROLE_EXTERNAL: "external"}[role]
         if not self.sm.in_position:
             return
+        if role == ROLE_EXTERNAL:
+            self.on_event("critical",
+                          f"{self.symbol} {e.qty:.0f} shares sold @ {e.price:.4f} "
+                          f"by an order this engine did not place "
+                          f"({e.order_ref or 'no ref'}) — booking it as the exit "
+                          f"and standing the sleeve down for the day")
         self.exit_qty += e.qty
         self.exit_notional += e.qty * e.price
         self.exit_outcome = outcome

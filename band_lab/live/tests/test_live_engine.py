@@ -601,3 +601,81 @@ def test_pre_open_reconciles_even_when_the_market_is_closed(tmp_path):
     assert rows, "pre-open must reconcile even when the sleeve stands down"
     assert any(lvl == "warn" and "500" in msg for lvl, msg in said), \
         "and must say so — a holiday is the day nobody else would look"
+
+
+# ------------------- a close the engine did not order (2026-08-10 shape, F3)
+def _in_position(tmp_path, entry_px=90.0):
+    eng, ib, store, feats = _engine(tmp_path)
+    eng.pre_open(DAY, feats)
+    for b in _session_bars(n=START_IDX + 1):
+        eng.on_bar("SOXL", b)
+    entry = [o for o in ib.orders.values() if o.order_type == "LMT"][-1]
+    ib.fill(entry.order_id, price=entry_px)
+    eng.poll(START_IDX + 1)
+    assert eng.sleeves["SOXL"].sm.in_position
+    return eng, ib, store
+
+
+def test_a_watchdog_flatten_is_booked_at_the_price_it_filled(tmp_path):
+    """The watchdog's refs are `WATCHDOG-<date>-<time>-<symbol>`.
+
+    `parse_ref` cannot decode one — `int("SOXL")` raises — so the execution was
+    logged as a fill and routed nowhere. `exit_qty` stayed 0, the sleeve went on
+    believing it held 757 shares it no longer had, and 15:55 booked the trade at
+    a price nobody traded at: -9084 bp against a real +101.
+    """
+    eng, ib, store = _in_position(tmp_path, entry_px=90.0)
+    held = abs(ib.position("SOXL"))
+
+    oid = ib.place_market("SOXL", "SELL", held, "WATCHDOG-20260803-155830-SOXL")
+    ib.fill(oid, price=91.0)
+
+    eng.flatten_all(bar_idx=FLATTEN_IDX, settle=0)
+
+    sm = eng.sleeves["SOXL"].sm
+    assert len(sm.trades) == 1
+    t = sm.trades[-1]
+    assert t.exit_px == pytest.approx(91.0), "the price it actually filled at"
+    assert t.outcome == "external", "not a target, a stop, or our own flatten"
+    assert t.ret > 0, "a +1.00 move on a long is not a loss"
+
+
+def test_an_external_close_stands_the_sleeve_down(tmp_path):
+    """It must not re-arm into the position that was just taken off it.
+
+    Every actor that closes a position behind the engine's back — the watchdog,
+    a hand in TWS, a liquidation — is trying to reduce exposure. Re-arming is
+    the exact opposite, and it would let the engine undo a watchdog
+    intervention that fired for a reason.
+    """
+    eng, ib, store = _in_position(tmp_path, entry_px=90.0)
+    oid = ib.place_market("SOXL", "SELL", abs(ib.position("SOXL")),
+                          "WATCHDOG-20260803-155830-SOXL")
+    ib.fill(oid, price=91.0)
+
+    eng.poll(START_IDX + 2)                    # mid-session, not at the close
+
+    sm = eng.sleeves["SOXL"].sm
+    assert not sm.in_position
+    assert sm.state.value == "closed"
+    assert not [o for o in ib.orders.values()
+                if o.action == "BUY" and o.status == "Submitted"], \
+        "no new entry may rest after someone else flattened the sleeve"
+
+
+def test_an_unexplained_close_is_never_booked_at_zero(tmp_path):
+    """The half the earlier fix left open.
+
+    `sm.flatten` books whenever the sleeve is in a position and is only ever
+    handed 0.0, so guarding on `not flat` covered a real open position and
+    missed its mirror image: broker flat, sleeve still holding, and no
+    execution to explain the difference. Here the position simply vanishes.
+    """
+    eng, ib, store = _in_position(tmp_path, entry_px=90.0)
+    ib.positions["SOXL"] = 0.0                 # gone, with no execution at all
+
+    eng.flatten_all(bar_idx=FLATTEN_IDX, settle=0)
+
+    sm = eng.sleeves["SOXL"].sm
+    assert not sm.trades, "no trade may be booked at a price nothing traded at"
+    assert sm.pnl == 0.0
