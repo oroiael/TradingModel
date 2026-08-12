@@ -41,15 +41,24 @@ def test_every_ibkr_timestamp_form_lands_on_bar_zero(raw):
 
 
 class _StubTicker:
-    def __init__(self, mdt_after_probe=1):
+    def __init__(self, mdt_after_probe=1, quote=None):
         self.marketDataType = 1
         self._answer = mdt_after_probe
+        # Opt-in: the delayed-data tests rely on a ticker with no quote in it,
+        # because `assert_live_data` breaks out of its probe as soon as one
+        # appears and would then never read the marketDataType they are about.
+        if quote is not None:
+            self.bid, self.ask, self.last = quote
+            self.bidSize = self.askSize = 100.0
 
 
 class _StubIB:
     """Just enough of ib_async.IB to reach the guard under test."""
 
-    def __init__(self, bars=(), mdt=1):
+    def __init__(self, bars=(), mdt=1, quote=None):
+        self.mkt_data_requests = []
+        self._quote = quote
+        self._connected = True
         self.placed = []
         self.cancelled = []
         self.global_cancels = 0
@@ -59,13 +68,17 @@ class _StubIB:
         self.mkt_data_cancelled = []
 
     def isConnected(self):
-        return True
+        return self._connected
+
+    def disconnect(self):
+        self._connected = False
 
     def reqMarketDataType(self, n):
         self.market_data_type_requested = n
 
     def reqMktData(self, contract, *a, **kw):
-        self._ticker = _StubTicker()
+        self.mkt_data_requests.append(contract)
+        self._ticker = _StubTicker(quote=self._quote)
         return self._ticker
 
     def cancelMktData(self, contract):
@@ -93,9 +106,9 @@ class _StubIB:
         return self._bars
 
 
-def _broker(readonly, bars=(), mdt=1):
+def _broker(readonly, bars=(), mdt=1, quote=None):
     b = IBBroker(readonly=readonly)
-    b._ib = _StubIB(bars, mdt)
+    b._ib = _StubIB(bars, mdt, quote)
     b._contracts["SOXL"] = object()          # skip qualifyContracts
     b._contracts["SOXS"] = object()
     return b
@@ -477,3 +490,57 @@ def test_a_market_data_error_still_stands_the_sleeve_down():
     assert "SOXL" in b._no_live_data
     with pytest.raises(NotLiveDataError):
         b.assert_live_data("SOXL")
+
+
+# ------------------------------ one market-data line per symbol, not per read
+def test_repeated_quotes_use_one_subscription():
+    """`reqMktData` takes a fresh reqId every call and orphans the last one.
+
+    `wrapper.startTicker` reuses the `Ticker` object but overwrites
+    `ticker2ReqId`, so the data keeps arriving and nothing looks wrong while
+    TWS accumulates subscriptions `cancelMktData` can no longer reach. Against
+    a concurrent-line limit of about 100, and a `_record_fill` that reads a
+    quote on every execution, that is a session-length leak.
+    """
+    b = _broker(readonly=True, quote=(10.0, 10.02, 10.01))
+    for _ in range(12):
+        q = b.quote("SOXL")
+    assert q.bid == pytest.approx(10.0) and q.ask == pytest.approx(10.02)
+    assert len(b._ib.mkt_data_requests) == 1, \
+        f"12 reads opened {len(b._ib.mkt_data_requests)} subscriptions"
+
+
+def test_two_symbols_get_one_subscription_each():
+    b = _broker(readonly=True, quote=(10.0, 10.02, 10.01))
+    for _ in range(4):
+        b.quote("SOXL")
+        b.quote("SOXS")
+    assert len(b._ib.mkt_data_requests) == 2
+
+
+def test_disconnect_releases_the_subscriptions():
+    b = _broker(readonly=True, quote=(10.0, 10.02, 10.01))
+    b.quote("SOXL")
+    assert b._tickers
+    b.disconnect()
+    assert b._ib.mkt_data_cancelled, "leaving them for TWS to reap is not tidy"
+    assert not b._tickers
+
+
+def test_the_live_data_probe_does_not_leave_a_dead_ticker_behind():
+    """`cancelMktData` is looked up by contract, so it cancels ours too.
+
+    Without dropping the cache here, `quote` would go on reading a `Ticker`
+    that TWS has stopped updating — reporting a frozen book as a live one,
+    which is worse than no quote at all because it looks fine.
+    """
+    b = _broker(readonly=True, mdt=1, quote=(10.0, 10.02, 10.01))
+    b.quote("SOXL")
+    assert "SOXL" in b._tickers
+
+    b.assert_live_data("SOXL")               # opens a probe, then cancels it
+    assert "SOXL" not in b._tickers, "the probe cancelled what we were holding"
+
+    before = len(b._ib.mkt_data_requests)
+    b.quote("SOXL")
+    assert len(b._ib.mkt_data_requests) == before + 1, "so it re-subscribes"

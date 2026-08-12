@@ -67,6 +67,10 @@ def is_warning(code: int) -> bool:
 #: How long to wait for TWS to describe the feed before warning and proceeding.
 PROBE_SECONDS = 5.0
 
+#: How long a *new* market-data subscription may take to produce its first
+#: quote. Paid once per symbol per connection, not once per read — see `quote`.
+QUOTE_WARMUP_SECONDS = 2.0
+
 
 def _has_quote(ticker) -> bool:
     """Is real data flowing? A live bid/ask is evidence in its own right."""
@@ -343,6 +347,8 @@ class IBBroker(Broker):
         self._dry_seq = 0
         self._no_live_data: set = set()
         self._error_hooked = False
+        #: One live market-data subscription per symbol. See `_ticker`.
+        self._tickers: dict[str, Any] = {}
 
     # ---------------------------------------------------------- lifecycle
     def connect(self) -> None:
@@ -395,7 +401,15 @@ class IBBroker(Broker):
 
     def disconnect(self) -> None:
         if self._ib is not None and self._ib.isConnected():
+            # Release the streaming subscriptions rather than leaving them for
+            # TWS to reap. The reconnect path re-creates them on first read.
+            for symbol in list(self._tickers):
+                try:
+                    self._ib.cancelMktData(self.contract(symbol))
+                except Exception:                 # noqa: BLE001
+                    pass                          # never block a disconnect
             self._ib.disconnect()
+        self._tickers.clear()
 
     @property
     def connected(self) -> bool:
@@ -507,6 +521,12 @@ class IBBroker(Broker):
                 ib.cancelMktData(contract)
             except Exception:                     # noqa: BLE001
                 pass                              # tidying up must not refuse
+            # `cancelMktData` is looked up by *contract*, so it cancels whatever
+            # subscription this symbol currently has — including the streaming
+            # one `_ticker` holds. Forget it, or `quote` would go on reading a
+            # Ticker that TWS has stopped updating and report a frozen book as
+            # a live one.
+            self._tickers.pop(symbol, None)
 
         if symbol in self._no_live_data:
             _refuse("IBKR reported no live market-data subscription")
@@ -586,10 +606,39 @@ class IBBroker(Broker):
                                  price=float(e.price), time=e.time))
         return out
 
-    def quote(self, symbol: str) -> Quote:
+    def _ticker(self, symbol: str):
+        """One streaming subscription per symbol, held for the connection.
+
+        `IB.reqMktData` takes a **new reqId from `getReqId()` on every call**
+        and `wrapper.startTicker` overwrites `ticker2ReqId[tickType][ticker]`
+        with it. The `Ticker` object is reused, so the data still arrives and
+        nothing looks wrong — but the previous reqId is orphaned at TWS, and
+        `cancelMktData` can only ever cancel the newest. Calling it per read
+        therefore leaks a market-data line per read, against a concurrent-line
+        limit that is typically 100.
+
+        `_record_fill` reads a quote on **every execution** — §1's evidence for
+        whether IBKR's simulator fills a resting limit without the quote
+        reaching it — and IBKR settles one order in as many executions as the
+        book requires. Eleven executions was eleven orphaned lines.
+        """
+        t = self._tickers.get(symbol)
+        if t is not None:
+            return t
         ib = self._require()
         t = ib.reqMktData(self.contract(symbol), "", False, False)
-        ib.sleep(0.4)
+        self._tickers[symbol] = t
+        # A fresh subscription is empty. Wait here, once, rather than on every
+        # read: the old code slept 0.4s per call, which an eleven-execution
+        # entry paid eleven times — 4.4 seconds, some of it out of the 15:55
+        # flatten's budget.
+        deadline = time.time() + QUOTE_WARMUP_SECONDS
+        while time.time() < deadline and not _has_quote(t):
+            ib.sleep(0.05)
+        return t
+
+    def quote(self, symbol: str) -> Quote:
+        t = self._ticker(symbol)
         def _f(x):
             return float(x) if x is not None and x == x else 0.0
         return Quote(_f(t.bid), _f(t.ask), _f(t.last), _f(t.bidSize), _f(t.askSize))
