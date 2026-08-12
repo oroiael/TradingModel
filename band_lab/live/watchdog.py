@@ -42,7 +42,7 @@ import json
 import os
 import sys
 from dataclasses import dataclass, field
-from datetime import datetime, time as dtime
+from datetime import date, datetime, time as dtime
 from typing import Optional
 from zoneinfo import ZoneInfo
 
@@ -74,6 +74,10 @@ class Watchdog:
     stale_seconds: float = STALE_SECONDS
     hard_flat: dtime = HARD_FLAT
     fired: bool = False
+    #: The session `fired` belongs to. Design rule 4 is "one intervention per
+    #: session"; without a date to compare against it silently became one per
+    #: *process*, and `run()` loops across days.
+    fired_on: Optional[date] = None
     _said: list = field(default_factory=list)
 
     def __post_init__(self) -> None:
@@ -145,9 +149,36 @@ class Watchdog:
                 and SESSION_OPEN <= now.time() <= SESSION_CLOSE)
 
     # -------------------------------------------------------------- deciding
+    def _roll_session(self, now: datetime) -> None:
+        """A new trading day re-arms the watchdog.
+
+        Design rule 4 is **one intervention per session** — it exists so that a
+        disagreement with the engine inside a single day cannot become a loop of
+        duelling orders. `fired` was never cleared, so it delivered one
+        intervention per *process* instead, and `run()` loops indefinitely. A
+        watchdog that acted on Monday would watch Tuesday through Friday unable
+        to act, and say nothing about it: the silent failure it exists to
+        prevent, relocated into the watchdog itself.
+
+        Compared with `>` rather than `!=` on purpose. A clock correction that
+        steps backwards must not re-arm it inside a session it has already acted
+        in — staying dormant is the safe direction of that error.
+        """
+        today = now.astimezone(NY).date()
+        if self.fired and self.fired_on is not None and today > self.fired_on:
+            self.say("info", f"new session {today} — re-arming after the "
+                             f"intervention on {self.fired_on}")
+            self.fired, self.fired_on = False, None
+
     def verdict(self, now: Optional[datetime] = None) -> tuple[bool, str]:
-        """(should_intervene, why). Pure — takes no action."""
+        """(should_intervene, why). Places no orders and cancels nothing.
+
+        Not quite pure: it clears `fired` when the session date has moved on,
+        because every path that asks "should I act?" must get an answer based on
+        today rather than on a day that ended. That is the only state it writes.
+        """
         now = now or datetime.now(NY)
+        self._roll_session(now)
         if self.fired:
             return False, "already intervened this session"
         if not self.in_session(now):
@@ -175,7 +206,8 @@ class Watchdog:
         return False, f"engine alive ({age:.0f}s), {len(positions)} position(s)"
 
     # --------------------------------------------------------------- acting
-    def intervene(self, why: str, attempts: int = 5, settle: float = 3.0) -> bool:
+    def intervene(self, why: str, attempts: int = 5, settle: float = 3.0,
+                  now: Optional[datetime] = None) -> bool:
         """Cancel everything, then sell to flat. The only thing it can do.
 
         **Never stacks.** This loop used to re-send a full-size market order on
@@ -191,7 +223,11 @@ class Watchdog:
         shrink. Now that the watchdog can actually see, it has to look.
         """
         self.say("critical", f"INTERVENING — {why}")
+        # Stamped with the session it belongs to, so `_roll_session` can tell
+        # "already acted today" from "acted at some point since this process
+        # started" — which is the whole of defect F6.
         self.fired = True
+        self.fired_on = (now or datetime.now(NY)).astimezone(NY).date()
         try:
             self.broker.cancel_all()                        # §6.7 reqGlobalCancel
             self.say("info", "global cancel sent")
@@ -246,7 +282,7 @@ class Watchdog:
             return "no-broker"
         act, why = self.verdict(now)
         if act:
-            self.intervene(why)
+            self.intervene(why, now=now)
             return "intervened"
         return why
 

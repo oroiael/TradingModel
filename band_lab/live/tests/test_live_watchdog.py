@@ -149,6 +149,37 @@ def test_it_shouts_when_it_cannot_flatten(tmp_path):
                for lvl, m in wd._said)
 
 
+def test_a_new_session_re_arms_the_watchdog(tmp_path):
+    """Design rule 4 is one intervention per *session*, not per process.
+
+    `run()` loops indefinitely across days. A watchdog that acted on Friday and
+    never re-armed would watch the whole of the following week unable to act,
+    and say nothing about it — the silent failure it exists to prevent, moved
+    inside the watchdog itself.
+    """
+    wd, ib = _wd(tmp_path, heartbeat_age=600, positions={"SOXS": 1680})
+    assert wd.verdict(MIDDAY)[0] is True
+
+    wd.intervene("first", settle=0, now=MIDDAY)
+    assert wd.fired_on == MIDDAY.date()
+    assert wd.verdict(MIDDAY)[0] is False, "the rest of the day stays dormant"
+
+    monday = MIDDAY + timedelta(days=3)          # 2026-08-10, still exposed
+    assert wd.verdict(monday)[0] is True, "a new session re-arms it"
+    assert any("re-arming" in m for _, m in wd._said)
+
+
+def test_a_backwards_clock_does_not_re_arm(tmp_path):
+    """An NTP correction must not hand it a second intervention in one day.
+
+    Dormant is the safe direction of this error: the cost is a watchdog that
+    waits, the cost of the other is duelling orders with a live engine.
+    """
+    wd, ib = _wd(tmp_path, heartbeat_age=600, positions={"SOXS": 1680})
+    wd.intervene("first", settle=0, now=MIDDAY)
+    assert wd.verdict(MIDDAY - timedelta(days=1))[0] is False
+
+
 def test_intervention_never_stacks_duplicate_market_orders(tmp_path):
     """The defect `ensure_flat` was rewritten to remove, still live here.
 
