@@ -249,6 +249,33 @@ class Broker:
     def cancel(self, order_id: int) -> None: ...
     def cancel_all(self) -> None: ...
 
+    def refresh_orders(self) -> None:
+        """Re-read the open orders from TWS itself, not from the client's copy.
+
+        The client's copy can be wrong in the one direction that matters.
+        `ib_async.Wrapper.error` marks a trade `Cancelled` — a DoneState — for
+        every error code outside its warning set, and its own comment says why
+        that is not always true: *"modification to existing order just has an
+        update error, but the order is STILL LIVE"*. `openTrades()` then drops
+        it, so `working_orders`, `_clear_working`, `verify_flat` and the
+        watchdog's `exposure()` all report a clean book while IBKR holds a live
+        order. That is the shape of 2026-08-10.
+
+        `IB.reqAllOpenOrders` is the documented way back. IBKR's own client:
+        *"request the open orders placed from all clients and also from TWS.
+        Each open order will be fed back through the openOrder() and
+        orderStatus() functions"* — and `orderStatus` overwrites the local
+        status with whatever TWS reports, which is exactly what revives a trade
+        the client wrongly buried.
+
+        Note from the same docstring: *"No association is made between the
+        returned orders and the requesting client."* So this can also surface
+        orders placed by hand in TWS or by the watchdog. Callers must keep
+        filtering on `orderRef`, which is what `parse_ref` is for.
+
+        Default is a no-op: nothing to re-read without a real TWS.
+        """
+
     def wait(self, seconds: float) -> None:
         """Pause **without going deaf**. Never call `time.sleep` on this path.
 
@@ -656,6 +683,19 @@ class IBBroker(Broker):
             if t.order.orderId == order_id:
                 ib.cancelOrder(t.order)
                 return
+        # Silence here made "cancelled" and "never found" the same outcome to
+        # every caller. `_cancel_entry` then set `entry_id = None` and moved on,
+        # which is right when the order is done and wrong when the client has
+        # merely lost sight of it.
+        self._on_event("warn",
+                       f"cancel({order_id}): no working order with that id. "
+                       f"Either it is already done, or the client marked it "
+                       f"Cancelled on an error while IBKR still holds it — "
+                       f"reconcile calls reqAllOpenOrders for exactly that case")
+
+    def refresh_orders(self) -> None:
+        """`reqAllOpenOrders` — synchronous, and it pumps the event loop."""
+        self._require().reqAllOpenOrders()
 
     def cancel_all(self) -> None:
         if self.readonly:
@@ -707,6 +747,15 @@ class FakeIB(Broker):
         #: reproducing the 2026-08-10 stall. See `cancel`.
         self.stall_cancels = False
         self.connect_count = 0
+        #: Order ids TWS still holds that the *client* has wrongly buried — the
+        #: state a non-warning error such as 103 leaves behind, where
+        #: `wrapper.error` sets the trade `Cancelled` while it is still live
+        #: upstream. Hidden from `working_orders` until `refresh_orders()`
+        #: re-reads them, which is what `reqAllOpenOrders` does. Without this
+        #: the ghost could not be expressed in a test at all — the same gap
+        #: that let `PendingCancel` go unmodelled until it cost a session.
+        self.ghosts: set = set()
+        self.refreshes = 0
 
     # lifecycle
     def connect(self) -> None:
@@ -743,7 +792,17 @@ class FakeIB(Broker):
                              o.action, o.order_type, o.qty, o.filled,
                              o.limit_px, o.aux_px, o.oca_group, o.status)
                 for o in self.orders.values()
-                if o.symbol == symbol and is_working(o.status)]
+                if o.symbol == symbol and is_working(o.status)
+                and o.order_id not in self.ghosts]
+
+    def refresh_orders(self) -> None:
+        """TWS re-reports what it holds, and the client's copy is corrected."""
+        self.refreshes += 1
+        self.ghosts.clear()
+
+    def hide(self, order_id: int) -> None:
+        """Test control: the client loses sight of a still-live order."""
+        self.ghosts.add(order_id)
 
     def executions(self, symbol) -> list[Execution]:
         return [e for e in self.execs if e.symbol == symbol]

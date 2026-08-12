@@ -125,6 +125,23 @@ class OrderManager:
             self.on_event("info", f"{self.symbol} recovered {len(recovered)} "
                                   f"execution(s) already handled today")
 
+        # And the highest sequence this session has already issued. `reconcile`
+        # recovers it from the broker, but only for orders that are still
+        # working or that executed — an order placed and then cancelled without
+        # a fill is invisible to both, and its number would be handed out again.
+        # The `orders` table is the one record that has every ref written today.
+        try:
+            refs = self.store.rows(
+                "SELECT order_ref FROM orders WHERE symbol=? AND session=?",
+                (self.symbol, self.session))
+        except Exception:                                   # noqa: BLE001
+            return
+        used = [p[3] for p in (parse_ref(r["order_ref"]) for r in refs) if p]
+        if used:
+            self.seq = max(self.seq, max(used))
+            self.on_event("info", f"{self.symbol} order refs resume at "
+                                  f"{self.seq + 1}")
+
     # ------------------------------------------------------------- helpers
     def _next_ref(self, role: str) -> str:
         self.seq += 1
@@ -212,7 +229,7 @@ class OrderManager:
         if qty <= 0:
             return
         # The broker is the fact; this state machine is only a belief about it.
-        working = self._working_entry()
+        working = self._working_entry(refresh=True)
         if working is not None:
             return self._adopt_rather_than_duplicate(working, it, px, qty)
         self._assert_ratchet(px)
@@ -225,8 +242,17 @@ class OrderManager:
         self.on_event("info", f"{self.symbol} ARM  buy limit {qty:.0f} @ {px:.2f} "
                               f"({self.entry_ref})")
 
-    def _working_entry(self):
-        """The entry order the *broker* actually has, or None."""
+    def _working_entry(self, refresh: bool = False):
+        """The entry order the *broker* actually has, or None.
+
+        `refresh` re-reads the book from TWS first. It is off for the ratchet,
+        which runs on every rising bar and can afford to trust the client's
+        copy, and on before arming, where being wrong means a second live buy
+        limit: a ghost order is invisible to `openTrades()`, so without this the
+        duplicate guard below would look, see nothing, and place.
+        """
+        if refresh:
+            self.broker.refresh_orders()
         for w in self.broker.working_orders(self.symbol):
             p = parse_ref(w.order_ref)
             if p and p[2] == ROLE_ENTRY and w.remaining > 0:
@@ -573,6 +599,11 @@ class OrderManager:
         decides what to do about a mismatch, because the right response differs
         between pre-open, intraday and post-close.
         """
+        # Ask TWS what it holds before reading the client's copy of it. A
+        # non-warning error buries a trade locally while IBKR keeps working it,
+        # and reconcile is the one place whose entire job is to be right about
+        # this. See `Broker.refresh_orders`.
+        self.broker.refresh_orders()
         pos = self.broker.position(self.symbol)
         working = self.broker.working_orders(self.symbol)
         execs = self.broker.executions(self.symbol)
@@ -617,6 +648,17 @@ class OrderManager:
                 self.target_id = w.order_id
             elif p and p[2] == ROLE_STOP:
                 self.stop_id = w.order_id
+            if p:
+                self.seq = max(self.seq, p[3])
+        # Executions count too. Seeding `seq` from working orders alone reset it
+        # to 0 whenever the day's orders were all done, so `_next_ref` re-issued
+        # `…-E-1` and two distinct orders carried one ref. That is not cosmetic:
+        # `entries` above is a *set* of refs, so the duplicate collapsed and
+        # `broker_fills` under-counted — in a counter §2.7 uses as a breaker,
+        # and in the reconstruction the deterministic-ref design exists to
+        # guarantee.
+        for e in execs:
+            p = parse_ref(e.order_ref)
             if p:
                 self.seq = max(self.seq, p[3])
         return summary

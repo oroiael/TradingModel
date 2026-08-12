@@ -11,7 +11,9 @@ from __future__ import annotations
 import pytest
 
 from broker import BrokerError, FakeIB, WorkingOrder, is_working
-from orders import OrderManager, RatchetViolation, order_ref, parse_ref
+from orders import (
+    ROLE_ENTRY, OrderManager, RatchetViolation, order_ref, parse_ref,
+)
 from sleeve import (
     Bar, Intent, IntentKind, SleeveConfig, SleeveStateMachine, START_IDX,
 )
@@ -1053,3 +1055,86 @@ def test_a_cancelling_entry_is_neither_adopted_nor_replaced(tmp_path):
                 if o.action == "BUY" and is_working(o.status)]) == 1
     assert om2.entry_id is None, "nothing was armed"
     assert any(lvl == "critical" and "PendingCancel" in msg for lvl, msg in said)
+
+
+# ------------------------------- ghost orders and repeating refs (F5, F4)
+def test_arming_sees_through_an_order_the_client_has_buried(tmp_path):
+    """The hole F2's guard alone left open.
+
+    `wrapper.error` marks a trade `Cancelled` — a DoneState — for every error
+    code outside its warning set, and 103 is not in it. `openTrades()` then
+    drops an order IBKR is still working, so the duplicate guard looks, sees
+    nothing, and places a second live buy limit behind one that can still fill.
+    On 2026-08-10 the engine believed 43.78 x1701 and the fill settled 1,703.
+    """
+    om, ib, sm = _armed(tmp_path, high=100.0)
+    resting = ib.orders[om.entry_id]
+    ib.hide(resting.order_id)                 # live at TWS, invisible locally
+    assert ib.working_orders("SOXL") == [], "the client cannot see it"
+
+    om2, _, _ = _om(tmp_path, ib=ib, sm=_sm("SOXL"))
+    om2.apply([Intent(kind=IntentKind.PLACE_ENTRY, bar_idx=START_IDX,
+                      limit_px=resting.limit_px, qty=resting.qty)])
+
+    assert ib.refreshes >= 1, "arming must re-read the book from TWS"
+    live = [o for o in ib.orders.values()
+            if o.action == "BUY" and is_working(o.status)]
+    assert len(live) == 1, f"one sleeve, one resting entry — found {len(live)}"
+
+
+def test_reconcile_recovers_an_order_the_client_had_lost(tmp_path):
+    """§3's whole job is being right about what the broker holds."""
+    om, ib, sm = _armed(tmp_path, high=100.0)
+    ib.hide(om.entry_id)
+    assert om.reconcile()["working"] == 1, \
+        "reqAllOpenOrders is what makes a buried order countable again"
+
+
+def test_order_refs_do_not_repeat_after_a_restart(tmp_path):
+    """`…-E-1` twice is not cosmetic — `reconcile` counts refs in a *set*.
+
+    Seeding `seq` from working orders alone reset it to 0 once the day's orders
+    were done, so two distinct entries carried one ref, the set collapsed them,
+    and `broker_fills` under-counted a §2.7 breaker. Driven with `store=None`
+    so only the broker-side recovery is under test.
+    """
+    om, ib, sm = _armed(tmp_path, high=100.0)
+    first = om.entry_ref
+    ib.fill(om.entry_id, price=99.0)
+    om.on_executions(START_IDX)
+    target = next(o for o in ib.orders.values()
+                  if o.order_type == "LMT" and o.action == "SELL")
+    ib.fill(target.order_id, price=99.99)
+    om.on_executions(START_IDX)
+    # §4.5 re-arms on the exit, so clear that too: the state this guards is a
+    # restart with nothing left working and the day's executions still there.
+    om._cancel_entry()
+    ib.confirm_cancels("SOXL")
+    assert not ib.working_orders("SOXL")
+    assert ib.executions("SOXL"), "the executions are what must be honoured"
+
+    om2 = OrderManager(broker=ib, symbol="SOXL", session="20260803",
+                       sm=_sm("SOXL"), store=None)
+    assert om2.seq == 0, "nothing in memory, and no store to read"
+    om2.reconcile()
+    assert om2._next_ref(ROLE_ENTRY) != first, \
+        "a restart must not re-issue a ref that already identifies a fill"
+
+
+def test_a_ref_from_an_order_that_never_filled_is_not_reused(tmp_path):
+    """Neither working nor executed, so only the audit log remembers it.
+
+    `reconcile` cannot recover this one from the broker at all — the order was
+    cancelled without a fill, so it is in no execution and in no open-order
+    reply. The `orders` table is the only record that it was ever issued.
+    """
+    db = str(tmp_path / "seq2.db")
+    om, ib, sm = _armed(tmp_path, high=100.0, db=db)
+    first = om.entry_ref
+    om._cancel_entry()
+    ib.confirm_cancels("SOXL")
+    assert not ib.working_orders("SOXL") and not ib.executions("SOXL")
+
+    om2, _, _ = _om(tmp_path, ib=ib, sm=_sm("SOXL"), db=db)
+    om2.reconcile()
+    assert om2._next_ref(ROLE_ENTRY) != first
