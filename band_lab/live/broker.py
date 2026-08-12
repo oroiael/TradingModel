@@ -885,8 +885,7 @@ class FakeIB(Broker):
                              o.action, o.order_type, o.qty, o.filled,
                              o.limit_px, o.aux_px, o.oca_group, o.status)
                 for o in self.orders.values()
-                if o.symbol == symbol and is_working(o.status)
-                and o.order_id not in self.ghosts]
+                if o.symbol == symbol and self._client_sees(o)]
 
     def refresh_orders(self) -> None:
         """TWS re-reports what it holds, and the client's copy is corrected."""
@@ -932,10 +931,30 @@ class FakeIB(Broker):
     def place_market(self, symbol, action, qty, order_ref) -> int:
         return self._add(symbol, action, qty, "MKT", order_ref)
 
+    def _client_sees(self, o: _FakeOrder) -> bool:
+        """Would `IB.openTrades()` return this order?
+
+        `IBBroker` asks that question exactly once, through `openTrades()`, and
+        every path it has — `working_orders`, `modify_limit`, `cancel` — is
+        downstream of it. So the double asks it once too. Hand-writing the
+        answer per method is what let `FakeIB` diverge before, and the skill is
+        blunt about it: never write a status list.
+        """
+        return is_working(o.status) and o.order_id not in self.ghosts
+
     def modify_limit(self, order_id, limit_px, qty) -> None:
-        o = self.orders[order_id]
-        if o.status not in ("Submitted", "PreSubmitted"):
-            raise BrokerError(f"order {order_id} not working")
+        # `IBBroker` scans `openTrades()` and raises `BrokerError` when the id
+        # is not there. It does **not** care which working state the order is
+        # in: `IB.placeOrder`-as-modify asserts only that the status is not a
+        # DoneState, so a `PendingCancel` or `ValidationError` order is modified
+        # without complaint. This used to accept `Submitted`/`PreSubmitted`
+        # only, and to raise `KeyError` rather than `BrokerError` on an unknown
+        # id — so the engine's behaviour against four reachable states was
+        # untestable, and its behaviour against a missing one was tested
+        # against the wrong exception.
+        o = self.orders.get(order_id)
+        if o is None or not self._client_sees(o):
+            raise BrokerError(f"order {order_id} not working; cannot modify")
         o.limit_px = float(limit_px)
         o.qty = float(qty)
 
@@ -954,7 +973,9 @@ class FakeIB(Broker):
         is the ordinary case and keeps the happy path fast.
         """
         o = self.orders.get(order_id)
-        if o is None or not is_working(o.status):
+        if o is None or not self._client_sees(o):
+            # `IBBroker.cancel` scans `openTrades()` and warns when the id is
+            # not there — a ghost included, which is the whole point of one.
             return
         o.status = "PendingCancel"
         if not self.stall_cancels:
@@ -998,6 +1019,13 @@ class FakeIB(Broker):
         if o.status == "Filled" and o.oca_group:
             for other in self.orders.values():
                 if (other is not o and other.oca_group == o.oca_group
-                        and other.status in ("Submitted", "PreSubmitted")):
+                        and is_working(other.status)):
+                    # Every working sibling, not just the two states someone
+                    # happened to list — `ocaType=1` is CANCEL_WITH_BLOCK and
+                    # `PendingSubmit`, `ValidationError` and the rest are all
+                    # orders IBKR still has. Set directly rather than through
+                    # `cancel()`: this is the broker acting, so it lands as
+                    # `Cancelled` and never passes through the client-side
+                    # `PendingCancel` limbo that `IB.cancelOrder` creates.
                     other.status = "Cancelled"
         return e

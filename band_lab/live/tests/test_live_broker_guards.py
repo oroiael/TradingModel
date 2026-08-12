@@ -544,3 +544,119 @@ def test_the_live_data_probe_does_not_leave_a_dead_ticker_behind():
     before = len(b._ib.mkt_data_requests)
     b.quote("SOXL")
     assert len(b._ib.mkt_data_requests) == before + 1, "so it re-subscribes"
+
+
+# ------------------- the double must model the states the broker reports (F10)
+@pytest.mark.parametrize("status", sorted(
+    {"PendingSubmit", "ApiPending", "PreSubmitted", "Submitted",
+     "ValidationError", "ApiUpdate", "PendingCancel"}))
+def test_fake_modifies_every_state_the_real_broker_would(status):
+    """`IBBroker.modify_limit` scans `openTrades()` and does not look further.
+
+    `IB.placeOrder`-as-modify asserts only that the status is not a DoneState,
+    so all seven of these are modified without complaint against a real TWS.
+    `FakeIB` accepted two of them, which left the engine's behaviour against
+    the other five — `PendingCancel` above all — untestable.
+    """
+    from broker import BrokerError
+
+    ib = FakeIB()
+    ib.connect()
+    oid = ib.place_limit("SOXL", "BUY", 100, 99.0, "20260803-SOXL-E-1")
+    ib.orders[oid].status = status
+
+    ib.modify_limit(oid, 99.5, 100)              # must not raise
+    assert ib.orders[oid].limit_px == pytest.approx(99.5)
+
+
+@pytest.mark.parametrize("status", sorted({"Filled", "Cancelled",
+                                           "ApiCancelled", "Inactive"}))
+def test_fake_refuses_to_modify_a_done_order(status):
+    from broker import BrokerError
+
+    ib = FakeIB()
+    ib.connect()
+    oid = ib.place_limit("SOXL", "BUY", 100, 99.0, "20260803-SOXL-E-1")
+    ib.orders[oid].status = status
+    with pytest.raises(BrokerError):
+        ib.modify_limit(oid, 99.5, 100)
+
+
+def test_an_unknown_id_raises_the_same_error_as_the_real_broker():
+    """It raised `KeyError`, so `_modify_entry`'s `except BrokerError` — the
+    branch that leaves the resting order alone — was never exercised."""
+    from broker import BrokerError
+
+    ib = FakeIB()
+    ib.connect()
+    with pytest.raises(BrokerError):
+        ib.modify_limit(4242, 99.5, 100)
+
+
+def test_a_ghost_cannot_be_modified_or_cancelled():
+    """`openTrades()` does not return it, so neither path can reach it."""
+    from broker import BrokerError
+
+    ib = FakeIB()
+    ib.connect()
+    oid = ib.place_limit("SOXL", "BUY", 100, 99.0, "20260803-SOXL-E-1")
+    ib.hide(oid)
+
+    with pytest.raises(BrokerError):
+        ib.modify_limit(oid, 99.5, 100)
+    ib.cancel(oid)
+    assert ib.orders[oid].status == "Submitted", "a cancel cannot reach it either"
+
+
+def test_oca_cancels_a_sibling_in_any_working_state():
+    """`ocaType=1` is CANCEL_WITH_BLOCK — it does not poll for two states.
+
+    The sweep listed `Submitted`/`PreSubmitted`, so a stop still sitting in
+    `PendingSubmit` when its target filled stayed working in the double while a
+    real broker would have taken it.
+    """
+    ib = FakeIB()
+    ib.connect()
+    tgt = ib.place_limit("SOXL", "SELL", 100, 101.0, "20260803-SOXL-T-2",
+                         oca_group="g1")
+    stp = ib.place_stop("SOXL", "SELL", 100, 95.0, "20260803-SOXL-S-3",
+                        oca_group="g1")
+    ib.orders[stp].status = "PendingSubmit"      # not yet acknowledged
+
+    ib.fill(tgt, price=101.0)
+    assert ib.orders[stp].status == "Cancelled"
+
+
+def test_no_module_hand_writes_a_status_list():
+    """The rule the skill states, enforced rather than remembered.
+
+    "Use `broker.is_working(status)`. Never hand-write a status list — that is
+    the exact mistake, and it recurred inside a test double written to catch
+    it." It then recurred a third time, in two places. A single comparison
+    against one named state is fine and deliberate; a *collection* of them is
+    someone re-deriving `is_working` by hand.
+    """
+    import ast
+    import os
+
+    from broker import ACTIVE_STATES, DONE_STATES
+
+    known = set(ACTIVE_STATES) | set(DONE_STATES) | {"PendingCancel"}
+    live = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    offenders = []
+    for name in ("broker.py", "orders.py", "engine.py", "watchdog.py"):
+        tree = ast.parse(open(os.path.join(live, name)).read(), filename=name)
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.Compare):
+                continue
+            for cmp_node in node.comparators:
+                if not isinstance(cmp_node, (ast.Tuple, ast.List, ast.Set)):
+                    continue
+                names = {e.value for e in cmp_node.elts
+                         if isinstance(e, ast.Constant) and isinstance(e.value, str)}
+                if len(names) >= 2 and names <= known:
+                    offenders.append(f"{name}:{node.lineno} {sorted(names)}")
+
+    assert not offenders, (
+        "these re-derive `is_working` by hand and will drift from "
+        f"`openTrades()`: {offenders}")
