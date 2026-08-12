@@ -249,6 +249,35 @@ class Broker:
     def cancel(self, order_id: int) -> None: ...
     def cancel_all(self) -> None: ...
 
+    def wait(self, seconds: float) -> None:
+        """Pause **without going deaf**. Never call `time.sleep` on this path.
+
+        `ib_async` is single-threaded asyncio with no background reader — the
+        package contains no `threading` import at all. The socket is drained
+        only while the event loop runs, and `IB.positions()`, `openTrades()`,
+        `fills()` and `accountValues()` are plain reads of the dictionaries that
+        loop fills in. `util.sleep`'s own docstring says it outright: *"Wait for
+        the given amount of seconds while everything still keeps processing in
+        the background. Never use time.sleep()."*
+
+        This is load-bearing, not tidiness. Three loops wait for a change they
+        can only learn about from the socket:
+
+        * `ensure_flat` places a market order, waits, then re-reads `position()`;
+        * `_clear_working` polls `working_orders()` for a cancel to confirm;
+        * `watchdog.check` polls `exposure()` for the position it exists to close.
+
+        Under `time.sleep` none of them can ever observe what they are waiting
+        for, because nothing pumps the loop in between. That is consistent with
+        the 2026-08-06 and 2026-08-10 sessions, where the position read
+        unchanged on every attempt and the failure was put down to fill latency.
+
+        The default here is `time.sleep`, which is right for `FakeIB` (no loop
+        to pump) and for any caller with no live connection. `IBBroker`
+        overrides it.
+        """
+        time.sleep(seconds)
+
 
 # --------------------------------------------------------------------------
 class IBBroker(Broker):
@@ -311,6 +340,26 @@ class IBBroker(Broker):
         if not self.connected:
             raise BrokerError("not connected")
         return self._ib
+
+    def wait(self, seconds: float) -> None:
+        """`IB.sleep` — runs the event loop, so callbacks land while we wait.
+
+        Deliberately does **not** go through `_require`. A pause must work while
+        disconnected too: `run_session` sleeps between polls whether or not the
+        last reconnect succeeded, and raising there would turn a recoverable
+        outage into a dead session loop.
+        """
+        ib = self._ib
+        if ib is None:
+            time.sleep(seconds)
+            return
+        try:
+            ib.sleep(seconds)
+        except Exception:                                     # noqa: BLE001
+            # A pause must never be what fails a flatten. The fallback still
+            # waits the full interval — it just waits deaf, which is no worse
+            # than the behaviour this method replaces.
+            time.sleep(seconds)
 
     def contract(self, symbol: str):
         if symbol in self._contracts:

@@ -209,7 +209,11 @@ class Runner:
                     self.heartbeat()
                 except Exception as exc:                    # noqa: BLE001
                     self._event("error", f"heartbeat: {exc!r}")
-            time.sleep(sleep)
+            # The whole poll interval used to be spent with the event loop
+            # stopped, so order status, executions and the no-live-data error
+            # handler were all delivered up to `sleep` seconds late — in bursts,
+            # whenever `reqHistoricalData` happened to pump the loop.
+            self.broker.wait(sleep)
 
     # ------------------------------------------------------ 15:55 / 16:10
     def close_out(self, now: Optional[datetime] = None) -> dict:
