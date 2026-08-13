@@ -23,3 +23,8 @@ logs/
 # vix_lab: bulky regenerable logs (summary tables ARE committed)
 vix_lab/out/trades_*.csv
 vix_lab/out/*.txt
+
+# fx_lab: raw captures are huge (a 5-year 1-min 24-hour series is ~100MB per
+# file) and fully regenerable from fetch_fx_intraday.py. Summary tables in
+# fx_lab/out/ ARE committed.
+fx_lab/data/
