@@ -200,6 +200,27 @@ environment, so these are open questions rather than guesses. In a system
 whose first design priority is "fail to flat", they get confirmed, not
 assumed.
 
+> **Update 2026-08-12.** The official docs are now committed at
+> `TWS API/TWS Documentation - Copy Paste from Online.pdf` and were searched
+> for §6.1. They settle the *mechanism* for asking the question and nothing
+> about the answer:
+>
+> | | |
+> |---|---|
+> | `reqAllOpenOrders` (p84) | "Requests **all current open orders in associated accounts** at the current moment." The cross-client request — what a probe must use |
+> | `reqOpenOrders` (p86) | "Requests all open orders **placed by this specific API client** (identified by the API client id)." The wrong one: a separate probe client would read its own empty book and report "no stop" |
+>
+> **Order persistence across a client disconnect is not documented.** Every
+> mention of disconnection (pp. 21, 22, 46, 80, 93) is about connectivity
+> errors or `eDisconnect`'s socket semantics; none addresses whether a resting
+> order outlives the client that placed it. §6.1 therefore cannot be closed by
+> citation and needs an experiment.
+>
+> `verify_stp.py` is that experiment, and `RUNBOOK.md` §7.5 is the procedure.
+> It snapshots the broker from a separate API client before and after the
+> engine is killed and writes a JSON verdict, so the answer lands in the repo
+> instead of in somebody's memory of what TWS looked like.
+
 1. **Stop orders on US stocks** — IB-simulated vs native, default trigger
    method, and whether they survive a TWS restart and an API client
    disconnect. Most safety-critical: §6.1 requires a broker-side stop that

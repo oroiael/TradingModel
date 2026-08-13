@@ -96,6 +96,11 @@ def validate_config(cfg) -> None:
             raise ConfigError(
                 f"{name}={value!r} differs from §12 ({expected!r}); this is a "
                 "strategy change and requires re-validation, not a config edit")
+    if getattr(cfg, "day_profit_stop", None) is not None:
+        raise ConfigError(
+            "day_profit_stop is a v2_dev research variable (V19) and is not in "
+            "§12; production runs it off. Adopting it requires a prespecified "
+            "adoption bar, not a config edit")
     if getattr(cfg, "allow_short", False):
         raise ConfigError("shorting is an explicit non-goal (§11)")
     if getattr(cfg, "allow_overnight", False):

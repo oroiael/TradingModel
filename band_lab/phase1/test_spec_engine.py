@@ -123,6 +123,30 @@ def test_config_rejects_shorting_and_overnight():
         EngineConfig(allow_overnight=True)
 
 
+def test_config_refuses_the_v19_research_variable_on_the_production_path():
+    """`validate_config` is duck-typed (§6.8), and `day_profit_stop` is a
+    v2_dev variable that has never cleared an adoption bar — V19 measured it
+    losing 23-29 bp/ON-day at every threshold tested. `EngineConfig` has no
+    such field today; this asserts that if one is ever added, §6.8 refuses it
+    rather than quietly trading it.
+    """
+    from types import SimpleNamespace
+
+    from spec_constants import (
+        DIP_PCT, F_SIZE, START_TIME, STOP_PCT, TARGET_PCT, W_PER_SLEEVE,
+        validate_config,
+    )
+    cfg = SimpleNamespace(
+        f=F_SIZE, w=W_PER_SLEEVE, gate_atr5_min=GATE_ATR5_MIN, dip_pct=DIP_PCT,
+        target_pct=TARGET_PCT, stop_pct=STOP_PCT, max_fills=MAX_FILLS,
+        max_stops=MAX_STOPS, start_time=START_TIME, day_profit_stop=None)
+    validate_config(cfg)                      # the production shape passes
+
+    cfg.day_profit_stop = 0.01
+    with pytest.raises(ConfigError, match="V19"):
+        validate_config(cfg)
+
+
 # ======================================================== §2.1 bar indexing
 def test_bar_index_matches_spec_examples():
     # §2.1: "Bar index 0 is the 09:30 bar. Bar 18 is the 11:00 bar."

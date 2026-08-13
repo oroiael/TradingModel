@@ -88,6 +88,20 @@ MIN_SESSIONS_FOR_BREAK = 20
 #: exits and double as the outcome label.
 EXIT_OUTCOME = {"T": "target", "S": "stop", "F": "flatten"}
 
+#: `orders.py:ROLE_FLAT`, transcribed rather than imported for the same reason
+#: `EXIT_OUTCOME` is: `orders.py` reaches the broker and this module must not.
+ROLE_FLATTEN = "F"
+
+#: A SELL crossing the spread on a penny-wide $145 ETF costs well under a basis
+#: point, so a flatten filling this far under the quote *that was standing when
+#: it printed* is not the spread — it is a routing or a sizing problem worth a
+#: human. Deliberately loose: §4.7's flatten is a market order and is expected
+#: to pay something every session, and "a safety check that fires on healthy
+#: days is not a safety feature" (defects 6 and 7). This one cannot fire on the
+#: market having moved after 15:55, because the quote it compares against is
+#: the one at the fill.
+FLATTEN_VS_QUOTE_BP = 50.0
+
 #: Quantity tolerance when deciding a round trip has closed. Shares are whole
 #: live, but the comparison is written in floats and a fractional residue from
 #: a bad row should not silently open a phantom trade.
@@ -505,6 +519,131 @@ def slippage(store: Store, symbol: str, session: str) -> list[SlipRow]:
     return out
 
 
+# --------------------------------------------------------- the 15:55 flatten
+@dataclass
+class ExitQuality:
+    """Exit executions against the quote that was standing when they printed.
+
+    **The exit side had no measurement at all.** `vs_limit` is None for every
+    role but "E" — an exit has no resting entry limit to be graded against — and
+    the "honest execution number" filtered to `role == "E"` as well. So a
+    session whose whole result turned in its last bar produced a report with no
+    line in it about that bar, and the first question anyone asks after such a
+    session ("what did the exit cost us?") could not be answered from the
+    instrument built to answer exactly that kind of question.
+
+    Every fill already carries a quote: `orders.py:_record_fill` stamps bid/ask
+    onto *every* execution regardless of role. Nothing new has to be recorded —
+    this only reads what was already there.
+    """
+    role: str
+    n_execs: int
+    qty: float
+    px: float                       # quantity-weighted over the executions
+    vs_mid_bp: Optional[float]      # quantity-weighted; positive == worse
+
+
+@dataclass
+class FlattenCost:
+    """What the 15:55 market order cost against the price the backtest books.
+
+    `orders.py:_flatten` sends a **MKT** — §4.7, deliberately not a MOC, because
+    §1's first design priority is never holding overnight and a MOC can be
+    neither modified nor re-sent when it comes back short. The live exit
+    therefore takes whatever the tape gives it from 15:55 onward, while
+    `replay_session`'s tail rule books the backtest's flatten at the **close of
+    `LAST_HOLDING_IDX`** — the 15:55:00 print, no spread, no delay, no
+    uncertainty about when the order actually went out.
+
+    That gap is a real and recurring cost of running the strategy which the
+    backtest does not carry, and it belongs in the report next to the shadow it
+    explains. On 2026-08-12 SOXL's shadow flattened at 142.99 and the live
+    session at 142.15 — 59 bp, most of the day's loss — and the report said
+    nothing about it at all.
+
+    **`bp` and `vs_mid_bp` are different quantities and the distinction is the
+    whole point.** `bp` is the total: spread plus however far the market
+    travelled between 15:55:00 and the fill. `vs_mid_bp` is the spread-crossing
+    alone, because it prices the fill against the quote standing when it
+    printed. A large `bp` with a small `vs_mid_bp` means the market moved and
+    the order was filled fairly; a large `vs_mid_bp` means the execution itself
+    was bad. Only the second is a defect.
+    """
+    qty: float
+    live_px: float                  # quantity-weighted over the flatten fills
+    ref_px: Optional[float]         # close of LAST_HOLDING_IDX
+    n_execs: int
+    vs_mid_bp: Optional[float]
+
+    @property
+    def bp(self) -> Optional[float]:
+        """Signed, positive == the market order beat the backtest's price."""
+        if not self.ref_px or not self.live_px:
+            return None
+        return (self.live_px / self.ref_px - 1.0) * 1e4
+
+    @property
+    def dollars(self) -> Optional[float]:
+        """Signed dollars on the shares actually flattened.
+
+        The one number here that is not a ratio, and the one a human asks for
+        first. It is exact: both prices and the quantity are recorded.
+        """
+        if self.ref_px is None:
+            return None
+        return (self.live_px - self.ref_px) * self.qty
+
+
+def _wavg_vs_mid(rows: Sequence[SlipRow]) -> Optional[float]:
+    """Quantity-weighted `vs_mid`, or None when no fill carried a quote.
+
+    Quantity-weighted rather than a plain mean because IBKR splits one order
+    across executions of wildly different sizes — a 27-share tail must not
+    count the same as the 497 shares it followed.
+    """
+    num = den = 0.0
+    for s in rows:
+        if s.vs_mid is None or s.qty <= 0.0:
+            continue
+        num += s.qty * s.vs_mid
+        den += s.qty
+    return (num / den) if den else None
+
+
+def exit_quality(slips: Sequence[SlipRow]) -> list[ExitQuality]:
+    """Per-role exit execution, in the order the roles matter."""
+    out = []
+    for role in ("T", "S", ROLE_FLATTEN, "X"):
+        rows = [s for s in slips if s.role == role and s.qty > 0.0]
+        if not rows:
+            continue
+        qty = sum(s.qty for s in rows)
+        out.append(ExitQuality(
+            role=role, n_execs=len(rows), qty=qty,
+            px=sum(s.qty * s.price for s in rows) / qty,
+            vs_mid_bp=_wavg_vs_mid(rows)))
+    return out
+
+
+def flatten_cost(slips: Sequence[SlipRow],
+                 bars: Sequence[Bar]) -> Optional[FlattenCost]:
+    """The 15:55 flatten priced against the bar the backtest exits on.
+
+    None when the session never flattened. A day that ended on a target or a
+    stop paid this cost nothing, and printing a zero for it would put a line in
+    every report that means nothing on most of them.
+    """
+    rows = [s for s in slips if s.role == ROLE_FLATTEN and s.qty > 0.0]
+    if not rows:
+        return None
+    qty = sum(s.qty for s in rows)
+    ref = next((b.close for b in bars if b.idx == LAST_HOLDING_IDX), None)
+    return FlattenCost(qty=qty,
+                       live_px=sum(s.qty * s.price for s in rows) / qty,
+                       ref_px=ref, n_execs=len(rows),
+                       vs_mid_bp=_wavg_vs_mid(rows))
+
+
 # ------------------------------------------------------------- S10/S11 checks
 @dataclass
 class FillWithoutQuote:
@@ -870,6 +1009,50 @@ def print_session_report(store: Store, session: str,
             print(f"\n  entry fills vs the quote while the order worked: "
                   f"{len(mids)} execution(s), mean {_fmt(m)} bp "
                   f"(the honest execution number)")
+
+        # --- 5. the exit side
+        #
+        # Everything above this line grades entries. A session can lose its
+        # whole result in the exit — 2026-08-12 lost 59 bp of 152 in the 15:55
+        # flatten — and the report used to have no line about it, which made the
+        # instrument unable to answer the first question asked of it that day.
+        exits = exit_quality(slips)
+        if exits:
+            print("\n  exit fills vs the quote standing when they printed:")
+            for e in exits:
+                print(f"      {EXIT_OUTCOME.get(e.role, e.role):<9} "
+                      f"{e.n_execs:>3} execution(s)  {e.qty:>7,.0f} sh  "
+                      f"@ {_fmt(e.px):>9}  {_fmt(e.vs_mid_bp):>8} bp"
+                      f"  (positive == worse)")
+
+        fc = flatten_cost(slips, bars)
+        if fc is not None:
+            print(f"\n  the 15:55 flatten — a MARKET order (§4.7: MKT, not MOC, "
+                  f"because §1 puts being flat above the fill price):")
+            print(f"      {fc.qty:,.0f} share(s) in {fc.n_execs} execution(s), "
+                  f"vwap {_fmt(fc.live_px)}")
+            if fc.ref_px is None:
+                print(f"      bar {LAST_HOLDING_IDX} was not recorded, so there "
+                      f"is nothing to price the flatten against — "
+                      f"`record_session_tail` is what backfills it")
+            else:
+                print(f"      the backtest exits this trade at the bar "
+                      f"{LAST_HOLDING_IDX} close ({_fmt(fc.ref_px)}), free and "
+                      f"on time; live paid {_fmt(fc.bp)} bp = "
+                      f"{_fmt(fc.dollars)} against that")
+            if fc.vs_mid_bp is None:
+                print("      no quote was recorded beside the flatten fills, so "
+                      "the spread and the market's move cannot be separated")
+            else:
+                print(f"      of which spread-crossing is {_fmt(fc.vs_mid_bp)} "
+                      f"bp — the fill against the quote at the moment it "
+                      f"printed. The rest is the market moving between 15:55 "
+                      f"and the fill, which no order type would have avoided.")
+                if fc.vs_mid_bp > FLATTEN_VS_QUOTE_BP:
+                    findings += 1
+                    print(f"      [FINDING] {_fmt(fc.vs_mid_bp)} bp against the "
+                          f"standing quote is not a spread on a liquid ETF — "
+                          f"this is the execution itself, not the market.")
 
     # ------------------------------------------------------------- sign-off
     #

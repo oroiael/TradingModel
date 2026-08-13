@@ -159,6 +159,17 @@ class SleeveConfig:
     target_pct: float = TARGET_PCT        # V3
     stop_pct: float = STOP_PCT            # V4
     gate_atr5_min: float = GATE_ATR5_MIN  # V10 cutoff
+    #: V19 (research only) — stop opening new positions once the day's realised
+    #: return reaches this fraction of sleeve capital. `None` is the §12
+    #: behaviour and the only value the production path may hold: the live
+    #: engine builds `SleeveConfig` without it (`engine.py:pre_open`) and
+    #: `spec_constants.validate_config` rejects anything else.
+    #:
+    #: The sleeve already truncates a day downward, twice — `max_stops` and
+    #: §12's DAY_LOSS_KILL. It has never truncated one upward. That asymmetry
+    #: is what V19 exists to measure, and it is measured through the same
+    #: `_arm` funnel the other two breakers use rather than a second mechanism.
+    day_profit_stop: Optional[float] = None
 
     def __post_init__(self):
         if self.sizing_basis not in ("limit", "fill"):
@@ -166,6 +177,10 @@ class SleeveConfig:
         for name in ("dip_pct", "target_pct", "stop_pct"):
             if not 0.0 < getattr(self, name) < 1.0:
                 raise ValueError(f"bad {name}={getattr(self, name)!r}")
+        if self.day_profit_stop is not None and self.day_profit_stop <= 0.0:
+            raise ValueError(f"bad day_profit_stop={self.day_profit_stop!r}; "
+                             f"None is off, and a non-positive threshold would "
+                             f"fire before the sleeve had traded at all")
 
 
 # ------------------------------------------------------------ state machine
@@ -226,6 +241,32 @@ class SleeveStateMachine:
     def trading_today(self) -> bool:
         return self.state not in (SleeveState.PREOPEN, SleeveState.GATE_OFF,
                                   SleeveState.STOOD_DOWN)
+
+    @property
+    def day_profit_reached(self) -> bool:
+        """Has realised day P&L reached `day_profit_stop`? (V19, research only.)
+
+        `self.pnl` is a fraction of sleeve capital, the same units as §12's
+        DAY_LOSS_KILL, so the two breakers are stated on one scale.
+
+        Only realised P&L is consulted, and that is not a simplification: this
+        is read from `_arm`, which runs on the exit event, so the sleeve is flat
+        at every point where the question is asked and there is no open position
+        to mark.
+
+        **The epsilon is load-bearing, not defensive.** Under the backtest
+        config (`sizing_basis="fill"`, fractional shares) a target trade returns
+        `f x target_pct` — with the locked §12 values, exactly the 1.00% a
+        1.00% threshold tests against. In binary floating point that sum lands
+        at 0.009999999999999998 about as often as at 0.01, so a bare `>=` makes
+        "stop at +1%" mean "stop after one winner" or "stop after two" depending
+        on rounding noise in the entry price. That is a 100 bp/day difference in
+        the result decided by nothing. One tick on a $1 share is the smallest
+        real quantity here and is ~4 orders of magnitude larger than the noise.
+        """
+        if self.cfg.day_profit_stop is None:
+            return False
+        return self.pnl >= self.cfg.day_profit_stop - 1e-9
 
     def drain_intents(self) -> list[Intent]:
         out, self._intents = self._intents, []
@@ -325,6 +366,15 @@ class SleeveStateMachine:
             self.state = SleeveState.DONE
             self._entry = None
             self._emit(IntentKind.DORMANT, reason="counters_exhausted")
+            return
+        if self.cfg.day_profit_stop is not None and self.day_profit_reached:
+            # V19, research only — see `SleeveConfig.day_profit_stop`. This sits
+            # with the other two breakers because `_arm` is the single funnel
+            # through which a resting entry can exist: putting it anywhere else
+            # would leave a path that opens a position after the day is done.
+            self.state = SleeveState.DONE
+            self._entry = None
+            self._emit(IntentKind.DORMANT, reason="day_profit_stop")
             return
         qty = self._size(self._limit_px)
         if qty <= 0:                      # §2.4 whole shares only
