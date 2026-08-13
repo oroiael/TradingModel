@@ -758,6 +758,49 @@ critical, and **is the account flat after 16:00**.
 when you look. Nothing pushes on a condition, so it does not make unattended
 operation safe. §8.1 still applies in full.
 
+### 5.6.1 — why the IBKR Connector MCP is *not* the answer, and must not be
+
+The obvious idea, once you have Claude on a phone, is to skip all of this and
+ask Claude to read the account through IBKR's own MCP connector. **Tried
+2026-08-12 20:31 ET, read-only, outside RTH. It does not see this engine's
+account**, and building a monitor on it would have been worse than having none.
+
+| | the MCP-connected account | the paper account the engine trades |
+|---|---:|---:|
+| NetLiquidation | **$1,171.28** | **≈$148,942** (`sleeve_capital` 74,471 at w=0.50, 2026-08-12 daily row) |
+| positions | 0 | flat *after* 15:55, 510 SOXL + 1,845 SOXS during the day |
+| orders | 0 | bracket on from 11:00 |
+| trades, trailing 7 days | **0** | 17+ executions on 08-12 alone; 524 shares in 7 executions and 1,703 in 11 on 08-10 |
+
+Those numbers cannot be reconciled. It is a different account — its 1-year NAV
+series runs from ~$10,072 down to $86.78 by March and back to $1,171 via two
+small deposits in August, which is the shape of a real-money account, not of a
+$150K paper account running two sleeves.
+
+**The failure mode this would have produced is the dangerous kind.** Every call
+returns `positions: []`, `orders: []`, `trades: []` — a monitor that is
+structurally incapable of seeing the thing it monitors and therefore reports
+"flat, nothing working, all clear" *every single day, forever*, including on a
+day the engine carried 524 shares overnight. `PROJECT_STATUS.md` §4.7's rule is
+that a safety check which fires on healthy days is not a safety feature; this is
+its mirror image, and worse.
+
+For the same reason it **cannot serve as the §6.1 observer** (§7.5). It cannot
+see the paper account's `STP`, so it would report the stop missing whether or
+not it survived — a guaranteed false REFUTED.
+
+> 🔴 **The connector's tool surface includes order placement**
+> (`create_order_instruction`), pointed at an account that is **not** the paper
+> account. Nothing in this project may call it. If the connector is ever
+> repointed at the paper account, re-read this box before deciding otherwise.
+
+**What would make it usable** is connecting it to the paper account instead.
+Whether the connector supports that is unresolved: `ibkrguides.com` is
+egress-blocked from the build environment, so its eligibility documentation
+could not be read. Until someone confirms it against IBKR's own docs, `status.py`
+(§5.6) is the monitoring path — it reads the engine's own store, which is the
+only source that has ever demonstrably contained this account's activity.
+
 ## 7.0 — the timeline, and why an 08:00 start is safe
 
 **No order can exist before the 11:00 bar.** §2.3: *"No orders may be placed
