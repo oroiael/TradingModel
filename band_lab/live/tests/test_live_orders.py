@@ -120,6 +120,59 @@ def test_bracket_legs_share_an_oca_group(tmp_path):
     assert all(o.oca_group for o in legs)
 
 
+def test_a_cancelled_bracket_leg_is_logged_under_its_own_ref(tmp_path):
+    """2026-08-13: every bracket cancel was logged with `order_ref=""`.
+
+    `_place_bracket` computed the two refs and threw them away, so
+    `_cancel_bracket` had nothing to log and passed a blank. Four orders then
+    shared one empty ref, `store.duplicate_order_refs` reported the collision,
+    and `reconcile` raised a CRITICAL naming nothing:
+
+        order refs are no longer unique:  covers 4 orders
+
+    It is a logging defect and not a trading one — but it fires on **every**
+    session that cancels a bracket, which is every ON-day that re-enters or
+    reaches the 15:55 flatten. `PROJECT_STATUS.md` §4.7: a safety check that
+    fires on healthy days is not a safety feature, and this one trains the
+    operator to scroll past the word CRITICAL.
+    """
+    om, ib, sm = _armed(tmp_path)
+    ib.fill(om.entry_id, price=99.0)
+    om.on_executions(START_IDX)
+    tref, sref = om.target_ref, om.stop_ref
+    assert tref and sref and tref != sref
+
+    om._cancel_bracket()
+
+    rows = om.store.rows(
+        "SELECT * FROM orders WHERE session=? AND event='cancelled' "
+        "AND role IN ('T','S')", ("20260803",))
+    assert len(rows) == 2
+    assert {r["order_ref"] for r in rows} == {tref, sref}
+    assert {r["order_type"] for r in rows} == {"LMT", "STP"}
+    assert all(r["order_id"] is not None for r in rows)
+    assert not om.store.duplicate_order_refs("20260803")
+
+
+def test_a_full_round_trip_leaves_no_blank_refs(tmp_path):
+    """The 08-13 sequence end to end: enter, stop out, re-enter, flatten."""
+    om, ib, sm = _armed(tmp_path)
+    ib.fill(om.entry_id, price=99.0)
+    om.on_executions(START_IDX)
+    stop = next(o for o in ib.orders.values() if o.order_type == "STP")
+    ib.fill(stop.order_id, price=95.04)               # -4%
+    om.on_executions(START_IDX + 1)
+    om.apply(sm.drain_intents())
+    ib.fill(om.entry_id, price=95.0)                  # the re-entry
+    om.on_executions(START_IDX + 1)
+    om.ensure_flat(settle=0.0, budget=0.0)
+
+    rows = om.store.rows("SELECT * FROM orders WHERE session=?", ("20260803",))
+    blank = [r for r in rows if not (r["order_ref"] or "").strip()]
+    assert blank == [], f"{len(blank)} order row(s) logged with no ref"
+    assert not om.store.duplicate_order_refs("20260803")
+
+
 def test_target_fill_cancels_the_stop_via_oca(tmp_path):
     om, ib, sm = _armed(tmp_path)
     ib.fill(om.entry_id, price=99.0)

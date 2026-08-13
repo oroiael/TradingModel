@@ -842,3 +842,43 @@ def test_the_ordinary_event_log_is_not_a_collision(tmp_path):
     eng.reconcile()
 
     assert not [m for lvl, m in said if "no longer unique" in m]
+
+
+# ---------------------------------------------- ref hygiene at reconcile
+def test_a_blank_order_ref_is_reported_as_its_own_fault(tmp_path):
+    """2026-08-13 printed `order refs are no longer unique:  covers 4 orders`
+    — a CRITICAL naming nothing, because the colliding ref was the empty
+    string. An absent ref and two real refs colliding are different faults with
+    different fixes, and rendering the first as the second wastes the one
+    message a human is guaranteed to read.
+    """
+    eng, ib, store, feats = _engine(tmp_path)
+    eng.session = "20260813"
+    for oid in (1, 2, 3, 4):
+        store.order("SOXL", "20260813", "", "T", "SELL", "LMT", "cancelled",
+                    order_id=oid)
+    seen = []
+    eng.on_event = lambda level, msg: seen.append((level, msg))
+    eng.reconcile()
+
+    crit = [m for lvl, m in seen if lvl == "critical"]
+    assert any("no ref at all" in m for m in crit), crit
+    assert not any("no longer unique" in m for m in crit), \
+        "a blank ref is not a collision between two real refs"
+
+
+def test_two_real_refs_colliding_still_reports_a_collision(tmp_path):
+    """The check's original purpose, unchanged: `reconcile` counts entries as a
+    set of refs, so one ref covering two orders silently under-counts §2.7."""
+    eng, ib, store, feats = _engine(tmp_path)
+    eng.session = "20260813"
+    for oid in (1, 2):
+        store.order("SOXL", "20260813", "20260813-SOXL-E-1", "E", "BUY", "LMT",
+                    "placed", order_id=oid)
+    seen = []
+    eng.on_event = lambda level, msg: seen.append((level, msg))
+    eng.reconcile()
+
+    crit = [m for lvl, m in seen if lvl == "critical"]
+    assert any("no longer unique" in m and "20260813-SOXL-E-1" in m
+               for m in crit), crit

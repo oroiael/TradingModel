@@ -502,11 +502,26 @@ class Engine:
             clashes = self.store.duplicate_order_refs(self.session)
         except Exception:                                   # noqa: BLE001
             clashes = []
-        if clashes:
+        # An *empty* ref is a different fault from two real refs colliding, and
+        # printing it the same way produced "order refs are no longer unique:
+        # covers 4 orders" — a CRITICAL naming nothing, on 2026-08-13, from
+        # `_cancel_bracket` logging every cancel with `order_ref=""`. Separated
+        # so the message says which fault it is and a blank can never again be
+        # rendered as a nameless collision.
+        blank = [r for r in clashes if not (r["order_ref"] or "").strip()]
+        collided = [r for r in clashes if (r["order_ref"] or "").strip()]
+        if blank:
+            self.on_event("critical",
+                          f"{sum(r['n'] for r in blank)} order(s) were logged "
+                          f"with no ref at all — the audit trail cannot say "
+                          f"which order they were. This is a logging defect, "
+                          f"not a trading one: check every _log_order call "
+                          f"site for an empty first argument.")
+        if collided:
             self.on_event("critical",
                           "order refs are no longer unique: "
                           + ", ".join(f"{r['order_ref']} covers {r['n']} orders"
-                                      for r in clashes)
+                                      for r in collided)
                           + " — the counters below are under-counted and the "
                             "audit trail cannot identify which order is which.")
         for symbol, rt in self.sleeves.items():

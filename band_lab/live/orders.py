@@ -84,6 +84,15 @@ class OrderManager:
     entry_limit: float = 0.0
     target_id: Optional[int] = None
     stop_id: Optional[int] = None
+    #: The refs those two ids were placed under. Kept because `_cancel_bracket`
+    #: has to *log* the cancel, and without them it logged `order_ref=""` —
+    #: which made every bracket cancel an anonymous row sharing one blank ref.
+    #: `store.duplicate_order_refs` then reported "" covering N orders and
+    #: `reconcile` raised a CRITICAL, on every session that cancels a bracket:
+    #: i.e. every ON-day that re-enters or reaches the 15:55 flatten. Observed
+    #: 2026-08-13, four orders under one blank ref.
+    target_ref: str = ""
+    stop_ref: str = ""
     target_px: float = 0.0              # remembered so the legs can be resized
     stop_px: float = 0.0
     bracket_ref: str = ""               # the entry whose fill opened this position
@@ -437,8 +446,8 @@ class OrderManager:
     def _place_bracket(self, it: Intent) -> None:
         qty = it.qty
         self.oca_group = f"{self.session}-{self.symbol}-OCA-{self.seq}"
-        tref = self._next_ref(ROLE_TARGET)
-        sref = self._next_ref(ROLE_STOP)
+        tref = self.target_ref = self._next_ref(ROLE_TARGET)
+        sref = self.stop_ref = self._next_ref(ROLE_STOP)
         tpx, spx = self._px(it.target_px), self._px(it.stop_px)
         self.target_px, self.stop_px = tpx, spx
         self.target_id = self.broker.place_limit(
@@ -455,11 +464,24 @@ class OrderManager:
                               f"{tpx:.2f} / stop {spx:.2f}  oca={self.oca_group}")
 
     def _cancel_bracket(self, it: Intent = None) -> None:
-        for oid, role in ((self.target_id, ROLE_TARGET), (self.stop_id, ROLE_STOP)):
+        """Cancel both protective legs, and log each under its own ref.
+
+        The ref and the order type are not decoration. `store.order` rows are
+        the audit trail §2.7's counters are reconstructible from, and a cancel
+        logged as `("", ..., "")` says only "some order, of some type, went
+        away" — which is exactly as useful as no row at all, and actively worse
+        than one because `duplicate_order_refs` then sees N orders sharing the
+        blank ref and cries wolf every session.
+        """
+        for oid, role, ref, otype in (
+                (self.target_id, ROLE_TARGET, self.target_ref, "LMT"),
+                (self.stop_id, ROLE_STOP, self.stop_ref, "STP")):
             if oid is not None:
                 self.broker.cancel(oid)
-                self._log_order("", role, "SELL", "", "cancelled", order_id=oid)
+                self._log_order(ref, role, "SELL", otype, "cancelled",
+                                order_id=oid)
         self.target_id = self.stop_id = None
+        self.target_ref = self.stop_ref = ""
 
     def cover_whole_position(self) -> bool:
         """Make the protective legs cover every share actually held.
@@ -773,9 +795,9 @@ class OrderManager:
                 self.entry_limit = w.limit_px
                 self.highest_limit = max(self.highest_limit, w.limit_px)
             elif p and p[2] == ROLE_TARGET:
-                self.target_id = w.order_id
+                self.target_id, self.target_ref = w.order_id, w.order_ref
             elif p and p[2] == ROLE_STOP:
-                self.stop_id = w.order_id
+                self.stop_id, self.stop_ref = w.order_id, w.order_ref
             if p:
                 self.seq = max(self.seq, p[3])
         # Executions count too. Seeding `seq` from working orders alone reset it
@@ -954,6 +976,7 @@ class OrderManager:
                         # it. Forget the ids so the next pass re-sends rather
                         # than believing an order is still working.
                         self.target_id = self.stop_id = self.entry_id = None
+                        self.target_ref = self.stop_ref = ""
                         # Go straight round again, without consulting the budget.
                         # Escalating and *then* stopping would leave nothing
                         # working at all — strictly worse than never escalating,
