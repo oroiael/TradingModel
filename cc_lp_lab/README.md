@@ -288,6 +288,79 @@ rebound. Distance is still the dominant dial — RESET improves monotonically fr
 −25.7% to −0.1% as you move 2 → 6 strikes out — but at every distance, holding the
 old strike beats re-basing it by 20–34 points of CAGR.
 
+## Follow-up 3: "but you bank cash every time you're called out"
+
+`restrike_grid.csv` — and the assignment-cycle decomposition below.
+
+### Yes. Every single assignment cycle is profitable. That is not the question.
+
+Across the 47 called-out cycles, measuring from the share purchase price P:
+
+| | median | mean |
+|---|---:|---:|
+| covered-call outcome (strike + premium) / P | **+7.41%** | +9.25% |
+| just holding the shares (Friday close) / P | **+12.24%** | +14.22% |
+| **upside handed to the option buyer** (C−K)/P | **+5.32%** | +8.19% |
+
+**96% of assignment cycles made money.** Compounded across the 47 cycles the
+covered call returned **+3,534%** and simply holding returned **+28,548%** — a
+gap of **−4.85% per cycle**, compounded 47 times. You bank a gain every time; it
+is just a smaller gain than doing nothing.
+
+### Why 80% winners still loses
+
+| | weeks | mean call-leg P&L (% of spot) |
+|---|---:|---:|
+| call expired worthless | 188 | **+1.07%** |
+| call assigned | 47 | **−5.22%** |
+| **all weeks** | 235 | **−0.19%** |
+
+The five worst weeks alone cost **−133.9% of spot**, against **+201.4%** earned by
+all 188 winning weeks combined. Five weeks ate two-thirds of every premium ever
+collected:
+
+| week | stock | strike vs spot | premium | call P&L |
+|---|---:|---:|---:|---:|
+| 2022-11-07 | **+46.9%** | 9.50 vs 8.98 | +4.84% | **−36.25%** |
+| 2026-04-20 | +34.9% | 97.00 vs 95.07 | +3.93% | −28.94% |
+| 2026-05-04 | +33.5% | 134.00 vs 132.91 | +5.23% | −27.46% |
+| 2023-05-22 | +31.1% | 18.50 vs 17.48 | +1.46% | −23.77% |
+| 2022-05-23 | +26.3% | 21.00 vs 20.02 | +3.97% | −17.46% |
+
+This is what `vol_anatomy` predicted: SOXL's 7-day variance risk premium is
+**+2.6%** of implied — i.e. ~zero. The premium is *fair payment* for the liability
+you took on. Selling a call converts an uncertain future gain into certain cash
+now, **at fair value, not at a profit.** Cash flow is not profit.
+
+### Re-striking every week makes it worse, not better — at every setting
+
+The natural fix is to stop leaving the strike stranded and re-anchor it weekly.
+Tested literally, and then in a smarter "only re-strike when stranded, and
+re-strike wide" form. Full sample, realistic costs, put leg unchanged:
+
+| rule | final | CAGR | max DD | call leg | assigned | median premium |
+|---|---:|---:|---:|---:|---:|---:|
+| **A. sticky, 2 strikes (the spec)** | **122,994** | **+4.39%** | −62.8% | −35,264 | 47 | 0.51% |
+| B. reset to 2 strikes weekly | 26,752 | −25.66% | −84.9% | −52,519 | 95 | 3.07% |
+| C. re-strike >10% OTM → 5% OTM | 28,653 | −24.52% | −82.7% | −50,793 | 98 | 3.05% |
+| C. re-strike >10% OTM → 15% OTM | 57,596 | −11.83% | −77.3% | −59,320 | 78 | 1.95% |
+| C. re-strike >20% OTM → 5% OTM | 47,851 | −15.39% | −75.5% | −64,958 | 84 | 2.71% |
+| C. re-strike >20% OTM → 15% OTM | **58,321** | **−11.58%** | −77.5% | −53,669 | 80 | 1.96% |
+| C. re-strike >30% OTM → 15% OTM | 47,569 | −15.50% | −79.4% | −52,167 | 76 | 1.88% |
+
+**All 13 re-strike variants lose, and the best is still 16 points of CAGR below
+doing nothing.** The result is monotone in re-strike distance — re-striking to 15%
+beats 10% beats 5% — and "never re-strike" beats all of them.
+
+The decisive column is the last two together. Re-striking multiplies the premium
+collected by **4–6×** (0.51% → 3.07% of spot per week) and the call leg gets
+**50% worse** (−35,264 → −52,519). **More cash in, worse result out.** That is the
+cleanest available proof that the premium is fair compensation rather than income:
+collecting more of it simply means you sold something more valuable.
+
+The sticky strike survives not because it earns but because after a decline it
+stops capping. Re-striking re-arms the cap onto exactly the recovery you needed.
+
 ## Caveats
 
 - **Assignment is modelled at expiry only.** American calls can be assigned early,

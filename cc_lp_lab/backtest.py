@@ -43,7 +43,8 @@ def run(n_otm=2, put_dte=91, cost_per_contract=0.0, slip_call=0.0, slip_put=0.0,
         share_cost=0.0, cash_rate=0.0, start_cash=100_000.0, sticky=True,
         freeze_put_qty=False, use_put=True, use_call=True,
         early_assign_pct=0.0, strike_mode="count", call_delta=0.20, call_pct=0.05,
-        put_ratio=1.0, n_otm_put=None, start=None, end=None, verbose=False):
+        put_ratio=1.0, n_otm_put=None, restrike_when_otm_gt=None, restrike_to_pct=0.10,
+        start=None, end=None, verbose=False):
     """slip_call / slip_put are RELATIVE half-spreads: we sell at px*(1-s) and
     buy at px*(1+s). Measured EOD medians are 0.055 (weekly 2-OTM call) and
     0.019 (~90d 2-OTM put) -- see validate_pricing.py."""
@@ -186,6 +187,16 @@ def run(n_otm=2, put_dte=91, cost_per_contract=0.0, slip_call=0.0, slip_put=0.0,
                         fresh = float(above[np.argmin(np.abs(above - tgt))])
                 use_sticky = sticky and sticky_K is not None and b.shares > 0
                 K = sticky_K if use_sticky else fresh
+                # Optional: the sticky strike can drift so far above the market that
+                # the call is worthless. Re-strike it -- but to a WIDE band, not back
+                # to two strikes, so the cap is not re-tightened onto the recovery.
+                if (use_sticky and restrike_when_otm_gt is not None and K is not None
+                        and (K - S10) / S10 > restrike_when_otm_gt):
+                    tgt = S10 * (1 + restrike_to_pct)
+                    above = ks[ks > S10]
+                    if len(above):
+                        K = float(above[np.argmin(np.abs(above - tgt))])
+                        use_sticky = False
                 if K is None or K not in set(ks):
                     K, use_sticky = fresh, False
                 if K is not None:
