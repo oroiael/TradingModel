@@ -1335,3 +1335,29 @@ def test_an_unbudgeted_flatten_still_settles_fully(tmp_path):
     om.ensure_flat(attempts=2, settle=3.0)
 
     assert waits and all(w == 3.0 for w in waits)
+
+
+# --------------------------------------------- OCA legs declared to the broker
+def test_placing_a_bracket_declares_both_legs_to_the_broker(tmp_path):
+    """The demotion in `_on_ib_error` is scoped to declared legs, so a bracket
+    that forgets to declare them gets the old noise back — silently."""
+    om, ib, sm = _armed(tmp_path)
+    ib.fill(om.entry_id, price=99.0)
+    om.on_executions(START_IDX)
+    assert ib.oca_legs == {om.target_id, om.stop_id}
+    assert om.entry_id not in ib.oca_legs, "an entry is never an OCA leg"
+
+
+def test_a_reconciled_bracket_declares_its_legs_too(tmp_path):
+    """After a restart the legs are adopted from the broker, not placed. That
+    path has to declare them as well or a restarted session logs differently
+    from a fresh one."""
+    om, ib, sm = _armed(tmp_path)
+    ib.fill(om.entry_id, price=99.0)
+    om.on_executions(START_IDX)
+    legs = {om.target_id, om.stop_id}
+
+    om2, _, _ = _om(tmp_path, ib=ib, db=str(tmp_path / "t.db"))
+    ib.oca_legs.clear()
+    om2.reconcile()
+    assert ib.oca_legs == legs

@@ -460,6 +460,10 @@ class OrderManager:
         self._log_order(sref, ROLE_STOP, "SELL", "STP", "placed",
                         order_id=self.stop_id, qty=qty, aux_px=spx,
                         oca_group=self.oca_group)
+        # Tell the broker these two are OCA legs, so a 201/202 naming one of
+        # them reads as §6.3 working rather than as an error claiming the order
+        # "may still be live". Log level only — no behaviour is armed by this.
+        self.broker.note_oca_legs(self.target_id, self.stop_id)
         self.on_event("info", f"{self.symbol} BRACKET x{qty:.0f}  target "
                               f"{tpx:.2f} / stop {spx:.2f}  oca={self.oca_group}")
 
@@ -796,8 +800,10 @@ class OrderManager:
                 self.highest_limit = max(self.highest_limit, w.limit_px)
             elif p and p[2] == ROLE_TARGET:
                 self.target_id, self.target_ref = w.order_id, w.order_ref
+                self.broker.note_oca_legs(w.order_id)
             elif p and p[2] == ROLE_STOP:
                 self.stop_id, self.stop_ref = w.order_id, w.order_ref
+                self.broker.note_oca_legs(w.order_id)
             if p:
                 self.seq = max(self.seq, p[3])
         # Executions count too. Seeding `seq` from working orders alone reset it
