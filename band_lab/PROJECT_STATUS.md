@@ -338,6 +338,41 @@ from the market moving.
 **Still not observed live:** a stop-out, the 2-stop breaker, and §6.1 — nobody
 has killed the engine with a bracket on to see whether the `STP` survives.
 
+### 4.9 The 2026-08-17 restart — a latent defect since Stage 2
+
+**A mid-session restart re-decided the day on a session that was not over.**
+The §6.1 test (§7.5) ends with "restart the engine". At 13:02 the restart ran
+`pre_open`, and:
+
+    SOXL: 524 sessions in window | +19 from broker | last session 2026-08-17
+                                                                  ^^^ today
+    SOXL GATE OFF: atr5_below_gate
+    SOXS GATE OFF: atr5_below_gate
+
+`features.build` filtered the broker top-up only against the CSV's last date
+(`day <= last.date()`). Nothing excluded **today**. Inside RTH the historical
+request returns a partial bar for today, it was appended as though complete,
+it entered the 5-session ATR5 window, displaced a real session and pushed the
+mean under 6.0 — on a day that had been trading since 11:00 with ATR5 above it.
+
+**Consequences that session:** both sleeves dormant, so SOXS could not re-enter
+after its target filled and SOXL was left unhedged into the 15:55 flatten. The
+positions themselves were never at risk — the bracket was kept and
+`ensure_flat` reads the broker, not the state machine — but the day's remaining
+opportunity was gone, and the `daily` row under-reports because the sleeve had
+`sm_in_position=False` while the broker held 463 and 1,861 shares.
+
+**Why it took until now.** Every earlier session started pre-open, when the
+broker has no bars for today and the bug is invisible. The 2026-08-06 restart
+at 12:26 hit it and was harmless because ATR5 was ~15%, far above the cutoff.
+It only bites when ATR5 is near 6.0 **and** the engine restarts inside RTH —
+and §7.5 made the second condition routine. The procedure created the exposure.
+
+Fixed: `features.build` refuses any session dated today, `_as_date` normalises
+the three date types that reach the comparison, and two tests pin the property
+that matters — a bootstrap at 13:00 must produce the same ATR5 and thr80 as one
+at 06:00.
+
 ### 4.5 On the strategy itself — no errors found, one observation
 
 I did not re-test anything, as instructed. Reading for high-level and

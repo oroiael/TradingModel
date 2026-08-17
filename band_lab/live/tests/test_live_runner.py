@@ -14,6 +14,7 @@ from zoneinfo import ZoneInfo
 import pytest
 
 import features
+from features import _as_date
 from broker import FakeIB
 from config import EngineConfig
 from feed import BarFeed
@@ -115,6 +116,62 @@ def test_bootstrap_tops_up_from_the_broker(tmp_path):
                        today=datetime.combine(newer, datetime.min.time()) +
                        timedelta(days=3))
     assert b.from_broker == 1, "only the session newer than the CSV is added"
+
+
+def test_todays_partial_session_never_enters_the_feature_history():
+    """2026-08-17: a mid-session restart stood both sleeves down at 13:02.
+
+    `historical_sessions` inside RTH returns a bar for *today*, and nothing
+    excluded it — so the partial session was appended as if complete, landed in
+    the ATR5 window, displaced a real session and re-decided the gate on a day
+    that was not over. ATR5 went from above 6.0 to below it and both sleeves
+    went dormant while already holding positions from 11:00.
+
+    §2.1 is explicit: ATR5 is the 5 **completed** sessions before d, and the
+    engine takes today's own OR30 from live bars. A bar dated today has no
+    business in this history at any hour.
+    """
+    ib = FakeIB(); ib.connect()
+    base = features.build("SOXL", _repo_root(), broker=None)
+    today = base.last_session.date() + timedelta(days=4)
+    yesterday = today - timedelta(days=1)
+    # A quiet partial day: a range small enough to drag any ATR5 down.
+    ib.sessions["SOXL"] = [(yesterday, _bars(78)), (today, _bars(20))]
+
+    noon = datetime.combine(today, datetime.min.time()) + timedelta(hours=13)
+    b = features.build("SOXL", _repo_root(), broker=ib, today=noon)
+
+    assert b.from_broker == 1, "yesterday is taken, today is not"
+    assert b.last_session != today
+    assert _as_date(b.last_session) == yesterday
+
+
+def test_the_gate_decision_does_not_move_when_the_engine_restarts_at_noon():
+    """The property that actually matters: restarting mid-session must not
+    change what the day decided at 06:00."""
+    ib = FakeIB(); ib.connect()
+    base = features.build("SOXL", _repo_root(), broker=None)
+    today = base.last_session.date() + timedelta(days=4)
+    yesterday = today - timedelta(days=1)
+    ib.sessions["SOXL"] = [(yesterday, _bars(78)), (today, _bars(20))]
+
+    pre_open = datetime.combine(today, datetime.min.time()) + timedelta(hours=6)
+    mid_rth = datetime.combine(today, datetime.min.time()) + timedelta(hours=13)
+    at_open = features.build("SOXL", _repo_root(), broker=ib, today=pre_open)
+    at_noon = features.build("SOXL", _repo_root(), broker=ib, today=mid_rth)
+
+    assert at_noon.history.atr5() == pytest.approx(at_open.history.atr5())
+    assert at_noon.history.thr80() == pytest.approx(at_open.history.thr80())
+
+
+def test_as_date_accepts_every_type_that_reaches_it():
+    """`today` is a datetime, `last` a pandas Timestamp, the broker yields
+    `date`. Comparing them raw works until one changes type."""
+    import pandas as pd
+    d = date(2026, 8, 17)
+    assert _as_date(d) == d
+    assert _as_date(datetime(2026, 8, 17, 13, 2)) == d
+    assert _as_date(pd.Timestamp("2026-08-17 13:02")) == d
 
 
 def test_check_flags_insufficient_history():
