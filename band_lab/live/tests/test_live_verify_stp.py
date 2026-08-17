@@ -115,7 +115,18 @@ def test_the_probe_places_nothing():
 
 # ---------------------------------------------------------------- verdicts
 def _snap(ib, label):
-    return snapshot(probe(ib, SYMS), label)
+    """A snapshot with a FROZEN heartbeat and a two-poll gap.
+
+    These tests are about the stop logic, so the liveness dimension is held
+    constant at "the engine was down" and exercised separately below. Leaving
+    it unset would make every one of them depend on the misconfiguration path.
+    """
+    from datetime import datetime as _dt
+    at = ("2026-08-17T12:57:40-04:00" if label == "before"
+          else "2026-08-17T12:58:50-04:00")
+    return snapshot(probe(ib, SYMS), label, now=_dt.fromisoformat(at),
+                    heartbeat={"ts": "2026-08-17T12:57:35-04:00", "pid": 1},
+                    poll_seconds=30.0)
 
 
 def test_the_stop_surviving_is_confirmed():
@@ -189,10 +200,17 @@ def test_a_missing_sleeve_in_the_after_snapshot_is_reported():
 # ------------------------------------------------------------- mechanics
 def test_the_snapshot_round_trips_through_json():
     """The two halves are taken by different processes minutes apart, so the
-    file is the only channel between them."""
+    file is the only channel between them — including the heartbeat and the
+    poll interval the liveness check needs."""
+    b = json.loads(json.dumps(_snap(held(500.0, 500.0), "before")))
+    a = json.loads(json.dumps(_snap(held(500.0, 500.0), "after")))
+    assert verdict(b, a)[0] == "CONFIRMED"
+
+
+def test_a_snapshot_compared_against_itself_is_not_a_result():
+    """Zero elapsed time cannot evidence a kill, however identical the state."""
     snap = _snap(held(500.0, 500.0), "before")
-    reloaded = json.loads(json.dumps(snap))
-    assert verdict(reloaded, reloaded)[0] == "CONFIRMED"
+    assert verdict(snap, snap)[0] == "INCONCLUSIVE"
 
 
 def test_the_probe_client_id_cannot_collide_with_diagnose():
@@ -216,3 +234,81 @@ def test_importing_the_probe_never_needs_ib_async():
                          capture_output=True, text=True)
     assert res.returncode == 0, res.stderr
     assert res.stdout.strip() == "False"
+
+
+# ------------------------------------- the check the first version lacked
+def _hb(ib, label, hb_ts, at="2026-08-17T12:57:48-04:00", poll=30.0):
+    from datetime import datetime as _dt
+    return snapshot(probe(ib, SYMS), label, now=_dt.fromisoformat(at),
+                    heartbeat={"ts": hb_ts, "pid": 4242} if hb_ts else None,
+                    poll_seconds=poll)
+
+
+def test_a_live_engine_cannot_produce_a_confirmed():
+    """The false CONFIRMED this file exists to prevent — and the one the first
+    version shipped with. Two snapshots taken while the engine ran happily
+    retired §6.1 on no evidence at all."""
+    b = _hb(held(500.0, 500.0), "before", "2026-08-17T12:57:40-04:00")
+    a = _hb(held(500.0, 500.0), "after", "2026-08-17T12:58:45-04:00",
+            at="2026-08-17T12:58:50-04:00")
+    v, lines = verdict(b, a)
+    assert v == "INCONCLUSIVE"
+    assert any("ALIVE" in ln for ln in lines)
+    assert "VERDICT: CONFIRMED" not in render(b, a)
+
+
+def test_a_frozen_heartbeat_across_two_polls_is_the_kill():
+    """2026-08-17, as actually run: 62s apart, heartbeat unmoved, poll 30s."""
+    ts = "2026-08-17T12:57:40-04:00"
+    b = _hb(held(463.0, 463.0), "before", ts)
+    a = _hb(held(463.0, 463.0), "after", ts, at="2026-08-17T12:58:50-04:00")
+    v, lines = verdict(b, a)
+    assert v == "CONFIRMED"
+    assert any("did not advance" in ln for ln in lines)
+
+
+def test_too_short_a_gap_proves_nothing():
+    """A live engine polling every 30s may simply not have written yet."""
+    ts = "2026-08-17T12:57:40-04:00"
+    b = _hb(held(500.0, 500.0), "before", ts)
+    a = _hb(held(500.0, 500.0), "after", ts, at="2026-08-17T12:58:05-04:00")
+    assert verdict(b, a)[0] == "INCONCLUSIVE"
+
+
+def test_a_missing_heartbeat_after_counts_as_down():
+    b = _hb(held(500.0, 500.0), "before", "2026-08-17T12:57:40-04:00")
+    a = _hb(held(500.0, 500.0), "after", None, at="2026-08-17T12:58:50-04:00")
+    assert verdict(b, a)[0] == "CONFIRMED"
+
+
+def test_a_vanished_stop_is_refuted_even_without_the_liveness_proof():
+    """Unprotected shares are unprotected however the engine got there. Only
+    the positive verdict needs the kill evidenced."""
+    ts = "2026-08-17T12:57:40-04:00"
+    b = _hb(held(500.0, 500.0), "before", ts)
+    a = _hb(held(500.0, 0.0), "after", "2026-08-17T12:58:45-04:00",
+            at="2026-08-17T12:58:50-04:00")
+    assert verdict(b, a)[0] == "REFUTED"
+
+
+def test_snapshots_predating_the_check_say_so():
+    """Old JSON has no heartbeat keys, and their absence must not be read as
+    proof the engine was down."""
+    b = {"label": "before", "ts": "2026-08-17T12:57:48-04:00",
+         "sleeves": _hb(held(500.0, 500.0), "b", None)["sleeves"]}
+    a = {"label": "after", "ts": "2026-08-17T12:58:50-04:00",
+         "sleeves": _hb(held(500.0, 500.0), "a", None)["sleeves"]}
+    v, lines = verdict(b, a)
+    assert v == "INCONCLUSIVE"
+    assert any("operator's account" in ln for ln in lines)
+
+
+def test_no_heartbeat_on_either_side_is_a_misconfiguration_not_a_kill():
+    """A bracket cannot exist without the engine having written a heartbeat, so
+    the absence of one on BOTH snapshots means the probe cannot see it — and
+    reading that as "down" hands out a CONFIRMED for a bad path."""
+    b = _hb(held(500.0, 500.0), "before", None)
+    a = _hb(held(500.0, 500.0), "after", None, at="2026-08-17T12:58:50-04:00")
+    v, lines = verdict(b, a)
+    assert v == "INCONCLUSIVE"
+    assert any("heartbeat_file" in ln for ln in lines)

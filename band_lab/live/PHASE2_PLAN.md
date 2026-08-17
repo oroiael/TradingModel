@@ -216,6 +216,34 @@ assumed.
 > order outlives the client that placed it. §6.1 therefore cannot be closed by
 > citation and needs an experiment.
 >
+> ### §6.1 — SETTLED 2026-08-17. The stop is broker-side.
+>
+> Observed on the paper account, both sleeves, with `verify_stp.py`:
+>
+> | | before | after (engine killed) |
+> |---|---|---|
+> | SOXL | 463 held, SELL STP 463 @ 149.15 | **463 held, SELL STP 463 @ 149.15** |
+> | SOXS | 1,861 held, SELL STP 1,861 @ 35.77 | **1,861 held, SELL STP 1,861 @ 35.77** |
+>
+> The engine's process was ended and its window closed between the snapshots
+> (12:57:48 → 12:58:50 ET). Both stops were still resting at IBKR afterwards.
+> Both showed `PreSubmitted` throughout, which is consistent with IBKR holding
+> the trigger server-side rather than the client simulating it.
+>
+> **One observation, not a proof**, and the same caution the `ocaType` entry
+> earned: that assumption also looked settled on a single observation and its
+> stated reasoning turned out to be wrong. Repeat it on a later session before
+> treating it as closed. It does **not** license unattended operation on its
+> own — alerting and service supervision are still open (`PROJECT_STATUS.md`
+> §5F).
+>
+> **The probe had a hole when this was run, and it is worth recording.** It
+> asserted "with the engine down" without checking, so two snapshots taken with
+> the engine *running* would have produced the same clean CONFIRMED — the exact
+> false-CONFIRMED it was built to prevent. The result above stands because the
+> operator confirmed the kill directly. `engine_was_down` now proves it from the
+> heartbeat instead of assuming it.
+
 > `verify_stp.py` is that experiment, and `RUNBOOK.md` §7.5 is the procedure.
 > It snapshots the broker from a separate API client before and after the
 > engine is killed and writes a JSON verdict, so the answer lands in the repo

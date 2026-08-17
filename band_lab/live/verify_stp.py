@@ -77,6 +77,21 @@ CLIENT_ID_OFFSET = 60
 QTY_EPS = 1e-6
 
 
+def read_heartbeat(path: str) -> Optional[dict]:
+    """The engine's proof of life, or None if it has never written one.
+
+    Deliberately duplicated from `status.py` rather than imported. This module
+    is run *while something is going wrong* and its whole value is that it
+    starts instantly with almost nothing loaded; `status.py` pulls `report` and
+    therefore pandas and numpy. Eight lines is a cheaper price than that.
+    """
+    try:
+        with open(path, encoding="utf-8") as fh:
+            return json.load(fh)
+    except (OSError, ValueError):
+        return None
+
+
 # ------------------------------------------------------------------ snapshot
 @dataclass
 class SleeveProbe:
@@ -126,10 +141,72 @@ def probe(broker, symbols: Sequence[str]) -> dict[str, SleeveProbe]:
 
 
 def snapshot(probes: dict[str, SleeveProbe], label: str,
-             now: Optional[datetime] = None) -> dict:
-    now = now or datetime.now(NY)
-    return {"label": label, "ts": now.isoformat(),
-            "sleeves": {s: asdict(p) for s, p in probes.items()}}
+             now: Optional[datetime] = None,
+             heartbeat: Optional[dict] = None,
+             poll_seconds: float = 30.0) -> dict:
+    return {"label": label, "ts": (now or datetime.now(NY)).isoformat(),
+            "sleeves": {s: asdict(p) for s, p in probes.items()},
+            # The engine's own timestamp, recorded so `verdict` can prove the
+            # kill happened instead of trusting that it did.
+            "heartbeat_ts": (heartbeat or {}).get("ts"),
+            "heartbeat_pid": (heartbeat or {}).get("pid"),
+            "poll_seconds": poll_seconds}
+
+
+def engine_was_down(before: dict, after: dict) -> tuple[bool, str]:
+    """Did the engine actually stop between the two snapshots?
+
+    **This is the check the first version of this file did not have**, and its
+    absence was the exact false-CONFIRMED it was written to prevent: the
+    verdict said "with the engine down" as an assumption, so two snapshots
+    taken with the engine running happily produced a clean CONFIRMED and
+    retired §6.1 on no evidence at all. Found 2026-08-17, on the session that
+    settled §6.1.
+
+    The test is not a staleness threshold — those need a margin the operator
+    has to respect. It is that the engine **writes a heartbeat every poll**, so
+    if the timestamp is byte-identical in both snapshots it wrote nothing in
+    between. That is exact, and it needs no tuning.
+
+    The one thing it does need is enough elapsed time that a *live* engine
+    would certainly have written: two poll intervals.
+    """
+    b_ts, a_ts = before.get("heartbeat_ts"), after.get("heartbeat_ts")
+    if "heartbeat_ts" not in before or "heartbeat_ts" not in after:
+        return False, ("these snapshots predate the liveness check, so whether "
+                       "the engine was down rests on the operator's account "
+                       "rather than on evidence")
+    if a_ts is None and b_ts is None:
+        # Not evidence of a dead engine — evidence of a probe that cannot see
+        # it. A bracket cannot exist without the engine having run, so no
+        # heartbeat on *either* side means the path is wrong, and reading that
+        # as "down" would hand out a CONFIRMED for a misconfiguration.
+        return False, ("no heartbeat file on either snapshot — check "
+                       "`heartbeat_file` in the config; a bracket cannot exist "
+                       "without the engine having written one")
+    if a_ts is None:
+        return True, "the heartbeat file was gone when 'after' was taken"
+    if b_ts is None:
+        return False, ("'before' recorded no heartbeat, so there is nothing to "
+                       "compare — was the engine running when you started?")
+    if a_ts != b_ts:
+        return False, (f"the engine wrote a heartbeat between the snapshots "
+                       f"({b_ts} -> {a_ts}) — it was ALIVE, so nothing was "
+                       f"tested")
+    try:
+        gap = ((datetime.fromisoformat(after["ts"])
+                - datetime.fromisoformat(before["ts"])).total_seconds())
+    except (TypeError, ValueError, KeyError):
+        gap = 0.0
+    need = 2.0 * float(after.get("poll_seconds") or 30.0)
+    if gap < need:
+        return False, (f"the heartbeat did not move, but only {gap:.0f}s "
+                       f"elapsed — a live engine polls every "
+                       f"{after.get('poll_seconds')}s, so take the two "
+                       f"snapshots at least {need:.0f}s apart before reading "
+                       f"anything into that")
+    return True, (f"the heartbeat did not advance across {gap:.0f}s "
+                  f"(>{need:.0f}s of polling) — the engine was down")
 
 
 # ------------------------------------------------------------------- verdict
@@ -145,6 +222,12 @@ def verdict(before: dict, after: dict) -> tuple[str, list[str]]:
     exposed_any = False
     lost_any = False
     held_any = False
+
+    # The experiment before the measurement. A stop that is still resting
+    # because the engine never stopped says nothing about §6.1, and saying
+    # CONFIRMED on it would retire the last safety-critical unknown for free.
+    down, why = engine_was_down(before, after)
+    lines.append(f"  engine: {why}")
 
     for sym, b in before.get("sleeves", {}).items():
         a = after.get("sleeves", {}).get(sym)
@@ -181,12 +264,17 @@ def verdict(before: dict, after: dict) -> tuple[str, list[str]]:
                          f"is stopped — {abs(pos_a) - stp_a:,.0f} shares are "
                          f"UNPROTECTED right now")
 
+    # A stop that VANISHED is worth acting on however the engine got there —
+    # if shares are unprotected right now, that is true whether or not the
+    # experiment was clean. Only the positive verdict needs the kill proven.
     if lost_any:
         return "REFUTED", lines
-    if held_any and not lost_any:
-        return "CONFIRMED", lines
-    if not exposed_any:
+    if held_any and not down:
+        lines.append("  -> the stops are intact, but the kill is not evidenced, "
+                     "so this is not a §6.1 result")
         return "INCONCLUSIVE", lines
+    if held_any:
+        return "CONFIRMED", lines
     return "INCONCLUSIVE", lines
 
 
@@ -267,6 +355,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
 
     from broker import IBBroker           # lazy: tests never need ib_async
     cfg = EngineConfig.load(a.config)
+    hb = read_heartbeat(getattr(cfg, "heartbeat_file", "") or "")
     broker = IBBroker(host=cfg.host, port=cfg.port,
                       client_id=cfg.client_id + CLIENT_ID_OFFSET,
                       dry_run=True,       # structurally cannot transmit
@@ -281,7 +370,8 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         except Exception:                                     # noqa: BLE001
             pass
 
-    snap = snapshot(probes, a.label)
+    snap = snapshot(probes, a.label, heartbeat=hb,
+                    poll_seconds=float(getattr(cfg, "bar_poll_seconds", 30.0)))
     os.makedirs(a.out, exist_ok=True)
     with open(path_for(a.label, a.out), "w", encoding="utf-8") as fh:
         json.dump(snap, fh, indent=2)

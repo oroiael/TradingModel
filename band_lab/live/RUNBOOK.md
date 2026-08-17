@@ -1062,7 +1062,7 @@ nothing rather than consuming the prior session — and read the log afterwards.
 | Alerting | Half exists. `status.py` (§5.6) gives visibility from a phone; nothing **pushes** on a condition, so it only helps when you look |
 | `watchdog.py` | Engine hangs holding a position → nothing independently flattens it |
 | Service supervision | Process dies → the day ends silently, possibly with a position open |
-| §6.1 unverified | Whether the protective stop survives the engine dying is *still an open question*. **§7.5 settles it in two minutes** — run it on the next session with a bracket on. Until then, an unattended crash mid-position has no proven protection |
+| ~~§6.1 unverified~~ | ✅ **Settled 2026-08-17** (§7.5): both sleeves' stops were still resting at IBKR after the engine's process was ended. One observation — repeat it before relying on it. This removes the *protection* objection to unattended operation; the three rows above still stand |
 
 `IMPLEMENTATION_SPEC.md` §7 requires attended operation for the first 3–6 months
 regardless. Unattended becomes reasonable after Stage 7 — see

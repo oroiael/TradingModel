@@ -88,7 +88,7 @@ No §12 constant changed. Three re-test programmes tried and adopted nothing.
 
 | Gap | Consequence | When it must exist |
 |---|---|---|
-| ~~No exit has ever filled against IBKR~~ | ✅ **Closed 2026-08-12** (§4.8). Three targets filled across the two sleeves and the 15:55 flatten ran against a real 510-share position. §6.3 has corroboration — a target fill left no orphan stop, and the re-entry that followed was clean. **§6.1 is still open**: no stop has ever fired, and nobody has yet killed the engine with a bracket on to see whether the `STP` survives | §6.1 before unattended |
+| ~~No exit has ever filled against IBKR~~ | ✅ **Closed 2026-08-12** (§4.8). Three targets filled across the two sleeves and the 15:55 flatten ran against a real 510-share position. §6.3 has corroboration — a target fill left no orphan stop, and the re-entry that followed was clean. ~~§6.1~~ ✅ **settled 2026-08-17** — engine killed with both sleeves bracketed; both `STP`s still resting at IBKR afterwards (`PHASE2_PLAN.md` §6). One observation. A **stop-out** has still never fired live | — |
 | **The 15:55 flatten is a market order and its cost was never measured** | Priced against the bar-76 close the backtest exits on, the 2026-08-12 flatten cost 58 bp of a 152 bp SOXL day. `report.py` now measures it every session and separates spread-crossing from the market moving; before that the report graded entries only | measured — decide after ~10 sessions |
 | ~~`report.py` does not exist~~ | ✅ Built 2026-08-09 (§7). Shadow parity, the two S10/S11 questions, per-fill slippage and the §8 comparison. **It has never been run against a real session's database** — every test drives it from fixtures, which is precisely the condition under which eight defects survived a green suite. Read its first real output with that in mind | done — first real use is the next session |
 | **`risk.py` does not exist** (Stage 7) | `Engine.day_loss_breached()` measures the −8.5% condition and `run.py` breaks the session loop on it, but nothing enforces a dormant-until-cleared state | Before Phase 3 |
@@ -436,7 +436,11 @@ difference between finding that at 08:30 and finding it at 11:00.
 
 - [x] **The exit path** — ✅ 2026-08-12, three targets and a real flatten (§4.8).
       A **stop** has still never filled, and neither has the 2-stop breaker
-- [ ] 🔴 **§6.1 — the safety-critical one, and now a two-minute command.**
+- [x] ✅ **§6.1 — SETTLED 2026-08-17.** SOXL 463 and SOXS 1,861, both stops
+      still resting with the engine's process ended. Repeat once on a later
+      session before calling it closed; it does not by itself license
+      unattended operation. Original text below.
+- [x] **§6.1 — the safety-critical one, and now a two-minute command.**
       `verify_stp.py` (RUNBOOK §7.5) snapshots the broker from a *separate API
       client* — a client slot, not a login, so it does not disconnect the engine
       the way TWS or the mobile app would. Snapshot with a bracket on, kill the
