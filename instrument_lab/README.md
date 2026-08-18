@@ -139,3 +139,90 @@ realised the instrument must earn just to break even — the single number to ra
 * Price returns only. Dividends are additive to the holder and are noted, not modelled.
 * Assumes the strike is set at a constant delta each week and held to expiry, which
   is the structure `cc_lp_lab` found least bad — not the two-strikes rule.
+
+
+---
+
+# Backtesting the weekly covered call on FAS and XLU — `fas_xlu_cc.py`
+
+## The honest constraint, stated first
+
+**This repo has no option chain for FAS or XLU.** Only SOXL and TQQQ. So the
+premium cannot be observed and any "backtest" has to invent it.
+
+I built a model-priced engine (`cc_backtest.py`) and tested it against the one
+case where a real-quote answer exists. Result:
+
+| SOXL, 2022-01→2026-07, 0.20δ, no put, with costs | real quotes | model |
+|---|---:|---:|
+| shares only, no calls | $271,740 | **$271,748** |
+| 0.20δ re-struck weekly | $164,853 | $211,582 |
+
+**The share leg reproduces to $8. The option leg does not** — the model is ~5 CAGR
+points optimistic, because trailing realised vol places the delta-targeted strike
+further out than the real contract sat, and vol was falling across this sample.
+That error comes precisely from having no implied vol, which is exactly what FAS
+and XLU lack. **So no model-priced P&L for FAS or XLU is reported here.**
+
+What *can* be backtested from real prices is the whole strategy except the price
+you were paid: at a delta-targeted strike, the weekly payout `max(0, S_T − K)` is
+observable week by week. That gives the exact premium each instrument had to earn,
+and the implied vol it had to be quoted at.
+
+## The measured result — 0.30-delta weekly call, 2022-01 → 2026-07
+
+No option data used anywhere in this table.
+
+| instrument | vol | strike OTM | assigned | **premium needed/wk** | /yr | required IV | **required VRP** | worst week |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|
+| **FAS** 3x financials | 50.5% | 4.04% | 29.7% | **1.206%** | 62.7% | 49.1% | **−1.4pp** | 17.1% |
+| **XLU** utilities | 17.2% | 1.26% | 33.9% | **0.502%** | 26.1% | 18.1% | **+0.9pp** | 5.8% |
+| SPY S&P 500 | 15.7% | 1.17% | 31.2% | 0.470% | 24.5% | 16.9% | +1.2pp | 5.2% |
+| SOXL 3x semis | 96.9% | 8.33% | 26.1% | 2.762% | 143.6% | 104.8% | **+7.9pp** | 41.1% |
+
+**FAS breaks even at a NEGATIVE required VRP (−1.4pp)** — its options could have
+been quoted *below* realised vol and the covered call would still have beaten
+holding. **XLU needs +0.9pp and SPY +1.2pp**, both small and well inside the
+3–4 vol points index options have historically carried. **SOXL needs +7.9pp**,
+against a measured VRP of roughly zero.
+
+## Edge over buy & hold, as a function of the one unknown
+
+| instrument | income/wk | break-even VRP | VRP −2pp | **VRP 0** | **VRP +2pp** | VRP +4pp |
+|---|---:|---:|---:|---:|---:|---:|
+| **FAS** | 1.271% | **−1.4pp** | −1.6% | **+3.4%** | **+8.4%** | +13.5% |
+| **XLU** | 0.457% | +0.9pp | −7.3% | −2.4% | **+2.8%** | +8.0% |
+| SPY | 0.411% | +1.2pp | −8.0% | −3.1% | +2.0% | +7.2% |
+| SOXL | 2.377% | +7.9pp | −25.0% | −20.0% | −15.0% | −10.0% |
+
+## Which one is the income instrument
+
+FAS produces the bigger number — **1.21% a week, ~63%/yr gross** — and is the only
+name that clears at zero VRP. But its cost is violently concentrated: **the worst
+single week cost 17.1% of spot, and the five worst weeks are 28.5% of the entire
+four-and-a-half-year cost.** That is the SOXL failure mode in milder form.
+
+XLU is the one that matches the brief of *steady weekly cash, smaller amounts*:
+
+* **0.50% a week (~26%/yr gross)** at a 1.26%-OTM strike
+* worst week costs **5.8%** of spot, not 17.1%
+* top five weeks are **19.6%** of total cost, the least concentrated in the set
+* assigned 34% of weeks, but the strike is only 1.26% away, so each assignment
+  surrenders very little
+* needs just **+0.9 vol points** of variance premium
+* and a **~3%/yr dividend sits on top**, uncapped by the call — the screen's point
+  that yield helps twice
+
+## Caveats
+
+* **No FAS or XLU option prices exist here.** The premium column is what the
+  instrument *needed to be paid*, not what it *was* paid. Verifying the second
+  requires their option chains, which this repo does not contain.
+* XLU is built from weekly closes (IBKR), so its entry is the prior Friday close
+  rather than Monday 10:00. FAS and SOXL use real 5-min Monday-10:00 entries.
+* Strikes use trailing 13-week realised vol, which is implementable, but the SOXL
+  check shows this places strikes slightly further out than a true 0.30-delta
+  contract. That biases every required-VRP figure **low** — i.e. the real hurdles
+  are somewhat higher than the table shows, for all four instruments equally.
+* 2022–2026 only. Financials and utilities had no crisis in this window; a 2008
+  or a rate shock would change FAS's tail materially.
