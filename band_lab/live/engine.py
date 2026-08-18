@@ -48,8 +48,8 @@ from strategy_core import (                                 # noqa: E402
     Bar, FeatureHistory, session_stats,
 )
 from spec_constants import (                                # noqa: E402
-    DAY_LOSS_KILL, F_SIZE, FLATTEN_TIME, HARD_FLAT_BY, START_TIME,
-    TIMEZONE, W_PER_SLEEVE, _minutes, bar_index,
+    DAY_LOSS_KILL, F_SIZE, FLATTEN_TIME, GATE_ATR5_MIN, HARD_FLAT_BY,
+    START_TIME, TIMEZONE, W_PER_SLEEVE, _minutes, bar_index,
 )
 
 NY = ZoneInfo("America/New_York")
@@ -167,7 +167,18 @@ class Engine:
             om.apply(sm.drain_intents())
             if not gate.ok:
                 rt.dormant, rt.dormant_reason = True, gate.reason
-                self.on_event("info", f"{symbol} GATE OFF: {gate.reason}")
+                # The value, not only the verdict. "GATE OFF: atr5_below_gate"
+                # reads the same at 5.98 and at 3.10, and on 2026-08-17 a
+                # *contaminated* ATR5 flipped this line with nothing on screen
+                # to show it had moved. The operator's next question is always
+                # "by how much", and answering it costs one f-string.
+                margin = (f" (atr5={atr5:.2f}, needs {GATE_ATR5_MIN:.2f})"
+                          if gate.reason == "atr5_below_gate"
+                          and atr5 == atr5 else "")     # NaN prints nothing
+                self.on_event("info", f"{symbol} GATE OFF: {gate.reason}{margin}")
+            else:
+                self.on_event("info", f"{symbol} gate ON  atr5={atr5:.2f} "
+                                      f"(needs {GATE_ATR5_MIN:.2f})")
             self.store.daily(self.session, symbol, gate_ok=int(gate.ok),
                              gate_reason=gate.reason, atr5=atr5,
                              thr80=hist.thr80(), account_equity=equity,
@@ -213,9 +224,22 @@ class Engine:
         decision = rt.sm.apply_morning_filter(stats.or30, thr80, stats.pos10)
         rt.om.apply(rt.sm.drain_intents())
         rt.filtered = True
+        # Same reasoning as the gate line above: the verdict without the
+        # numbers cannot be read. V9's rule is "skip OR30 above the trailing
+        # 80th percentile *unless* the 10:00 print is in the top third", so
+        # both comparisons have to be on screen or the decision is opaque —
+        # 2026-08-13 stood SOXS down on or30=5.75 against thr80=5.63 with
+        # pos10=0.021, and SOXL traded the same morning only because its
+        # pos10 was 0.981. That is a near-miss on a rule, and it looked
+        # identical to a routine stand-down in the log.
+        detail = (f" (or30={stats.or30:.2f} vs thr80={thr80:.2f}, "
+                  f"pos10={stats.pos10:.3f})")
         if not decision.ok:
             rt.dormant, rt.dormant_reason = True, decision.reason
-            self.on_event("info", f"{symbol} STAND DOWN: {decision.reason}")
+            self.on_event("info",
+                          f"{symbol} STAND DOWN: {decision.reason}{detail}")
+        else:
+            self.on_event("info", f"{symbol} filter ON {detail}")
         self.store.daily(self.session, symbol, filter_ok=int(decision.ok),
                          filter_reason=decision.reason, or30=stats.or30,
                          pos10=stats.pos10, thr80=thr80)
