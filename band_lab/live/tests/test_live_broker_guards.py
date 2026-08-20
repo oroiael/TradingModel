@@ -839,3 +839,79 @@ def test_the_sizes_the_engine_requests_still_index_correctly(size, step):
     b = _broker(dry_run=True, bars=raw)
     bars = b.historical_bars("SOXL", datetime(2026, 8, 3, tzinfo=NY), "1 D", size)
     assert [x.idx for x in bars] == [0, 1, 2]
+
+
+# ------------------------------------------------- OCA cancels are not errors
+def test_an_oca_cancel_of_a_declared_leg_is_not_an_error():
+    """201/202 on a bracket leg is §6.3 working, and it fired every session.
+
+    Observed 4-5 times per healthy session on 2026-08-13 and 08-14, each at
+    `error`, each asserting the order "may still be live at IBKR" — which for a
+    leg whose sibling has just filled is the opposite of the truth. §4.7: a
+    check that fires on healthy days is not a safety feature.
+    """
+    for code in (201, 202):
+        b, said = _broker_recording()
+        b.note_oca_legs(9294, 9295)
+        b._on_ib_error(9295, code, "Order Canceled - reason:",
+                       SimpleNamespace(symbol="SOXS"))
+        level, msg = said[-1]
+        assert level == "info", f"{code} on a declared leg must not be an error"
+        assert "may still be live" not in msg
+        assert "6.3" in msg
+
+
+def test_the_same_code_on_an_undeclared_order_stays_loud():
+    """The scoping is the whole safety argument. An order this engine did not
+    place as a bracket leg gets the original treatment."""
+    for code in (201, 202):
+        b, said = _broker_recording()
+        b.note_oca_legs(9294, 9295)
+        b._on_ib_error(7777, code, "Order Canceled - reason:",
+                       SimpleNamespace(symbol="SOXL"))
+        level, msg = said[-1]
+        assert level == "error"
+        assert "may still be live" in msg
+
+
+def test_an_entry_is_never_quietened():
+    """The 2026-08-10 ghost: 103 on an *entry*, marked Cancelled locally while
+    IBKR filled 1,703 shares. Entries are never declared OCA legs, and 103 is
+    not an OCA code — so neither half of the guard can reach it."""
+    b, said = _broker_recording()
+    b.note_oca_legs(9294, 9295)
+    b._on_ib_error(9294, 103, "Duplicate order ID", SimpleNamespace(symbol="SOXS"))
+    level, msg = said[-1]
+    assert level == "error", "103 is not an OCA code, even on a declared leg"
+    assert "Cancelled" in msg
+
+
+def test_only_201_and_202_are_scoped():
+    """A leg can fail for reasons that are not the OCA. 10148 arrived on
+    2026-08-13 and must keep its voice."""
+    b, said = _broker_recording()
+    b.note_oca_legs(8524)
+    b._on_ib_error(8524, 10148, "OrderId 8524 that needs to be cancelled cannot "
+                                "be cancelled, state: Cancelled.",
+                   SimpleNamespace(symbol="SOXL"))
+    assert said[-1][0] == "error"
+
+
+def test_a_global_cancel_forgets_the_legs():
+    """`reqGlobalCancel` takes everything, so nothing is a resting leg after
+    it. Keeping stale ids would quieten a later, unrelated order that happened
+    to reuse the id."""
+    b, said = _broker_recording()
+    b.note_oca_legs(9294)
+    b.cancel_all()
+    b._on_ib_error(9294, 202, "Order Canceled - reason:",
+                   SimpleNamespace(symbol="SOXL"))
+    assert said[-1][0] == "error"
+
+
+def test_note_oca_legs_with_nothing_clears():
+    b, said = _broker_recording()
+    b.note_oca_legs(1, 2)
+    b.note_oca_legs()
+    b._on_ib_error(1, 202, "Order Canceled", SimpleNamespace(symbol="SOXL"))
+    assert said[-1][0] == "error"

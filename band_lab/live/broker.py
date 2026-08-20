@@ -59,6 +59,19 @@ IB_WARNING_CODES = frozenset({105, 110, 165, 321, 329, 399, 404, 434, 492, 10167
 #: engine, so they are not worth a line each. Same list `diagnose.py` filters.
 IB_STATUS_CHATTER = frozenset({2104, 2106, 2107, 2119, 2158})
 
+#: What IBKR says when an OCA group cancels the leg that did not fill: 202
+#: ("Order Canceled") if it was already working, 201 ("Order rejected —
+#: reason:OCA order cancel") if it was still being accepted when the sibling
+#: filled. Both observed on healthy sessions 2026-08-13 and 08-14.
+#:
+#: **Neither is downgraded on its own.** `_on_ib_error` demotes them only for
+#: an order id the engine has declared an OCA leg via `note_oca_legs`. ib_async
+#: deliberately keeps 202 out of its warning set — its comment calls it "an
+#: order-delete error" — and a 202 on an order that is *still live upstream* is
+#: the ghost that cost the 2026-08-10 session. That ghost was an entry, and
+#: entries are never in the OCA-leg set.
+OCA_CANCEL_CODES = frozenset({201, 202})
+
 #: TWS allows **one** `reqAccountUpdates` subscription at a time. 2100 is "New
 #: account data requested from TWS. API client has been unsubscribed from
 #: account data"; 2101 is the rejection when another client already holds it.
@@ -342,6 +355,7 @@ class Broker:
     def modify_limit(self, order_id: int, limit_px: float, qty: float) -> None: ...
     def cancel(self, order_id: int) -> None: ...
     def cancel_all(self) -> None: ...
+    def note_oca_legs(self, *order_ids) -> None: ...
 
     def preview_order(self, symbol, action, qty, limit_px) -> Optional[MarginPreview]:
         """§4.3's pre-order buying-power check, or None when unavailable.
@@ -437,6 +451,9 @@ class IBBroker(Broker):
         self._dry_seq = 0
         self._no_live_data: set = set()
         self._error_hooked = False
+        #: Order ids currently resting as OCA bracket legs. A 201/202 naming
+        #: one of these is the OCA doing its job — see `note_oca_legs`.
+        self._oca_legs: set = set()
         #: One live market-data subscription per symbol. See `_ticker`.
         self._tickers: dict[str, Any] = {}
 
@@ -505,6 +522,25 @@ class IBBroker(Broker):
             elif is_warning(errorCode):
                 self._on_event("warn", f"IBKR {errorCode} req={reqId} {symbol}: "
                                        f"{errorString}")
+            elif errorCode in OCA_CANCEL_CODES and reqId in self._oca_legs:
+                # An OCA group cancelling its own losing leg. This is the
+                # mechanism §6.3 depends on, working — and it fired 4-5 times
+                # per healthy session at `error`, each time asserting the order
+                # "may still be live at IBKR", which on a bracket leg whose
+                # sibling just filled is the opposite of the truth.
+                #
+                # §4.7's rule is that a check firing on healthy days is not a
+                # safety feature, and this one was training the operator to
+                # scroll past the word. Scoped as narrowly as it can be: the
+                # code must be 201/202 **and** the order must be one this
+                # engine placed as a bracket leg. Entries are never in the set,
+                # so the 2026-08-10 ghost — `Error 103` on an entry, marked
+                # Cancelled locally while IBKR filled 1,703 shares — is
+                # untouched, and so is every other code on every other order.
+                self._on_event("info",
+                               f"IBKR {errorCode} req={reqId} {symbol}: "
+                               f"{errorString} — the OCA cancelling a bracket "
+                               f"leg, which is §6.3 working")
             else:
                 self._on_event(
                     "error",
@@ -990,10 +1026,29 @@ class IBBroker(Broker):
         self._require().reqAllOpenOrders()
 
     def cancel_all(self) -> None:
+        # Cleared before the dry-run branch, not after: the statement is "this
+        # engine no longer considers anything a resting leg", which is as true
+        # in a rehearsal as live. Leaving stale ids behind would quieten a
+        # later, unrelated order that happened to reuse one — and a dry run
+        # that rehearses different logging is not rehearsing this engine.
+        self._oca_legs.clear()
         if self.dry_run:
             self._dry("reqGlobalCancel")
             return
         self._require().reqGlobalCancel()
+
+    def note_oca_legs(self, *order_ids) -> None:
+        """Declare which order ids are resting as OCA bracket legs.
+
+        The *only* thing this changes is the log level of 201/202 naming one of
+        them — see `_on_ib_error`. It arms no behaviour and suppresses no other
+        code, and passing nothing clears the set.
+        """
+        ids = {int(i) for i in order_ids if i is not None}
+        if ids:
+            self._oca_legs |= ids
+        else:
+            self._oca_legs.clear()
 
 
 # --------------------------------------------------------------------------
@@ -1048,6 +1103,9 @@ class FakeIB(Broker):
         #: that let `PendingCancel` go unmodelled until it cost a session.
         self.ghosts: set = set()
         self.refreshes = 0
+        #: Order ids the engine has declared OCA bracket legs. See
+        #: `IBBroker.note_oca_legs` — log level only, arms no behaviour.
+        self.oca_legs: set = set()
         #: What `preview_order` answers. None is "IBKR did not say", which is
         #: what a broker with no margin service does and what every test that
         #: predates §4.3's check expects.
@@ -1097,6 +1155,15 @@ class FakeIB(Broker):
         """TWS re-reports what it holds, and the client's copy is corrected."""
         self.refreshes += 1
         self.ghosts.clear()
+
+    def note_oca_legs(self, *order_ids) -> None:
+        """Mirrors `IBBroker`. Recorded so a test can assert the engine
+        declared its legs; `FakeIB` raises no IBKR errors of its own."""
+        ids = {int(i) for i in order_ids if i is not None}
+        if ids:
+            self.oca_legs |= ids
+        else:
+            self.oca_legs.clear()
 
     def hide(self, order_id: int) -> None:
         """Test control: the client loses sight of a still-live order."""

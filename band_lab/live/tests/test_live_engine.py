@@ -842,3 +842,90 @@ def test_the_ordinary_event_log_is_not_a_collision(tmp_path):
     eng.reconcile()
 
     assert not [m for lvl, m in said if "no longer unique" in m]
+
+
+# ---------------------------------------------- ref hygiene at reconcile
+def test_a_blank_order_ref_is_reported_as_its_own_fault(tmp_path):
+    """2026-08-13 printed `order refs are no longer unique:  covers 4 orders`
+    — a CRITICAL naming nothing, because the colliding ref was the empty
+    string. An absent ref and two real refs colliding are different faults with
+    different fixes, and rendering the first as the second wastes the one
+    message a human is guaranteed to read.
+    """
+    eng, ib, store, feats = _engine(tmp_path)
+    eng.session = "20260813"
+    for oid in (1, 2, 3, 4):
+        store.order("SOXL", "20260813", "", "T", "SELL", "LMT", "cancelled",
+                    order_id=oid)
+    seen = []
+    eng.on_event = lambda level, msg: seen.append((level, msg))
+    eng.reconcile()
+
+    crit = [m for lvl, m in seen if lvl == "critical"]
+    assert any("no ref at all" in m for m in crit), crit
+    assert not any("no longer unique" in m for m in crit), \
+        "a blank ref is not a collision between two real refs"
+
+
+def test_two_real_refs_colliding_still_reports_a_collision(tmp_path):
+    """The check's original purpose, unchanged: `reconcile` counts entries as a
+    set of refs, so one ref covering two orders silently under-counts §2.7."""
+    eng, ib, store, feats = _engine(tmp_path)
+    eng.session = "20260813"
+    for oid in (1, 2):
+        store.order("SOXL", "20260813", "20260813-SOXL-E-1", "E", "BUY", "LMT",
+                    "placed", order_id=oid)
+    seen = []
+    eng.on_event = lambda level, msg: seen.append((level, msg))
+    eng.reconcile()
+
+    crit = [m for lvl, m in seen if lvl == "critical"]
+    assert any("no longer unique" in m and "20260813-SOXL-E-1" in m
+               for m in crit), crit
+
+
+# --------------------------------------------- the decision, with its numbers
+def test_a_gate_off_line_carries_the_value_and_the_margin(tmp_path):
+    """"GATE OFF: atr5_below_gate" reads the same at 5.98 and at 3.10.
+
+    On 2026-08-17 a *contaminated* ATR5 flipped this line with nothing on
+    screen to show it had moved, and on 2026-08-18 a legitimately quiet day
+    produced the identical text. The operator's next question is always "by how
+    much", and it cost a database query to answer.
+    """
+    eng, ib, store, feats = _engine(tmp_path, range_pct=3.0)   # well under 6.0
+    seen = []
+    eng.on_event = lambda level, msg: seen.append(msg)
+    eng.pre_open(DAY, feats)
+
+    (line,) = [m for m in seen if "GATE OFF" in m]
+    assert "atr5_below_gate" in line
+    assert "atr5=3.00" in line and "needs 6.00" in line
+
+
+def test_a_gate_on_line_says_so_with_the_value(tmp_path):
+    eng, ib, store, feats = _engine(tmp_path, range_pct=10.0)
+    seen = []
+    eng.on_event = lambda level, msg: seen.append(msg)
+    eng.pre_open(DAY, feats)
+
+    (line,) = [m for m in seen if "gate ON" in m]
+    assert "atr5=10.00" in line and "needs 6.00" in line
+    assert not [m for m in seen if "GATE OFF" in m]
+
+
+def test_the_stand_down_line_carries_both_halves_of_v9(tmp_path):
+    """V9 is "skip OR30 above the trailing 80th pct *unless* the 10:00 print is
+    in the top third". Both comparisons have to be on screen or a near-miss on
+    the rule looks identical to a routine stand-down — 2026-08-13 stood SOXS
+    down at pos10=0.021 while SOXL traded on pos10=0.981, same morning."""
+    eng, ib, store, feats = _engine(tmp_path, range_pct=10.0, or30=1.0)
+    eng.pre_open(DAY, feats)
+    seen = []
+    eng.on_event = lambda level, msg: seen.append(msg)
+    # a wide opening range with a weak 10:00 print -> stand down
+    bars = [Bar(i, 100.0, 110.0, 90.0, 91.0) for i in range(FILTER_IDX + 1)]
+    eng.apply_morning_filter("SOXL", bars)
+
+    (line,) = [m for m in seen if "STAND DOWN" in m]
+    assert "or30=" in line and "thr80=" in line and "pos10=" in line

@@ -65,6 +65,19 @@ def _group_by_session(bars: list[Bar], day) -> list[tuple]:
     return [(day, bars)] if bars else []
 
 
+def _as_date(d):
+    """A plain calendar date from a `date`, `datetime` or `Timestamp`.
+
+    The three flow into this module from different places — `today` is a
+    `datetime` from `run.py`, `last` is a pandas `Timestamp` from the CSVs, and
+    the broker yields `date`. Comparing them directly works until one of them
+    changes type, and §4.6 is the standing reminder of what a date/time
+    assumption costs here: a naive local time produced `Bar.idx = -36` and
+    consumed a whole session.
+    """
+    return d.date() if hasattr(d, "date") else d
+
+
 def build(symbol: str, root: str, broker=None, today: Optional[datetime] = None,
           store=None, required: int = SESSIONS_REQUIRED) -> Bootstrap:
     """CSV backbone + broker top-up -> a FeatureHistory ready for 06:00.
@@ -81,7 +94,8 @@ def build(symbol: str, root: str, broker=None, today: Optional[datetime] = None,
 
     if broker is not None and last is not None:
         today = today or datetime.now()
-        gap_days = (today.date() - last.date()).days
+        cutoff = _as_date(today)
+        gap_days = (cutoff - _as_date(last)).days
         if gap_days > 1:
             # One paced request covers the gap. 5-minute bars for a few weeks
             # sit well inside any plausible duration limit — §6.4 is still an
@@ -89,8 +103,27 @@ def build(symbol: str, root: str, broker=None, today: Optional[datetime] = None,
             duration = f"{min(max(gap_days + 3, 5), 60)} D"
             for day, bars in broker.historical_sessions(symbol, today,
                                                         duration, "5 mins"):
-                if day is None or day <= last.date():
+                if day is None or _as_date(day) <= _as_date(last):
                     continue                       # already in the CSV
+                if _as_date(day) >= cutoff:
+                    # **Today is never a feature session.** §2.1 defines ATR5 as
+                    # the 5 *completed* sessions before d and thr80 as the prior
+                    # 504, and the engine gets today's own OR30 from live bars —
+                    # so a bar dated today has no business in this history.
+                    #
+                    # Nothing excluded it. Started pre-open the broker has no
+                    # bars for today and the bug is invisible, which is why it
+                    # survived from Stage 2. Restart *inside* RTH — as
+                    # `RUNBOOK.md` §7.5 now tells you to, for the §6.1 test —
+                    # and the partial session lands in the window, displaces a
+                    # real one, and re-decides the gate on a day that is not
+                    # over. On 2026-08-17 that turned ATR5 from above 6.0 into
+                    # below it and stood both sleeves down at 13:02, on a
+                    # session they had already been trading since 11:00.
+                    #
+                    # It only ever bites when ATR5 is near the cutoff: the same
+                    # restart on 2026-08-06 was harmless because ATR5 was ~15%.
+                    continue
                 sessions.append((day, bars))
                 from_broker += 1
 

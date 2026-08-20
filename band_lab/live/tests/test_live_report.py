@@ -490,6 +490,71 @@ def test_sell_slippage_flips_sign(store):
     assert s.vs_mid == pytest.approx(10.0, abs=0.01)
 
 
+# ------------------------------------------------- the two bp definitions
+def test_a_gap_through_makes_the_two_definitions_differ(store):
+    """The defect §10.16 could not see.
+
+    `test_weekly_matches_hand_computed` sizes 750 shares at 100.00 against
+    75,000 of capital, so `qty x entry == capital` exactly and the price return
+    and the sleeve return coincide. Every fixture in this file did the same, so
+    a report that summed the wrong one passed a green suite — while 2026-08-13
+    printed a 0.75 bp gap where the like-for-like figure was 7.85, and
+    disagreed with the engine's own `pnl=-555.6bp`.
+
+    §2.4 makes the divergence routine, not exotic: quantity is sized off
+    `limit_px` and the fill is free to gap through it.
+    """
+    write_entry_limit(store, 100.00, 11, 0)
+    write_fill(store, "e1", "E", "BOT", 750, 96.00, 11, 5)     # 4% gap-through
+    write_fill(store, "x1", "T", "SLD", 750, 97.00, 12, 0)
+    (t,) = live_trades(store, "SOXL", SESSION)
+
+    assert t.ret == pytest.approx(97.0 / 96.0 - 1.0)            # price return
+    assert t.ret_on_capital(CAPITAL) == pytest.approx(0.01)     # sleeve return
+    assert t.ret > t.ret_on_capital(CAPITAL)
+
+    bp, comparable = report.day_bp([t], CAPITAL)
+    assert comparable and bp == pytest.approx(100.0)
+    assert report.day_bp([t], None)[0] == pytest.approx(104.17, abs=0.01)
+
+
+def test_day_bp_is_what_the_engine_logs(store):
+    """SOXL on 2026-08-13, at the recorded prices. The engine's EOD line said
+    `pnl=-555.6bp`; the report must not disagree with the thing it audits."""
+    cap = 74_261.0
+    trades = [
+        LiveTrade(entry_bar=24, exit_bar=72, entry_px=152.59, exit_px=146.48,
+                  qty=486, outcome="stop"),
+        LiveTrade(entry_bar=72, exit_bar=77, entry_px=146.63, exit_px=144.25,
+                  qty=486, outcome="flatten"),
+    ]
+    bp, comparable = report.day_bp(trades, cap)
+    assert comparable
+    assert bp == pytest.approx(-555.6, abs=0.1)
+
+
+def test_an_open_position_is_excluded_from_the_day(store):
+    trades = [
+        LiveTrade(entry_bar=1, exit_bar=2, entry_px=100.0, exit_px=101.0,
+                  qty=750, outcome="target"),
+        LiveTrade(entry_bar=3, exit_bar=None, entry_px=100.0,
+                  exit_px=float("nan"), qty=750, outcome="open"),
+    ]
+    assert report.day_bp(trades, CAPITAL)[0] == pytest.approx(100.0)
+
+
+def test_missing_capital_refuses_to_show_a_gap(store, capsys):
+    """Without capital the live figure is a different quantity from the shadow.
+    Printing a gap between them would be the original defect with extra steps."""
+    write_session(store, traded_session_bars(78), capital=None)
+    write_fill(store, "e1", "E", "BOT", 757, 99.00, 11, 10)
+    write_fill(store, "x1", "T", "SLD", 757, 100.00, 11, 15)
+    report.print_session_report(store, SESSION, ["SOXL"])
+    out = capsys.readouterr().out
+    assert "NOT comparable" in out
+    assert "gap" not in out.split("bp/day")[1].split("\n")[0]
+
+
 # ------------------------------------------------------ the exit side
 def test_exit_quality_grades_every_exit_role(store):
     """The exit side used to have no measurement at all.

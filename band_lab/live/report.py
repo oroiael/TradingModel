@@ -236,11 +236,48 @@ class LiveTrade:
 
     @property
     def ret(self) -> float:
+        """The *price* return of the round trip. Not the sleeve's return.
+
+        These differ whenever the entry filled away from the limit it was sized
+        off, which §2.4 makes routine: quantity comes from `limit_px` and the
+        fill can gap through it. On 2026-08-13 the re-entry was sized off 152.59
+        and filled at 146.63 — a 4.0% gap-through — so the position was 4.0%
+        smaller than sleeve capital and the sleeve's return was 4.0% smaller
+        than this number. Use `ret_on_capital` for anything compared against
+        the shadow, the engine's own P&L, or §8.
+        """
         return (self.exit_px / self.entry_px - 1.0) if self.entry_px else 0.0
 
     @property
     def pnl(self) -> float:
         return (self.exit_px - self.entry_px) * self.qty
+
+    def ret_on_capital(self, capital: Optional[float]) -> Optional[float]:
+        """`qty x (exit - entry) / sleeve_capital` — what `sleeve.py` books.
+
+        The one definition that is comparable to anything else in the project:
+        `SleeveStateMachine.on_exit_fill` accumulates exactly this into
+        `sm.pnl`, the engine logs it as the day's `pnl=`, and §8's published
+        figures are the backtest's version of it.
+        """
+        if not capital:
+            return None
+        return self.pnl / capital
+
+
+def day_bp(trades: Sequence[LiveTrade],
+           capital: Optional[float]) -> tuple[float, bool]:
+    """(basis points, comparable). Closed round trips only.
+
+    `comparable` is False when no sleeve capital was recorded and the figure
+    falls back to summed price returns — which is *not* the same quantity as
+    the shadow's. Returning that silently is how the two sides came to be
+    computed differently in the first place, so the caller has to be told.
+    """
+    closed = [t for t in trades if t.outcome != "open"]
+    if capital:
+        return 1e4 * sum(t.pnl for t in closed) / capital, True
+    return 1e4 * sum(t.ret for t in closed), False
 
 
 def live_trades(store: Store, symbol: str, session: str) -> list[LiveTrade]:
@@ -829,10 +866,13 @@ def weekly(store: Store, symbols: Optional[Sequence[str]] = None,
             w.on_days += 1
             trades = live_trades(store, sym, s)
             w.fills += len(trades)
-            # Sum of per-trade returns — the same quantity §8's bp figures are,
-            # and independent of `f` and of the recorded capital.
-            w.day_returns.append(
-                sum(t.ret for t in trades if t.outcome != "open"))
+            # §8's baselines are the backtest's `sm.pnl`, so the live series
+            # compared against them has to be the same quantity — see the note
+            # in `print_session_report`. Summing price returns here made
+            # `gross_bp_per_ON_day` and `worst_day_%` drift from the engine's
+            # own numbers by the gap-through depth of each entry.
+            bp, _ = day_bp(trades, _num(row, "sleeve_capital"))
+            w.day_returns.append(bp / 1e4)
             for t in trades:
                 w.outcomes[t.outcome] = w.outcomes.get(t.outcome, 0) + 1
     return acc
@@ -922,16 +962,36 @@ def print_session_report(store: Store, session: str,
                       f"{st.outcome:<9}") if st else blank
                 print(f"    {i+1:<4} {lc}{sc}")
 
-            # Both sides are the *sum of per-trade returns*, which is what
-            # `sleeve.py` accumulates into `sm.pnl` and what §8's bp figures
-            # are. Deriving the live number from dollar P&L over sleeve capital
-            # would instead carry a factor of `f`, which the backtest's figure
-            # does not have and which the `daily` row does not record.
-            lbp = 1e4 * sum(t.ret for t in live if t.outcome != "open")
+            # **Both sides must be the same quantity, and for a while they were
+            # not.** The shadow is `sm.pnl` — `qty x (exit - entry) / capital`,
+            # accumulated by `sleeve.py:on_exit_fill`. The live side summed
+            # `exit / entry - 1` instead, on a comment asserting those were the
+            # same thing. They coincide only when `qty x entry == capital`,
+            # which §2.4 breaks by design: quantity is sized off `limit_px` and
+            # the fill may gap through it.
+            #
+            # On 2026-08-13 the re-entry gapped 4.0% through its limit, so the
+            # two definitions differed by 7.1 bp and the report announced a
+            # 0.75 bp gap where the like-for-like figure was 7.85 bp — while
+            # the engine's own EOD line said `pnl=-555.6bp`, agreeing with the
+            # shadow's definition and not with the report's. A parity report
+            # whose headline disagrees with the engine it is auditing is worse
+            # than no report. The error scales with gap-through depth, so it is
+            # largest exactly on the days worth reading closely.
+            cap = _num(row, "sleeve_capital") if row is not None else None
+            lbp, comparable = day_bp(live, cap)
             sbp = 1e4 * sh.pnl
             print(f"\n    trades   live {len(live):<3}  shadow {len(sh.trades)}")
-            print(f"    bp/day   live {_fmt(lbp):<7}  shadow {_fmt(sbp):<7}  "
-                  f"gap {_fmt(lbp - sbp)}   (sum of per-trade returns)")
+            if comparable:
+                print(f"    bp/day   live {_fmt(lbp):<7}  shadow {_fmt(sbp):<7}  "
+                      f"gap {_fmt(lbp - sbp)}   "
+                      f"(qty x (exit-entry) / sleeve capital, both sides)")
+            else:
+                findings += 1
+                print(f"    bp/day   live {_fmt(lbp):<7}  shadow {_fmt(sbp):<7}")
+                print("    [FINDING] no sleeve_capital recorded, so the live "
+                      "figure is summed price returns and the shadow is not — "
+                      "these two numbers are NOT comparable and no gap is shown")
             if len(live) != len(sh.trades) and sh.ran:
                 findings += 1
                 print("    [FINDING] trade-count mismatch: the fill models "

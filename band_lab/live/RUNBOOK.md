@@ -1043,6 +1043,19 @@ moment you read it.
 6. **Restart the engine** and confirm from the console that reconcile adopted
    the position and the bracket rather than opening a second one.
 
+   > **Check the gate line on the restart.** A restart re-runs `pre_open`, which
+   > re-decides the day. On 2026-08-17 that turned `gate ON` into
+   > `GATE OFF: atr5_below_gate` at 13:02, because the broker's history request
+   > inside RTH returns a bar for *today* and nothing excluded it — the partial
+   > session entered the ATR5 window and dragged the mean under 6.0. Both
+   > sleeves went dormant while already holding positions from 11:00, and
+   > neither could re-enter for the rest of the day.
+   >
+   > Fixed — `features.build` now refuses any session dated today — but the
+   > check is worth keeping: the restart line should read the **same** gate
+   > decision as the morning's, and `last session` should read *yesterday*, not
+   > today. If it does not, stop and read the log before letting it run on.
+
 > **One observation is corroboration, not proof.** Run it a second time on a
 > later session before treating it as settled — the `ocaType` assumption looked
 > confirmed by one observation too, and it took reading IBKR's own client source
@@ -1062,7 +1075,7 @@ nothing rather than consuming the prior session — and read the log afterwards.
 | Alerting | Half exists. `status.py` (§5.6) gives visibility from a phone; nothing **pushes** on a condition, so it only helps when you look |
 | `watchdog.py` | Engine hangs holding a position → nothing independently flattens it |
 | Service supervision | Process dies → the day ends silently, possibly with a position open |
-| §6.1 unverified | Whether the protective stop survives the engine dying is *still an open question*. **§7.5 settles it in two minutes** — run it on the next session with a bracket on. Until then, an unattended crash mid-position has no proven protection |
+| ~~§6.1 unverified~~ | ✅ **Settled 2026-08-17** (§7.5): both sleeves' stops were still resting at IBKR after the engine's process was ended. One observation — repeat it before relying on it. This removes the *protection* objection to unattended operation; the three rows above still stand |
 
 `IMPLEMENTATION_SPEC.md` §7 requires attended operation for the first 3–6 months
 regardless. Unattended becomes reasonable after Stage 7 — see
