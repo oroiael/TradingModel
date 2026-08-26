@@ -928,3 +928,39 @@ def test_the_report_names_a_gap_through_instead_of_burying_it(store, capsys):
     out = capsys.readouterr().out
     assert "gap-through entries" in out
     assert "Not slippage" in out
+
+
+# ---------------- --since: §8 must state the window it covers
+def test_since_excludes_earlier_sessions_and_says_so(store, capsys):
+    """§8's baselines describe one fixed strategy.
+
+    The engine's trading logic froze at PR #40 on 2026-08-12; sessions before
+    it ran on code that was still changing. Averaging across that boundary
+    compares live against a version of itself that no longer exists, and the
+    resulting table looks exactly like one that does not — which is the whole
+    reason the window has to be printed rather than assumed.
+    """
+    for s in ("20260806", "20260811", "20260813", "20260825"):
+        write_daily(store, session=s)
+    assert report.main(["--db", store.path, "--weekly",
+                        "--since", "20260813"]) == 0
+    out = capsys.readouterr().out
+    assert "Window: 20260813 to 20260825" in out
+    assert "2 earlier session(s) excluded" in out
+    assert "2 session(s)" in out          # not 4
+
+
+def test_since_is_inclusive_of_its_own_date(store, capsys):
+    for s in ("20260812", "20260813"):
+        write_daily(store, session=s)
+    report.main(["--db", store.path, "--weekly", "--since", "20260812"])
+    assert "1 earlier session" not in capsys.readouterr().out
+
+
+def test_since_with_no_surviving_sessions_is_an_error_not_an_empty_table(
+        store, capsys):
+    """An empty §8 table reads as "nothing broke". It has to fail instead."""
+    write_daily(store, session="20260812")
+    assert report.main(["--db", store.path, "--weekly",
+                        "--since", "20270101"]) == 2
+    assert "No sessions on or after 20270101" in capsys.readouterr().err
