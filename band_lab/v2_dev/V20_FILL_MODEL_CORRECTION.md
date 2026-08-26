@@ -156,3 +156,119 @@ The correction is to which model is *published*, never to the engine.
 # RESULTS
 
 *(appended after the run)*
+
+## VERDICT: **the published edge does not survive an honest same-bar re-entry.**
+
+Under B1 the corrected baselines replace the published ones. They are written to
+`v2_dev/out/v20_corrected_baselines.csv`, which `report.py` now reads in
+preference to the `spec` file, and the daily report prints which set it used.
+
+```
+                        §8 pub(5m)   spec@1min   no_better    next_bar
+SOXL  net_bp_per_ON_day      61.90       39.34       +8.95      +13.65
+SOXS  net_bp_per_ON_day      48.10       30.29      -10.61       -5.64
+account, per active day         --      +29.12       -0.77       +3.28
+```
+
+## R1. B6 fired. The criterion was wrong, and that is a disclosure, not a defence.
+
+```
+  SOXL: spec 2157 trades -> no_better 2101   (2.6%)   threshold 5%   BELOW
+  SOXS: spec 2290 trades -> no_better 2209   (3.5%)   threshold 5%   BELOW
+```
+
+B6 said: if the trade count moves less than 5%, same-bar re-entries are too rare
+to explain the live gap and §2's diagnosis is refuted. **By the letter of the
+bar, V20 is refuted.**
+
+The criterion was mis-specified. It used trade *count* as a proxy for
+materiality, and the proxy is invalid here: removing 2.6% of SOXL's trades
+removes **77%** of its net edge, and removing 3.5% of SOXS's removes **135%**.
+Rarity does not imply immateriality when the trades being removed are not a
+random sample — a re-entry priced below the exit it just took is
+*systematically* favourable, so a handful of them can carry most of the edge.
+The P&L effect is direct output, not inference; B6 could not have detected it
+at any threshold on counts.
+
+This follows V17's R1 (a criterion mis-specified, disclosed rather than quietly
+corrected). Two things a reader is owed:
+
+- **B1 does not depend on B6.** It says the corrected baselines replace the
+  published ones regardless of the result, and it was written first for exactly
+  this reason.
+- **Discount the pre-registration accordingly.** A criterion wrong in this
+  direction is a criterion that could have been wrong in the other. The defence
+  of V20 is the measurement, not the bar.
+
+## R2. `next_bar` beats `no_better` — which is the cleanest confirmation available
+
+SOXL +13.65 vs +8.95; SOXS −5.64 vs −10.61. **Forbidding the same-bar re-entry
+outright is better than permitting it at the exit price.** So the same-bar
+re-entries priced honestly are, on net, *losers*: every bit of their value came
+from the price improvement that does not exist. Nothing about the strategy
+requires them; the backtest's edge did.
+
+## R3. B4 is the branch that fires
+
+```
+  no_better   SOXL   +8.95 bp/ON-day   sem 11.91   95% CI [-14.40, +32.30]
+              SOXS  -10.61 bp/ON-day   sem 11.70   95% CI [-33.55, +12.32]
+  next_bar    SOXL  +13.65             sem 11.39   95% CI [ -8.67, +35.98]
+              SOXS   -5.64             sem 11.22   95% CI [-27.63, +16.34]
+```
+
+Zero is inside every interval. Under `no_better` both sleeves are within one
+standard error of zero, which is B4 verbatim: **the strategy has no demonstrated
+edge under an honest fill model.** Paper trading stops being validation and
+becomes data collection on a strategy with no prior. Do not deploy capital.
+
+Stated as B4 requires: not "the strategy is broken" — 4.5 years and 4,300 trades
+cannot distinguish a small positive edge from zero here. What is established is
+that the *evidence for* an edge was the fill model.
+
+## R4. B5 — the detection horizon, reported because it is inconvenient
+
+```
+  spec (falsified)   +29.12 bp ->     78 active days
+  no_better           -0.77 bp -> no positive edge to detect
+  next_bar            +3.28 bp ->  5,464 active days  = ~30 calendar years
+```
+
+Every "wait N days and we will know" figure in this project descends from the
+falsified mean. The honest answer to *when will live tell us whether this
+works* is **never, at any plausible horizon.**
+
+## R5. Live, re-tested against the corrected baselines
+
+```
+  SOXL  live -47.02 bp/ON-day (n=6)  vs corrected +8.95   z=-0.44  p=0.33  INSIDE
+  SOXS  live -52.91 bp/ON-day (n=7)  vs corrected -10.61  z=-0.36  p=0.36  INSIDE
+  drawdown since 08-13  -4.16%  vs 3.60% expected sd over 8 active days  z=-1.15
+```
+
+Against the corrected baseline, **live is unremarkable.** Nothing in three weeks
+of sessions is evidence of anything except that the baseline was wrong.
+
+Outcome mix, retested: `stop_%` 6.7% vs a corrected 11.0% is now **normal**
+(p=0.34). `target_%` 50.0% vs 67.3% (p=0.037) and `flatten_%` 43.3% vs 21.7%
+(p=0.007) remain breached — live still under-trades even the corrected model
+(2.31 fills/sleeve-session vs 3.09–3.20). At n=30 that is unresolved and is the
+one live question V20 does not answer.
+
+## R6. Projection scorecard (§5, written before the run)
+
+| §5 said | outcome |
+|---|---|
+| `no_better` cuts both sleeves materially | **right** — −77% / −135% |
+| `next_bar` cuts them further | **wrong** — it cuts them *less*; see R2 |
+| SOXS hit harder than SOXL | **right** — SOXS goes negative, SOXL does not |
+| at least one sleeve stays positive but small | **right, and it is the weakest claim here** — SOXL +8.95 with zero inside its CI |
+
+## R7. What is NOT concluded
+
+- No strategy parameter changes. All seven §12 constants unchanged;
+  `test_config_rejects_strategy_parameter_changes` and the other 59 phase1 tests
+  pass at HEAD (B7).
+- `no_better` is not proven correct — it is *less wrong* than `spec`, on 14 live
+  re-entries. `next_bar` brackets it. Publishing one number would overstate this.
+- The live under-trading in R5 is unexplained and is the next question.

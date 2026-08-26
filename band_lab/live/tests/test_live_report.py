@@ -708,13 +708,52 @@ def test_weekly_ignores_days_with_no_daily_row(store):
     assert w.sessions == 1
 
 
-def test_baselines_load_from_the_parity_output():
-    """§8's numbers must come from the file `parity.py` writes, not from here."""
+def test_baselines_come_from_files_not_from_here():
+    """§8's numbers must come from the generated files, never hardcoded.
+
+    This used to pin 65.6 / 48.1 — the `spec` values. V20 falsified the fill
+    model those were computed under (a same-bar re-entry priced at a price that
+    traded *before* the exit it followed, a fill no live session has ever got),
+    so pinning them would pin the defect.
+    """
     base = report.load_baselines()
     if not base:
-        pytest.skip("phase1/out/monitoring_expectations.csv not generated")
-    assert base[("SOXL", "gross_bp_per_ON_day")] == pytest.approx(65.6)
-    assert base[("SOXS", "net_bp_per_ON_day")] == pytest.approx(48.1)
+        pytest.skip("no baseline files generated")
+    for sleeve in ("SOXL", "SOXS"):
+        assert ("sleeve", "metric") != (sleeve, "x")     # readability guard
+        assert base[(sleeve, "net_bp_per_ON_day")] is not None
+
+
+def test_v20_baselines_supersede_spec_where_they_overlap(tmp_path, monkeypatch):
+    """Layered, not swapped, and the corrected file wins on shared metrics."""
+    root = tmp_path
+    for parts, rows in (
+            (report.SPEC_BASELINES,
+             "sleeve,metric,measured\nSOXL,net_bp_per_ON_day,61.9\n"
+             "SOXL,ON_day_rate_%,52.1\n"),
+            (report.V20_BASELINES,
+             "sleeve,metric,measured\nSOXL,net_bp_per_ON_day,8.95\n")):
+        p = os.path.join(str(root), *parts)
+        os.makedirs(os.path.dirname(p), exist_ok=True)
+        with open(p, "w", encoding="utf-8") as fh:
+            fh.write(rows)
+
+    base = report.load_baselines(str(root))
+    assert base[("SOXL", "net_bp_per_ON_day")] == pytest.approx(8.95)
+    # ON_day_rate is not a metric a fill model can move, so V20 leaves it alone
+    # and it must survive the layering rather than vanishing.
+    assert base[("SOXL", "ON_day_rate_%")] == pytest.approx(52.1)
+
+
+def test_the_report_says_which_baselines_it_used(tmp_path):
+    """A §8 table built on corrected numbers and one built on falsified numbers
+    are indistinguishable on the page unless the source is printed."""
+    assert "UNCORRECTED" in report.baseline_source(str(tmp_path))
+    p = os.path.join(str(tmp_path), *report.V20_BASELINES)
+    os.makedirs(os.path.dirname(p), exist_ok=True)
+    with open(p, "w", encoding="utf-8") as fh:
+        fh.write("sleeve,metric,measured\n")
+    assert "V20-corrected" in report.baseline_source(str(tmp_path))
 
 
 # ---------------------------------------------------------------- end to end

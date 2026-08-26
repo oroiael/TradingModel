@@ -1,0 +1,15 @@
+sleeve,metric,measured,fill_model,superseded
+SOXL,fills_per_ON_day,3.09,no_better,3.17
+SOXL,target_%,67.21,no_better,71.3
+SOXL,stop_%,11.42,no_better,9.9
+SOXL,flatten_%,21.37,no_better,18.8
+SOXL,gross_bp_per_ON_day,12.56,no_better,65.6
+SOXL,net_bp_per_ON_day,8.95,no_better,61.9
+SOXL,worst_day_%,-8.02,no_better,
+SOXS,fills_per_ON_day,3.2,no_better,3.36
+SOXS,target_%,67.32,no_better,71.8
+SOXS,stop_%,10.64,no_better,9.3
+SOXS,flatten_%,22.05,no_better,18.9
+SOXS,gross_bp_per_ON_day,-1.48,no_better,57.7
+SOXS,net_bp_per_ON_day,-10.61,no_better,48.1
+SOXS,worst_day_%,-8.06,no_better,

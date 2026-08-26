@@ -802,19 +802,47 @@ def same_bar_reentries(live: Sequence[LiveTrade],
 
 
 # ------------------------------------------------------------ §8 monitoring
+#: V20's corrected baselines, read in preference to the `spec` file below.
+#: Kept separate rather than overwriting `monitoring_expectations.csv` because
+#: `parity.py` regenerates that file under `spec` on every run — a corrected
+#: value written there is reverted by the next Phase 1 run, silently, in the one
+#: number the daily report measures live against.
+V20_BASELINES = ("v2_dev", "out", "v20_corrected_baselines.csv")
+SPEC_BASELINES = ("phase1", "out", "monitoring_expectations.csv")
+
+
 def load_baselines(root: str = _BAND_LAB) -> dict[tuple[str, str], float]:
-    """§8's published baselines, from the file `parity.py` regenerates."""
-    path = os.path.join(root, "phase1", "out", "monitoring_expectations.csv")
+    """§8's baselines: V20's corrected values layered over the `spec` file.
+
+    V20 established that `spec` prices a same-bar re-entry at a price that
+    traded *before* the exit it followed, and that live never gets that fill:
+    ten such trades appear in the backtest and none in thirteen live
+    sleeve-sessions. Comparing live against a baseline built on unavailable
+    fills measures the simulator, not the strategy.
+
+    The two files are layered rather than swapped because V20 corrects the
+    metrics a fill model can move and no others — `ON_day_rate_%` comes off the
+    gate, which is computed from prior sessions, so it still comes from `spec`.
+    """
     out: dict[tuple[str, str], float] = {}
-    if not os.path.exists(path):
-        return out
-    with open(path, newline="", encoding="utf-8") as fh:
-        for r in csv.DictReader(fh):
-            try:
-                out[(r["sleeve"], r["metric"])] = float(r["measured"])
-            except (KeyError, TypeError, ValueError):
-                continue
+    for parts in (SPEC_BASELINES, V20_BASELINES):       # later wins
+        path = os.path.join(root, *parts)
+        if not os.path.exists(path):
+            continue
+        with open(path, newline="", encoding="utf-8") as fh:
+            for r in csv.DictReader(fh):
+                try:
+                    out[(r["sleeve"], r["metric"])] = float(r["measured"])
+                except (KeyError, TypeError, ValueError):
+                    continue
     return out
+
+
+def baseline_source(root: str = _BAND_LAB) -> str:
+    """Which baselines a report is using. Printed, never inferred."""
+    return ("V20-corrected (no_better fill model)"
+            if os.path.exists(os.path.join(root, *V20_BASELINES))
+            else "spec (UNCORRECTED — V20 has not been run)")
 
 
 @dataclass
@@ -1151,6 +1179,7 @@ def print_weekly_report(store: Store, symbols: Optional[Sequence[str]] = None,
     print(_rule())
     print("§8 MONITORING — live against the published baselines")
     print(_rule())
+    print(f"  baselines: {baseline_source()}")
     if not base:
         print("\n  phase1/out/monitoring_expectations.csv not found — run "
               "`python3 band_lab/phase1/parity.py` to regenerate it.")
