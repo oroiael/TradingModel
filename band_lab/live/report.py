@@ -1250,6 +1250,11 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
                    help="restrict to a sleeve; repeatable")
     p.add_argument("--weekly", action="store_true", help="the §8 comparison")
     p.add_argument("--all", action="store_true", help="every session, then §8")
+    p.add_argument("--since", metavar="YYYYMMDD",
+                   help="ignore sessions before this one. §8's baselines "
+                        "describe a fixed strategy, so a window that spans a "
+                        "change to the engine compares live against a version "
+                        "of itself that no longer exists")
     p.add_argument("--csv", metavar="DIR", help="also write the per-trade CSVs")
     a = p.parse_args(argv)
 
@@ -1266,9 +1271,25 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
             print("The database has no sessions yet — nothing to report on.")
             return 0
 
+        if a.since:
+            kept = [s for s in all_sessions if s >= a.since]
+            if not kept:
+                print(f"No sessions on or after {a.since}. The database holds "
+                      f"{all_sessions[0]} to {all_sessions[-1]}.", file=sys.stderr)
+                return 2
+            # Say what was dropped. A §8 table that silently covers a subset
+            # reads exactly like one that covers everything, and §4.7's rule
+            # cuts both ways: a number that does not state its own window is
+            # not a measurement.
+            print(f"Window: {kept[0]} to {kept[-1]} — "
+                  f"{len(all_sessions) - len(kept)} earlier session(s) excluded "
+                  f"by --since {a.since}.\n")
+            all_sessions = kept
+
         findings = 0
         if a.weekly and not a.all:
-            return 1 if print_weekly_report(store, a.symbols) else 0
+            return 1 if print_weekly_report(store, a.symbols,
+                                            all_sessions) else 0
 
         targets = all_sessions if a.all else [a.session or all_sessions[-1]]
         for s in targets:
@@ -1283,7 +1304,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
             print()
 
         if a.all:
-            findings += print_weekly_report(store, a.symbols)
+            findings += print_weekly_report(store, a.symbols, all_sessions)
         return 1 if findings else 0
     finally:
         store.close()
