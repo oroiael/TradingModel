@@ -82,3 +82,68 @@ $599.36 of commissions, which works out to 1.16 bp per side.
 # RESULTS
 
 *(appended after the run)*
+
+## VERDICT: **no parameter was chosen by the bug. Most were never chosen at all.**
+
+66 configurations, 137,201 trades, every summary figure rebuilt from its raw
+trade file (`--verify`: OK).
+
+```
+                incumbent   SOXL best   gap vs incumbent      reading
+  dip_pct           1.0%       0.5%      +6.18 bp (0.6 se)    P1 + P3 flat
+  target_pct        1.0%      0.75%      +3.00 bp (0.3 se)    P1 + P3 flat
+  stop_pct          4.0%       4.0%       incumbent IS best   P1
+  start_idx        11:00      11:00       incumbent IS best   P1
+  max_fills            5          2      +3.83 bp (0.3 se)    P1 + P3 flat
+  gate_atr5_min     6.0%       6.0%       incumbent IS best   P1
+```
+
+**P2 never fires.** Not one parameter has an alternative that beats the
+incumbent by two standard errors with 4-of-5-year agreement in both sleeves. The
+same-minute bug did not select these values.
+
+**P3 is the real finding.** Almost every curve is flat inside one standard error
+— best-to-worst spreads of 3.8 to 10.7 bp against standard errors of 9.6 and
+11.1. These parameters carry no information at this sample size. Whatever V1–V12
+believed they were optimising, they were reading noise, and they would have been
+reading noise even with a correct simulator.
+
+**P4 never fires.** No value beats both its neighbours by more than a standard
+error. The curves are smooth, which is the one mildly reassuring thing here.
+
+**P6 settles it.** Three configurations of 66 clear |t| > 1.96 against 3.3
+expected by chance. All three are SOXL. **None of them is evidence.**
+
+**P7.** SOXS is negative at 28 of its 33 configurations. Its problem is not a
+parameter choice.
+
+## Two things worth recording, neither of them adoptable
+
+`max_fills=2` gives SOXL the highest t in the sweep (+2.68) at **half the
+drawdown** — −24.2% against the incumbent's −42.9%, for a return inside one
+standard error. `gate_atr5_min=8.0` cuts drawdown in both sleeves (−33.4% and
+−38.3%) and is the only setting that turns SOXS positive.
+
+Both are risk observations, not return findings, and P5 forbids acting on
+either. They are written down because a later reader will rediscover them and
+should find them already flagged, already refused, and told why: they are the
+best of 66 tries on the only data that exists.
+
+## Projection scorecard (written before the run)
+
+| I predicted | outcome |
+|---|---|
+| most curves flat | **right** — every parameter triggers P3 in at least one sleeve |
+| the 1% dip / 1% target were not bug-selected | **right** — P2 never fires |
+| `max_fills` most likely to have been bug-selected | **wrong** — flattest curve in the sweep (3.8 bp spread in SOXS) |
+
+## A defect the verifier caught in itself
+
+`--verify` failed on its first two runs. `--run` held `max_fills` as the int 5
+and wrote `trades__max_fills__5__SOXL.csv`; `--verify` read 5.0 back out of
+summary.csv and looked for `5p0`. Twenty-two rows reported MISSING. No data was
+wrong — the filename encoding did not round-trip. `tag()` now collapses whole
+floats to int, and the existing files were renamed to the canonical form rather
+than regenerating identical content.
+
+Recorded because a verifier that has never failed has not been shown to work.

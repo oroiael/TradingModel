@@ -59,7 +59,16 @@ SWEEPS = {
 
 
 def tag(value) -> str:
-    return str(value).replace(".", "p")
+    """Filename-safe value, canonical in both directions.
+
+    `--run` holds `max_fills` as the int 5; `--verify` reads it back out of
+    summary.csv as the float 5.0. A naive str() writes `5` and then looks for
+    `5p0`, so every integer-valued sweep failed to verify — 22 of them, all as
+    "MISSING", which is the verifier failing rather than the data being wrong.
+    Collapsing whole floats to int makes 5, 5.0 and "5.0" the same file.
+    """
+    f = float(value)
+    return str(int(f) if f == int(f) else f).replace(".", "p")
 
 
 def trades_path(param, value, symbol):
@@ -277,6 +286,27 @@ def report(df=None, only=None):
                 notes.append(f"P4 SPIKE at {spiky} — treat as unreliable")
             print(f"   {s}: " + "; ".join(notes))
         print()
+
+    if only:
+        return
+    # ---- P6: count the wins against what chance alone would produce.
+    n = len(df)
+    hits = df[df.t.abs() > 1.96]
+    print("=" * 96)
+    print("P6 — MULTIPLE TESTING, COUNTED BEFORE ANY WIN IS BELIEVED")
+    print("=" * 96)
+    print(f"  configurations scored           {n}")
+    print(f"  expected |t| > 1.96 by chance   {n * 0.05:.1f}")
+    print(f"  observed                        {len(hits)}")
+    for _, r in hits.sort_values("t", key=abs, ascending=False).iterrows():
+        print(f"      {r['param']}={r['value']} {r['symbol']}  t={r['t']:+.2f}")
+    verdict = ("no more than chance would produce — none of these is evidence"
+               if len(hits) <= n * 0.05 + math.sqrt(n * 0.05)
+               else "more than chance alone predicts; still not adoptable (P5)")
+    print(f"\n  -> {verdict}")
+    print("\n  Reminder (P5): no parameter changes on the basis of this run.")
+    print("  maxDD columns above are at FULL sleeve weight (w=1.0); the account")
+    print("  runs each sleeve at w=0.5, so halve them for a portfolio reading.")
 
 
 def main() -> int:
