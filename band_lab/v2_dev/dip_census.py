@@ -176,12 +176,20 @@ def main() -> int:
         print(f"     t = {mean/sem:+.2f}   "
               f"95% CI [{(mean-1.96*sem)*100:+.4f}%, "
               f"{(mean+1.96*sem)*100:+.4f}%]")
-        be = STOP / (TARGET + STOP)
-        print(f"     break-even needs P(target) >= {1-be:.1%} when the only two"
-              f" outcomes are +1%/-4%;")
-        print(f"     actual P(target) = {out['target']/n:.1%}, and the flatten "
-              f"bucket averages "
-              f"{ret[first == -1].mean()*100 if (first == -1).any() else 0:+.3f}%")
+        # Decomposed, because the headline hides where the loss comes from.
+        resolved = out["target"] + out["stop"]
+        need = STOP / (TARGET + STOP)          # p*TARGET = (1-p)*STOP -> p
+        flat_avg = ret[first == -1].mean() if (first == -1).any() else 0.0
+        print(f"     of the bets that RESOLVE (+1% or -4%, ignoring flattens):")
+        print(f"       P(target) = {out['target']/resolved:.1%}, "
+              f"break-even needs {need:.1%}  -> "
+              f"{'PROFITABLE' if out['target']/resolved > need else 'LOSING'}")
+        print(f"     where the money actually goes, per bet:")
+        print(f"       targets   {out['target']/n*TARGET*100:+.3f}%")
+        print(f"       stops     {out['stop']/n*-STOP*100:+.3f}%")
+        print(f"       flattens  {out['flatten']/n*flat_avg*100:+.3f}%"
+              f"   ({out['flatten']/n:.1%} of bets averaging {flat_avg*100:+.3f}%)")
+        print(f"       TOTAL     {mean*100:+.3f}%")
     print("\n  NOTE: these minutes overlap heavily — consecutive minutes share "
           "most of\n  their forward path — so the standard errors above are "
           "optimistic. They\n  bound the direction of the answer, not its "
