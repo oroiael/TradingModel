@@ -23,3 +23,8 @@ logs/
 # vix_lab: bulky regenerable logs (summary tables ARE committed)
 vix_lab/out/trades_*.csv
 vix_lab/out/*.txt
+
+# band_lab/v2_dev: V21 writes one row per trade per configuration (~10MB).
+# Regenerate with `reparam.py --run`; `--verify` then rebuilds every summary
+# number from them. summary.csv IS committed, same split as phase1/out above.
+band_lab/v2_dev/out/reparam/trades__*.csv
