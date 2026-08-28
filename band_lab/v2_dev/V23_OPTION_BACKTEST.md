@@ -81,3 +81,60 @@ produces counts.
 # RESULTS
 
 *(appended after the run)*
+
+## VERDICT: **REJECTED under A2. It beat buy-and-hold on 11% of start dates.**
+
+876 paths, every trading day an entry, 2022-01-03 to 2025-07-01, 252-day
+horizon, full spread crossed, $0.65/contract. 88,932 trades, `--verify` OK,
+**A7 PASS** (harness benchmark reproduces an independent computation to 1.8e-15).
+
+```
+  A3 — 2022 FIRST, before any total
+    251 paths starting in 2022
+    strategy median -55.1%   benchmark median +26.1%   excess -61.4%
+    beat buy-and-hold in 0 of 251
+
+    year  paths   strat med   bench med  excess med  win rate
+    2022    251      -55.1%      +26.1%      -61.4%        0%
+    2023    250       -5.8%     +120.7%     -111.7%        0%
+    2024    252      -60.6%      -26.7%      -23.2%        8%
+    2025    123     +316.3%     +237.2%      +38.8%       59%
+     ALL    876      -23.5%      +52.9%      -40.9%       11%
+
+  excess distribution:  p05 -193.6%   p25 -109.0%   p50 -40.9%
+                        p75  -19.1%   p95  +93.2%
+```
+
+**A2: the median path beat buy-and-hold in 1 year of 4. Adoption needs 4 of 5.
+Not adopted.**
+
+**A4 fires. This is beta, and the word is required.** The only year the strategy
+wins is 2025, whose paths run into the 2026 melt-up — benchmark +237.2%,
+strategy +316.3%. Every window that does not contain a violent rally loses, and
+loses badly: −61.4% excess in 2022, −111.7% in 2023, −23.2% in 2024. A deep-ITM
+call is leveraged long exposure. When the underlying rips it beats the
+underlying; the rest of the time the premium and the short-call cap eat it.
+
+## A correction to how the year column reads
+
+The 2022 row is not "the bear market". A 252-day window opened in 2022 mostly
+closes inside the 2023 recovery, which is why its benchmark median is **+26.1%**
+rather than negative. Start-year is a label for when a path *opened*, not the
+regime it lived through. The smoke test on the first five January-2022 starts —
+whose windows closed in early January 2023, before the bounce — showed a −83.0%
+benchmark, and that is the genuinely bearish slice.
+
+The design flaw is mine: D4 asked for a regime tag on the window and the run
+tags by start year instead. It does not change the verdict — 11% of 876 starts
+is not a near miss — but any future run should tag windows by what the
+underlying actually did over them.
+
+## What this settles
+
+The prior study reported R2/PMCC at **+257.3%** and called it the second-best
+recommendation. That number came from one start date inside a +383% window. Run
+from 876 start dates across a sample that includes a bear year, the same
+structure loses to simply owning the shares on 89% of them.
+
+The difference is not the fill model, the roll rules, or the deltas. It is the
+benchmark column, exactly as V22 said.
