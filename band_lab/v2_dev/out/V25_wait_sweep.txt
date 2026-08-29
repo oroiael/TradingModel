@@ -1,0 +1,23 @@
+================================================================================================
+WAITING vs PRICING — which one actually killed it?
+   net bp per ON-day, after costs, 1-minute fills, 2022+, fractional shares as published
+================================================================================================
+case                                                     SOXL     SOXS   account      t  trades/day
+------------------------------------------------------------------------------------------------
+published: same minute, priced at the bar's OPEN       +39.34   +30.29    +29.12   6.35        6.49
+same minute, but never better than the sell price       +8.95   -10.64     -0.78  -0.18        6.29
+wait 1 minute                                          +13.65    -5.64     +3.28   0.76        6.30
+wait 2 minutes                                         +16.09    -1.28     +6.14   1.41        6.32
+wait 3 minutes                                         +18.38    -2.67     +6.50   1.48        6.30
+wait 5 minutes                                         +22.22    -1.53     +8.57   1.92        6.26
+wait 10 minutes                                        +15.36    -7.65     +3.14   0.71        6.14
+wait 30 minutes                                        +11.60    -9.97     +0.60   0.13        5.64
+------------------------------------------------------------------------------------------------
+
+  Row 1 is the published backtest. Row 2 changes ONE thing: a re-buy in the same
+  minute as the sell may not be cheaper than the sell. It still re-buys in the
+  same minute. No waiting is introduced at all.
+
+  If row 2 falls as far as row 3, then the wait was never the point, and neither
+  is the length of the wait. The number was coming from the price.
+
