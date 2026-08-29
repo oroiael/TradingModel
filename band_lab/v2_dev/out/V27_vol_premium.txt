@@ -1,0 +1,73 @@
+loading 1-minute bars...
+loading option quotes (~544 MB)...
+    loaded 2022: 363,608 quotes
+    loaded 2023: 233,826 quotes
+    loaded 2024: 315,248 quotes
+    loaded 2025: 299,008 quotes
+    loaded 2026: 304,834 quotes
+
+========================================================================================
+SOXL — IMPLIED VOLATILITY vs WHAT ACTUALLY HAPPENED NEXT
+   ~30-day at-the-money implied vol, against the following 30 sessions of realised vol
+========================================================================================
+  1,117 trade dates, 2022-01-03 to 2026-06-16
+
+  measure                                              mean   median
+  ------------------------------------------------------------------
+  implied vol the market charged                      98.6%    95.4%
+  realised, close-to-close — ALL of it               110.4%   103.2%
+  realised, 1-minute path — the part you can hedge    81.0%    75.5%
+
+  WHERE THE VARIANCE LIVES  (variance adds; volatility does not)
+    total, close to close         116.6% vol     100% of variance
+    inside the day session         84.4% vol      52% of variance   <- hedgeable
+    overnight, market closed       80.4% vol      48% of variance   <- NOT hedgeable
+
+  GAMMA BUYER'S EDGE — realised minus implied
+                                                       mean   median   % of days > 0
+  ----------------------------------------------------------------------------------
+  realised, close-to-close — ALL of it               +11.8%    +6.7%             63%
+  realised, 1-minute path — the part you can hedge   -17.6%   -19.2%             12%
+
+  An open-to-close estimator is deliberately NOT used as a headline here. It has one
+  observation per day, so its mean is set by a handful of huge trending sessions: the
+  median ratio of 1-minute realised variance to squared open-to-close return is 2.11, but
+  the ratio of the MEANS is 0.86. Reporting the second as if it described a typical day
+  would say intraday moves trend, and they do not.
+
+  by calendar year, close-to-close realised minus implied
+
+  year         n   implied  realised      edge   % days RV>IV
+  -----------------------------------------------------------
+  2022       251    112.3%    130.4%    +18.1%            82%
+  2023       250     83.6%     82.2%     -1.4%            48%
+  2024       252     90.2%    102.4%    +12.2%            61%
+  2025       250     96.2%    108.7%    +12.6%            51%
+  2026       114    125.4%    149.8%    +24.5%            84%
+
+========================================================================================
+AND THEN THE HEDGING BILL
+========================================================================================
+
+  The numbers above are gross. Delta-hedging is not free: every hedge is a
+  trade in the underlying, at the measured 6.70 bp round trip.
+
+  A gamma position that is hedged H times a day pays roughly H x half a round
+  trip in friction on the hedge legs alone, on the hedged notional. The
+  variance you capture rises with H (you track the path more closely); so does
+  the bill. The path length itself is the thing being chased and it is
+  6,870 bp/day.
+
+    hedge    1x/day  ->        3 bp/day of hedging friction  =       8% a year on hedged notional
+    hedge    4x/day  ->       13 bp/day of hedging friction  =      34% a year on hedged notional
+    hedge   13x/day  ->       44 bp/day of hedging friction  =     110% a year on hedged notional
+    hedge   26x/day  ->       87 bp/day of hedging friction  =     219% a year on hedged notional
+    hedge   78x/day  ->      261 bp/day of hedging friction  =     658% a year on hedged notional
+    hedge  390x/day  ->     1306 bp/day of hedging friction  =    3292% a year on hedged notional
+
+  Read that against the edge table. A vol edge of a few points a year on a 70%
+  vol underlying is worth a few hundred bp a year. Hedging four times a day
+  costs 34% a year. The friction is not a detail here; it is the
+  whole trade.
+
+  wrote out/V27_vol_premium.csv (1,117 rows)

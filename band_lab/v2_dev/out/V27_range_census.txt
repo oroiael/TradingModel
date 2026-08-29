@@ -1,0 +1,108 @@
+============================================================================================
+SOXL — how much movement is actually there, 1,147 sessions, 2022-01-03 to 2026-07-30
+============================================================================================
+
+  average session high-to-low range          8.07%   (807 bp)
+  average |open-to-close| move               4.24%   (424 bp)
+  average path length, 1-minute steps       71.83%   (7,183 bp)
+  efficiency: |net| / path                   5.87%
+
+  So the price travels about 71.8% of distance in a day and ends up 4.2% from where it
+  started. 94% of the motion cancels itself out. That cancelling motion is the thing
+  people mean by 'harvesting volatility', and it is real. What follows is what it costs to reach.
+
+  PERFECT FORESIGHT AT EACH HORIZON — catch every single move, long and short
+  friction 6.70 bp per round trip (measured)
+
+  horizon      trades/day   gross/day   cost/day     net/day   avg move  break-even
+  -------------------------------------------------------------------------------
+  1 min             388.6      7,183 bp     2,604 bp      4,579 bp        18 bp       68.1%
+  2 min             194.3      5,094 bp     1,302 bp      3,793 bp        26 bp       62.8%
+  5 min              77.7      3,256 bp       521 bp      2,735 bp        42 bp       58.0%
+  15 min             25.9      1,872 bp       174 bp      1,698 bp        72 bp       54.6%
+  30 min             13.0      1,344 bp        87 bp      1,257 bp       104 bp       53.2%
+  60 min              7.0        986 bp        47 bp        939 bp       141 bp       52.4%
+  1 day               1.0        424 bp         7 bp        417 bp       424 bp       50.8%
+
+  'break-even' = the directional accuracy you need at that horizon just to cover friction.
+  Measured accuracy of every signal tested in this repo: 49-51% at every horizon and every signal tested so far.
+
+  WHAT EACH LEVEL OF ACCURACY IS WORTH, per day, net of friction
+
+  horizon            50%       51%       52%       55%       60%       70%
+  ------------------------------------------------------------------------
+  1 min            -2604     -2460     -2317     -1886     -1169      +266  bp/day
+  2 min            -1302     -1200     -1098      -793      -284      +734  bp/day
+  5 min             -521      -456      -391      -196      +130      +780  bp/day
+  15 min            -174      -136       -99       +13      +200      +574  bp/day
+  30 min             -87       -60       -33       +47      +182      +450  bp/day
+  60 min             -47       -27        -7       +52      +150      +347  bp/day
+  1 day               -7        +2       +10       +36       +78      +163  bp/day
+
+  Read the 50% column first: it is what a coin flip pays after costs. It is the cost of trading, nothing else.
+
+============================================================================================
+SOXS — how much movement is actually there, 1,148 sessions, 2022-01-03 to 2026-07-31
+============================================================================================
+
+  average session high-to-low range          8.13%   (813 bp)
+  average |open-to-close| move               4.28%   (428 bp)
+  average path length, 1-minute steps       75.42%   (7,542 bp)
+  efficiency: |net| / path                   5.62%
+
+  So the price travels about 75.4% of distance in a day and ends up 4.3% from where it
+  started. 94% of the motion cancels itself out. That cancelling motion is the thing
+  people mean by 'harvesting volatility', and it is real. What follows is what it costs to reach.
+
+  PERFECT FORESIGHT AT EACH HORIZON — catch every single move, long and short
+  friction 8.18 bp per round trip (measured)
+
+  horizon      trades/day   gross/day   cost/day     net/day   avg move  break-even
+  -------------------------------------------------------------------------------
+  1 min             388.3      7,542 bp     3,176 bp      4,366 bp        19 bp       71.0%
+  2 min             194.2      5,236 bp     1,588 bp      3,648 bp        27 bp       65.1%
+  5 min              77.7      3,285 bp       635 bp      2,650 bp        42 bp       59.7%
+  15 min             25.9      1,873 bp       212 bp      1,661 bp        72 bp       55.6%
+  30 min             12.9      1,345 bp       106 bp      1,239 bp       104 bp       53.9%
+  60 min              6.9        983 bp        57 bp        927 bp       142 bp       52.9%
+  1 day               1.0        428 bp         8 bp        420 bp       428 bp       51.0%
+
+  'break-even' = the directional accuracy you need at that horizon just to cover friction.
+  Measured accuracy of every signal tested in this repo: 49-51% at every horizon and every signal tested so far.
+
+  WHAT EACH LEVEL OF ACCURACY IS WORTH, per day, net of friction
+
+  horizon            50%       51%       52%       55%       60%       70%
+  ------------------------------------------------------------------------
+  1 min            -3176     -3025     -2873     -2420     -1665      -155  bp/day
+  2 min            -1588     -1483     -1378     -1064      -539      +509  bp/day
+  5 min             -635      -569      -504      -306       +23      +681  bp/day
+  15 min            -212      -174      -137       -24      +164      +539  bp/day
+  30 min            -106       -79       -52       +29      +163      +432  bp/day
+  60 min             -57       -37       -17       +42      +140      +336  bp/day
+  1 day               -8        +0        +9       +35       +77      +163  bp/day
+
+  Read the 50% column first: it is what a coin flip pays after costs. It is the cost of trading, nothing else.
+
+============================================================================================
+THE POINT
+============================================================================================
+
+  The range is real and it is large. Nothing above disputes that.
+
+  What the table shows is that the range is not the constraint. Direction is.
+  At every horizon, a coin flip loses exactly the friction, and the accuracy
+  needed to clear friction rises as you trade faster — while the number of
+  chances rises too, so the two fight each other and friction wins early.
+
+  No signal measured anywhere in this repository has reached the break-even
+  column at any horizon. Not the dip. Not momentum. Not the hour of the day.
+  Not the day of the week. All of them sit at 49-51%.
+
+  There is exactly one way to convert range into money without predicting
+  direction, and it is not a directional strategy at all: be paid the spread
+  instead of paying it (market making), or own gamma and delta-hedge, which
+  mechanically converts realised path length into P&L. Whether the second one
+  pays depends on realised volatility versus implied volatility, which is a
+  measurable thing and is measured in vol_premium.py.
+
