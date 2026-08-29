@@ -93,16 +93,26 @@ def friction_screen(target_move_pct: float, symbol: str = "SOXL",
     out = dict(symbol=symbol, target_bp=target_bp, friction_bp=rt,
                friction_share=share, source=f.source)
 
+    # The win rate a SYMMETRIC bet (win `target`, lose `target`) must clear just
+    # to break even:  p(target - f) = (1-p)(target + f)  ->  p = 0.5 + f/(2*target).
+    # This replaces a "verdict" column whose thresholds (>25% hostile, >10%
+    # expensive) were invented. They looked authoritative and rested on nothing,
+    # which is the failure mode this module exists to prevent. Arithmetic with a
+    # measured comparison beats an adjective.
+    out["breakeven_symmetric"] = 0.5 + rt / (2 * target_bp) if target_bp else float("nan")
+
     if stop_move_pct:
         stop_bp = stop_move_pct * 1e4
-        # p*target = (1-p)*stop  ->  p = stop/(target+stop), before costs.
-        # Costs are paid on every trade, so they shift the break-even up.
+        # Asymmetric bet: p*target = (1-p)*stop  ->  p = stop/(target+stop)
+        # before costs. Costs are paid on every trade, so they raise the bar.
         out["breakeven_gross"] = stop_bp / (target_bp + stop_bp)
         out["breakeven_net"] = (stop_bp + rt) / (target_bp + stop_bp)
-    out["verdict"] = ("HOSTILE — friction eats a quarter of the move"
-                      if share > 0.25 else
-                      "expensive" if share > 0.10 else "workable")
     return out
+
+
+#: Measured, `move_census.py`, 2022+, ~445k starting minutes per symbol: from any
+#: minute, the share of the time price reaches +X before -X. Never above 50%.
+OBSERVED_HIT_RATE = {0.0025: 0.492, 0.005: 0.497, 0.01: 0.500, 0.02: 0.495}
 
 
 # --------------------------------------------------------------- T23 benchmark
@@ -261,11 +271,23 @@ def _selftest() -> int:
           f"= {2*f.commission_bp_per_side:.2f} commission "
           f"+ {f.spread_bp_entry + f.spread_bp_exit:.2f} spread")
     print(f"  source: {f.source}")
-    print(f"\n  {'target move':>12}{'friction':>11}{'share of move':>15}  verdict")
-    for m in (0.0025, 0.005, 0.01, 0.02, 0.05):
+    print("\n  Friction is the cost of ONE COMPLETE TRADE — buy and sell.")
+    print("  8.03 bp = 0.0803% = about $56 on a $70,000 position, in and out.")
+    print("\n  'share of move' = friction / the move you are trying to capture.")
+    print("  'break-even' = the win rate a symmetric win-X/lose-X bet needs just")
+    print("  to cover friction:  0.5 + friction/(2 x move).  Pure arithmetic.")
+    print("  'observed' = what actually happens, measured over ~445,000 minutes.")
+    print(f"\n  {'target':>8}{'friction':>10}{'share':>9}"
+          f"{'break-even':>12}{'observed':>10}   can it clear?")
+    for m in (0.0025, 0.005, 0.01, 0.02):
         s = friction_screen(m)
-        print(f"  {m*100:>11.2f}%{s['friction_bp']:>10.2f}bp"
-              f"{s['friction_share']*100:>14.1f}%  {s['verdict']}")
+        be = s["breakeven_symmetric"]
+        obs = OBSERVED_HIT_RATE[m]
+        gap = (be - obs) * 100
+        can = "YES" if obs > be else f"no — short by {gap:.1f} points"
+        print(f"  {m*100:>7.2f}%{s['friction_bp']:>9.2f}bp"
+              f"{s['friction_share']*100:>8.1f}%{be*100:>11.1f}%{obs*100:>9.1f}%"
+              f"   {can}")
 
     print(f"\n  the band strategy's own bet (+1% target, -4% stop):")
     s = friction_screen(0.01, "SOXL", stop_move_pct=0.04)
