@@ -55,11 +55,30 @@ class Friction:
 
 #: Only instruments whose costs have actually been measured on live fills.
 #: Adding a row here without a live measurement behind it defeats the point.
+#:
+#: **Commission differs by symbol and it is not a rounding detail.** IBKR Pro
+#: Fixed charges $0.005 per SHARE, so as a percentage the cost scales inversely
+#: with the share price. Recomputed per symbol from the statement (92 orders,
+#: 104,058 shares, $599.34):
+#:
+#:     SOXL   40 orders   21,286 sh   $2,800,612   $138.72   0.495 bp/side
+#:     SOXS   52 orders   82,772 sh   $3,733,828   $460.62   1.234 bp/side
+#:
+#: An earlier version of this file used a single blended 1.16 bp for both, which
+#: overstated SOXL by 2.3x. That is the same error the whole project keeps
+#: finding: one assumed number where a measured per-instrument one existed.
+#:
+#: **The spread figures are still a blend across both symbols** and almost
+#: certainly differ too — SOXS near $45 has a one-cent tick worth 2.2 bp, SOXL
+#: near $130 only 0.77 bp. Splitting them needs per-symbol fill data that has
+#: not been extracted yet. Flagged rather than guessed.
 MEASURED = {
-    "SOXL": Friction("SOXL", 1.16, 2.82, 2.89,
-                     "IBKR statement 2026-08-03..08-25 ($599.36) + 30 live fills"),
-    "SOXS": Friction("SOXS", 1.16, 2.82, 2.89,
-                     "IBKR statement 2026-08-03..08-25 ($599.36) + 30 live fills"),
+    "SOXL": Friction("SOXL", 0.495, 2.82, 2.89,
+                     "IBKR statement 2026-08-03..08-25: 40 orders, 21,286 sh, "
+                     "$138.72 on $2,800,612; spread from 30 live fills (blended)"),
+    "SOXS": Friction("SOXS", 1.234, 2.82, 2.89,
+                     "IBKR statement 2026-08-03..08-25: 52 orders, 82,772 sh, "
+                     "$460.62 on $3,733,828; spread from 30 live fills (blended)"),
 }
 
 
@@ -271,23 +290,44 @@ def _selftest() -> int:
           f"= {2*f.commission_bp_per_side:.2f} commission "
           f"+ {f.spread_bp_entry + f.spread_bp_exit:.2f} spread")
     print(f"  source: {f.source}")
-    print("\n  Friction is the cost of ONE COMPLETE TRADE — buy and sell.")
-    print("  8.03 bp = 0.0803% = about $56 on a $70,000 position, in and out.")
+    print("\n  Friction is the cost of ONE COMPLETE TRADE — the buy AND the sell")
+    print("  together, not each. It is charged once per round trip.")
+    for sym in ("SOXL", "SOXS"):
+        g = friction_for(sym)
+        print(f"\n  {sym}: {g.round_trip_bp:.2f} bp round trip "
+              f"= {g.round_trip_bp/100:.4f}% "
+              f"= ${g.round_trip_bp/1e4*70000:,.2f} on a $70,000 position")
+        print(f"       {2*g.commission_bp_per_side:.2f} bp commission "
+              f"({g.commission_bp_per_side:.3f} x 2) "
+              f"+ {g.spread_bp_entry + g.spread_bp_exit:.2f} bp spread")
+    print("\n  Worked example, SOXL, $100 in and out on a 1% winner:")
+    g = friction_for("SOXL")
+    cin = 100 * g.commission_bp_per_side / 1e4
+    sin = 100 * g.spread_bp_entry / 1e4
+    cout = 101 * g.commission_bp_per_side / 1e4
+    sout = 101 * g.spread_bp_exit / 1e4
+    tot = cin + sin + cout + sout
+    print(f"    buy  $100.00   commission ${cin:.3f}  spread ${sin:.3f}")
+    print(f"    sell $101.00   commission ${cout:.3f}  spread ${sout:.3f}")
+    print(f"    friction ${tot:.3f}   net gain ${1.0-tot:.3f} "
+          f"— you keep {(1.0-tot)*100:.1f}% of the move")
+
     print("\n  'share of move' = friction / the move you are trying to capture.")
     print("  'break-even' = the win rate a symmetric win-X/lose-X bet needs just")
     print("  to cover friction:  0.5 + friction/(2 x move).  Pure arithmetic.")
     print("  'observed' = what actually happens, measured over ~445,000 minutes.")
-    print(f"\n  {'target':>8}{'friction':>10}{'share':>9}"
-          f"{'break-even':>12}{'observed':>10}   can it clear?")
-    for m in (0.0025, 0.005, 0.01, 0.02):
-        s = friction_screen(m)
-        be = s["breakeven_symmetric"]
-        obs = OBSERVED_HIT_RATE[m]
-        gap = (be - obs) * 100
-        can = "YES" if obs > be else f"no — short by {gap:.1f} points"
-        print(f"  {m*100:>7.2f}%{s['friction_bp']:>9.2f}bp"
-              f"{s['friction_share']*100:>8.1f}%{be*100:>11.1f}%{obs*100:>9.1f}%"
-              f"   {can}")
+    for sym in ("SOXL", "SOXS"):
+        print(f"\n  {sym}   {'target':>8}{'friction':>10}{'share':>9}"
+              f"{'break-even':>12}{'observed':>10}   can it clear?")
+        for m in (0.0025, 0.005, 0.01, 0.02):
+            s = friction_screen(m, sym)
+            be = s["breakeven_symmetric"]
+            obs = OBSERVED_HIT_RATE[m]
+            gap = (be - obs) * 100
+            can = "YES" if obs > be else f"no — short by {gap:.1f} points"
+            print(f"  {'':6}{m*100:>7.2f}%{s['friction_bp']:>9.2f}bp"
+                  f"{s['friction_share']*100:>8.1f}%{be*100:>11.1f}%"
+                  f"{obs*100:>9.1f}%   {can}")
 
     print(f"\n  the band strategy's own bet (+1% target, -4% stop):")
     s = friction_screen(0.01, "SOXL", stop_move_pct=0.04)
