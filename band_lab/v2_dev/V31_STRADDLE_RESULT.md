@@ -443,3 +443,86 @@ Only #1. It is the single assumption that could reverse the verdict, it costs a
 week of paper-account quoting, and it needs no purchased data. Everything else
 either sharpens a number that is already pointing the same way (#3, #4, #5) or
 makes the loss look worse (#2, #5).
+
+---
+
+# Can gap #1 be closed from IBKR? Checked against the connector and the API source.
+
+## Through the MCP connector: no
+
+`get_price_history` on an option contract returns `"source": "Last"` — trade
+prints, OHLCV. **No bid/ask.** The tool exposes no `whatToShow` parameter.
+
+`get_price_snapshot` *does* return `bid-ask` with sizes for an option, but only
+as of the moment of the call. It is a live sampler, not history. (Requested on
+2026-08-29, a Saturday: `top-status: FROZEN`, and the underlying's `bid_ask` came
+back empty — the tool documents that frozen prices are unsupported. The option's
+quote did return.)
+
+## Through the TWS API the project already uses: yes
+
+**Verified** from the official client committed in this repo
+(`TWS API/source/pythonclient/ibapi/client.py:4242`), not from memory:
+
+```
+whatToShow:str - Valid values include:
+    TRADES / MIDPOINT / BID / ASK / BID_ASK /
+    HISTORICAL_VOLATILITY / OPTION_IMPLIED_VOLATILITY / SCHEDULE
+```
+
+Bar sizes go down to `1 sec`. `reqHistoricalTicks` also takes `whatToShow`, and
+`wrapper.py:815` documents "returns historical tick data when whatToShow=BID_ASK".
+
+`band_lab/live/` already calls `reqHistoricalData(..., whatToShow="TRADES")` in
+three places (`fetch_1min.py:139`, `diagnose.py:134`, `broker.py:846`) against a
+working TWS connection. **It is a one-word change on an option contract.**
+
+**Not verified:** whether this account's OPRA subscription actually serves option
+BID_ASK history. A daily-bar request on the Sep-18 110 call returned
+`{"error":"No historical market data available"}` while a 1-minute request on the
+Oct-16 110 call succeeded — so availability is uneven and has to be probed, not
+assumed.
+
+## What the probe turned up instead — a bigger problem than the spread
+
+Measuring one ATM contract on one full session, 2026-08-28 (a Friday on which
+SOXL fell 123.05 → 111.16, i.e. an active day):
+
+| | |
+|---|---|
+| SOXL Oct-16 '26 110 Call, 48 DTE, ATM | **7 contracts traded all day** |
+| minutes with any volume | **6 of 260** |
+| SOXL Sep-18 '26 110 Call, 20 DTE, quote | bid 12.00 **× 1**, ask 13.15 × 15 |
+| that spread | $1.15 on a $12.58 mid = **9.1%**, ≈ **11 vol points** on one leg |
+| open interest at that strike | 8,787 calls |
+
+**This contradicts V30 assumption A6.** A6 said depth was sufficient to fill the
+traded size at the quote, citing V28's "28 bid / 30 ask contracts". That was a
+**median across the whole chain from the vendor file**. The live touch on an ATM
+contract shows **1 contract on the bid**. The backtest trades 10 contracts per
+leg, twice a cycle, 17 cycles a year — 340 contracts a year through a strike that
+printed 7 in a session.
+
+Caveats, because this is two contracts on one day: it is a frozen weekend quote
+and weekend depth is not Tuesday depth; 48 DTE is far-dated for SOXL, whose
+volume concentrates in front-week expiries; and open interest of 8,787 says the
+strike is not abandoned. **It is a warning that needs its own measurement, not a
+conclusion.**
+
+But it reframes gap #1. Price improvement means working an order inside the
+spread until someone meets it. **With one contract on the bid and seven trading
+all day, there may be nobody to improve against** — in which case the full-spread
+assumption A1 is not conservative, it is simply right, and the strategy is worse
+than modelled rather than better.
+
+## Correction to the previous entry
+
+The last section of this file said gap #1 was "obtainable in a week of quoting
+straddles on the paper account." That overstated what a paper account can settle.
+Paper fills are produced by IBKR's own simulator, and whether that simulator
+models real price improvement is **unverified here** — it is the very quantity
+under test, so a paper fill could just echo the assumption. Per this project's
+IBKR rule, that is inference and is marked as such rather than asserted either
+way. The honest routes are: historical `BID_ASK` bars through the existing TWS
+connection, live `get_price_snapshot` polling during market hours, or a small
+number of **real** orders.
