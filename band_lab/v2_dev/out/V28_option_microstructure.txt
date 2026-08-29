@@ -1,0 +1,70 @@
+loading option quotes (~544 MB)...
+    loaded 2022: 363,608 quotes
+    loaded 2023: 233,826 quotes
+    loaded 2024: 315,248 quotes
+    loaded 2025: 299,008 quotes
+    loaded 2026: 304,834 quotes
+
+================================================================================================
+WHEN ARE THESE QUOTES FROM?
+================================================================================================
+  1,326,359 usable quotes
+    q0.05   10:07
+    q0.25   12:58
+    q0.50   15:07
+    q0.75   15:50
+    q0.95   15:58
+  share at or after 16:00 New York: 1%
+  Anything at or after 16:00 is an after-hours quote. Spreads then are wider than midday,
+  so treat every number below as an UPPER bound on the cost a midday trader pays.
+
+  [PASS] vega unit check: median(file vega / textbook ATM vega per 1.00 of vol) = 0.99
+  Near 1.0 confirms vega is per 1.00 of volatility, so a spread is converted to volatility
+  points by dividing by vega/100. This check already failed once, at 98.66 against a per-POINT
+  reference, which is how the 100x error in an earlier version of this file was found.
+
+================================================================================================
+COST TO TRADE — near the money (|strike/spot - 1| < 5%)
+================================================================================================
+
+  DTE              quotes    mid $  spread $  spread %   VOL POINTS   round trip
+  ------------------------------------------------------------------------------
+  0-1 (0DTE)        3,491     0.77      0.14     22.2%         28.5         28.5
+  2-7               9,713     1.44      0.12      8.5%          9.3          9.3
+  8-21             24,147     2.53      0.19      7.4%          7.3          7.3
+  22-45            37,867     3.83      0.31      8.0%          8.1          8.1
+  46-90             9,598     5.50      0.35      6.1%          6.5          6.5
+  91-365           19,546     9.38      0.45      4.6%          4.9          4.9
+
+  'VOL POINTS' = (ask - bid) / vega — what crossing the spread ONCE costs in volatility terms.
+  Buying and later selling the same option crosses it twice, but you pay the half-spread each
+  way, so one full spread is the round trip. That is the 'round trip' column.
+
+================================================================================================
+TERM STRUCTURE — is the front or the back richer?
+================================================================================================
+
+  DTE              dates    ATM IV    vs 30d
+  ------------------------------------------
+  0-1 (0DTE)         459    108.3%
+  2-7                902    112.8%
+  8-21             1,128    102.2%
+  22-45            1,127     99.4%     +0.0
+  46-90              975     99.0%     -0.4
+  91-365           1,126     95.4%     -3.9
+
+================================================================================================
+SKEW — are puts richer than calls? (25-delta wings, 22-45 DTE)
+================================================================================================
+  25-delta put        105.8%   (32,864 quotes)
+  at the money         95.0%   (15,235 quotes)
+  25-delta call        94.2%   (28,408 quotes)
+
+  put minus call: +11.6 vol points
+
+================================================================================================
+WHAT IS EVEN TRADEABLE — contracts per day with a two-sided quote
+================================================================================================
+  near-the-money contracts quoted per day: median 90, min 16
+  0-1 DTE quotes in the files: 24,360 over 461 dates
+  bid size at the money: median 28 contracts; ask size median 30

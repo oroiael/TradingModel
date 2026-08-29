@@ -73,13 +73,17 @@ def soxl_closes():
     return df.assign(date=dt.dt.normalize()).groupby("date")["Close"].last()
 
 
-def load(years=("2022", "2023", "2024", "2025", "2026"), verbose=True):
+def load(years=("2022", "2023", "2024", "2025", "2026"), verbose=True,
+         extra=()):
     """Every quote, one row per contract per snapshot, latest snapshot per day.
 
     The files carry a handful of intraday snapshots per session. Decisions in
     this project are end-of-day, so the LAST snapshot on each trade date is
     kept; taking an earlier one and calling it a close would be lookahead in
     reverse — pricing a decision at a moment the decision-maker had not reached.
+
+    `extra` names further columns to read — the greeks, typically. They are off
+    by default because these files are 544 MB and most callers need none of them.
     """
     frames = []
     for y in years:
@@ -89,7 +93,7 @@ def load(years=("2022", "2023", "2024", "2025", "2026"), verbose=True):
         with open(p, "rb") as fh:
             if fh.read(40).startswith(b"version https://git-lfs"):
                 raise RuntimeError(f"{p} is an LFS pointer — run git lfs pull")
-        d = pd.read_csv(p, usecols=USE)
+        d = pd.read_csv(p, usecols=list(USE) + list(extra))
         frames.append(d)
         if verbose:
             print(f"    loaded {y}: {len(d):,} quotes", flush=True)
