@@ -526,3 +526,51 @@ IBKR rule, that is inference and is marked as such rather than asserted either
 way. The honest routes are: historical `BID_ASK` bars through the existing TWS
 connection, live `get_price_snapshot` polling during market hours, or a small
 number of **real** orders.
+
+---
+
+# The instrument for gap #1: `option_spread_probe.py`
+
+Written, self-tested offline, **not yet run against IBKR** — this container has
+no `ib_async` and nothing listening on 7497/7496/4001. Run it where TWS is.
+
+```
+python3 band_lab/v2_dev/option_spread_probe.py --selftest          # offline, passes
+python3 band_lab/v2_dev/option_spread_probe.py --check             # one request
+python3 band_lab/v2_dev/option_spread_probe.py --collect --sessions 10
+python3 band_lab/v2_dev/option_spread_probe.py --analyse
+```
+
+**Ticks, not bars.** `reqHistoricalData(whatToShow="BID_ASK")` is accepted by the
+API, but its OHLC-to-bid/ask field mapping appears nowhere in the IBKR docs
+committed to this repo and no sample uses it. Guessing that mapping is the exact
+class of assumption that has already cost this project twice.
+`reqHistoricalTicks(whatToShow="BID_ASK")` returns `HistoricalTickBidAsk` with
+**named** fields — `priceBid`, `priceAsk`, `sizeBid`, `sizeAsk`
+(`ibapi/common.py:279`) — so nothing is guessed, and the sizes answer the depth
+question in the same pass.
+
+It uses the same contract-selection rule as the backtest (expiry nearest 37 DTE,
+strike nearest spot) so the measurement is comparable to the cost the backtest
+charged, and it samples eight moments per session rather than every tick, because
+a spread distribution does not need every print and IBKR paces hard.
+
+`--check` runs first deliberately: one small request that reports either the
+ticks or the exact failure, so a missing OPRA historical subscription is found in
+ten seconds rather than after an hour of collection. It also says plainly that
+zero ticks is **not proof** of a missing subscription — a holiday or a too-recent
+window does the same.
+
+`--analyse` substitutes the measured spread into V31's arithmetic and prints what
+it does to the −2.94%/cycle verdict, including the reminder that vol-point
+arithmetic ran 2.3× optimistic against realised P&L (predicted +$787, actual
++$347), so a positive net in vol points does not by itself overturn anything.
+
+**Self-test found a real defect before shipping:** an empty tick file — precisely
+what a failed `--collect` produces — crashed the analyser on `np.isfinite` over
+object dtypes instead of reporting "nothing here". Fixed; the empty case now
+returns NaN, and the test asserts NaN rather than zero, because zero would read
+as a free straddle.
+
+Untested and to be treated as a debugging session on first run: `_connect`,
+`_atm_straddle`, `_ticks`, `cmd_check`, `cmd_collect` — all IBKR I/O.
