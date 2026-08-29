@@ -55,6 +55,50 @@ V30 — LONG ATM SOXL STRADDLE, DELTA-HEDGED ONCE DAILY AT THE CLOSE
   2025          17      -7.1%    29%        97.5%     107.3%     +9.7
   2026           8      +3.4%    62%       123.6%     147.8%    +24.2
 
+====================================================================================
+CAGR AND MAX DRAWDOWN
+====================================================================================
+  window 2022-01-03 to 2026-07-02  (4.49 years, 77 cycles, 1,109 sessions marked)
+
+  premium as % of        CAGR    max DD    max DD     final  worst day
+  capital per cycle             (daily)(cycle-end)    equity           
+  --------------------------------------------------------------------
+  2%                    -1.0%     -8.9%     -8.4%     -4.5%      -0.8%
+  5%                    -2.6%    -20.9%    -19.8%    -11.2%      -2.0%
+  10%                   -5.4%    -38.0%    -36.2%    -21.9%      -3.9%
+  20%                  -11.3%    -62.9%    -60.8%    -41.6%      -8.0%
+  50%                  -31.0%    -93.6%    -92.7%    -81.2%     -21.0%
+  100%                 -63.5%    -99.9%    -99.8%    -98.9%     -45.7%
+
+  The CAGR column is a CHOICE, not a measurement. Doubling the fraction roughly
+  doubles the loss rate and the drawdown together, because a long straddle is
+  not leveraged and the P&L scales linearly in size. The only scale-free fact
+  is -2.94% per cycle over 77 cycles at 17.1 cycles a year.
+
+  The two drawdown columns: cycle-end sampling sees the position only 77
+  times, daily marking sees it 1,109 times. The gap is about one
+  percentage point, which is smaller than it might have been -- intra-cycle
+  swings mostly resolve in the same direction by the roll. Worth measuring, not
+  worth the alarm; the earlier cycle-end figures were close to right.
+
+  Both are still EOD marks. A real intraday drawdown is worse than either and
+  is not measurable from these files.
+
+  AND THE CAPITAL IS UNDERSTATED. A long straddle ties up its premium, but the
+  delta hedge is a stock position that needs margin on top:
+
+    average premium per cycle          $    10,000
+    average hedge notional held        $     5,934
+    Reg-T margin on that at 50%        $     2,967
+    -> capital per cycle, roughly      $    12,967
+       vs premium alone                $    10,000
+       ratio                                  1.30x
+
+  So a CAGR computed on premium alone overstates the return on the capital the
+  broker actually locks up by roughly that ratio. This is a MODEL, not a
+  measurement: the real number depends on Reg-T versus portfolio margin and has
+  not been looked up.
+
   T23 — BENCHMARK
 
   result                       strategy   benchmark    excess

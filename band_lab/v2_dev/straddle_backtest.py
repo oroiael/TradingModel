@@ -149,6 +149,7 @@ def run(chain: pd.DataFrame, spot: pd.Series, target_dte: int, roll_dte: int,
     by_date = {d: g for d, g in chain.groupby("trade_date")}
     dates = sorted(by_date)
     cycles: list[Cycle] = []
+    daily: list[pd.DataFrame] = []
     abandoned = 0
 
     i = 0
@@ -174,6 +175,12 @@ def run(chain: pd.DataFrame, spot: pd.Series, target_dte: int, roll_dte: int,
         n_hedges, shares_traded = 1, abs(shares)
         held_shares = shares
         prev_spot = spot0
+        # [v2] Daily mark-to-market. Cycle-end sampling cannot see a drawdown
+        # that opens and closes inside a cycle, and cycles run 15 sessions.
+        # Options are MARKED at the mid and TRADED at the bid/ask, so the entry
+        # shows an immediate half-spread loss, which is what really happens.
+        marks = [dict(date=dates[i], opt_mid=(float(c0.mid) + float(p0.mid)) * sz,
+                      hedge=0.0, cost=hedge_cost + opt_comm)]
 
         j = i + 1
         recv = None
@@ -188,6 +195,9 @@ def run(chain: pd.DataFrame, spot: pd.Series, target_dte: int, roll_dte: int,
             sj = float(cj.underlying_price)
             hedge_pnl += held_shares * (sj - prev_spot)
             prev_spot = sj
+            marks.append(dict(date=dj,
+                              opt_mid=(float(cj.mid) + float(pj.mid)) * sz,
+                              hedge=hedge_pnl, cost=hedge_cost + opt_comm))
 
             if int(cj.dte) <= roll_dte or j == len(dates) - 1:
                 recv = (float(cj.bid) + float(pj.bid)) * sz
@@ -195,6 +205,8 @@ def run(chain: pd.DataFrame, spot: pd.Series, target_dte: int, roll_dte: int,
                 hedge_cost += abs(held_shares) * sj * HEDGE_BP_ONE_WAY / 1e4
                 shares_traded += abs(held_shares)
                 n_hedges += 1
+                marks[-1] = dict(date=dj, opt_mid=recv, hedge=hedge_pnl,
+                                 cost=hedge_cost + opt_comm)
                 break
 
             want = -(float(cj.delta) + float(pj.delta)) * sz
@@ -244,13 +256,21 @@ def run(chain: pd.DataFrame, spot: pd.Series, target_dte: int, roll_dte: int,
             n_hedges=n_hedges, shares_traded=shares_traded,
             sessions=len(wnd), rv_realised=rv)
         cycles.append(cyc)
+        mk = pd.DataFrame(marks)
+        # position value = what the options are worth + hedge P&L - costs paid.
+        # Divided by the premium paid, so cycles of different size are additive.
+        mk["value"] = mk.opt_mid + mk.hedge - mk.cost
+        mk["frac"] = (mk.value - paid) / paid
+        mk["cycle"] = len(cycles) - 1
+        daily.append(mk[["date", "cycle", "frac"]])
         if trace and len(cycles) <= trace:
             _print_trace(cyc, c0, p0, cj, pj)
         i = j
     if abandoned:
         print(f"    ({abandoned} cycles abandoned: opened but never found a "
               f"closing quote at or under {roll_dte} DTE)")
-    return cycles
+    dd = pd.concat(daily, ignore_index=True) if daily else pd.DataFrame()
+    return cycles, dd
 
 
 def _print_trace(c: Cycle, c0, p0, cj, pj):
@@ -395,6 +415,91 @@ def summarize(cycles: list[Cycle], label: str, verbose=True) -> dict:
     return out
 
 
+def equity_report(cyc: list[Cycle], daily: pd.DataFrame) -> None:
+    """CAGR and max drawdown — and why both are sizing choices, not measurements.
+
+    A long straddle has no natural leverage, so "the return" is undefined until
+    somebody says how much capital stands behind each straddle. The strategy's
+    only scale-free number is the return per dollar of premium. Everything below
+    turns that into a CAGR by picking a fraction, and the fraction is the whole
+    answer.
+    """
+    df = pd.DataFrame([vars(c) for c in cyc])
+    df["net"] = df.option_pnl + df.hedge_pnl - df.hedge_cost - df.opt_commission
+    df["ret"] = df.net / df.premium_paid
+    yrs = (df.close_date.max() - df.open_date.min()).days / 365.25
+
+    d = daily.sort_values(["cycle", "date"]).copy()
+    # Fixed-fraction: each cycle risks f of the equity standing at its start.
+    # Within a cycle the P&L is f x (fraction of premium), applied to that
+    # starting equity; equity compounds cycle to cycle.
+    print("\n" + "=" * 84)
+    print("CAGR AND MAX DRAWDOWN")
+    print("=" * 84)
+    print(f"  window {df.open_date.min().date()} to {df.close_date.max().date()}"
+          f"  ({yrs:.2f} years, {len(df)} cycles, "
+          f"{d.date.nunique():,} sessions marked)")
+    print(f"\n  {'premium as % of':<18}{'CAGR':>9}{'max DD':>10}"
+          f"{'max DD':>10}{'final':>10}{'worst day':>11}")
+    print(f"  {'capital per cycle':<18}{'':>9}{'(daily)':>10}{'(cycle-end)':>10}"
+          f"{'equity':>10}{'':>11}")
+    print("  " + "-" * 68)
+    for f in (0.02, 0.05, 0.10, 0.20, 0.50, 1.00):
+        eq, cur = [], 1.0
+        worst_day = 0.0
+        prev = 0.0
+        for cid, g in d.groupby("cycle", sort=True):
+            start = cur
+            fr = g["frac"].to_numpy(float)
+            path = start * (1.0 + f * fr)
+            step = np.diff(np.concatenate([[start], path])) / \
+                np.concatenate([[start], path])[:-1]
+            worst_day = min(worst_day, float(step.min()) if len(step) else 0.0)
+            eq.extend(path.tolist())
+            cur = float(path[-1])
+        e = pd.Series(eq)
+        mdd_daily = float((e / e.cummax() - 1).min())
+        ce = (1 + f * df["ret"]).cumprod()
+        mdd_cycle = float((ce / ce.cummax() - 1).min())
+        cagr = cur ** (1 / yrs) - 1 if cur > 0 else float("nan")
+        print(f"  {f:<18.0%}{cagr*100:>+8.1f}%{mdd_daily*100:>9.1f}%"
+              f"{mdd_cycle*100:>9.1f}%{(cur-1)*100:>+9.1f}%"
+              f"{worst_day*100:>+10.1f}%")
+
+    print(f"""
+  The CAGR column is a CHOICE, not a measurement. Doubling the fraction roughly
+  doubles the loss rate and the drawdown together, because a long straddle is
+  not leveraged and the P&L scales linearly in size. The only scale-free fact
+  is {df.ret.mean()*100:+.2f}% per cycle over {len(df)} cycles at {len(df)/yrs:.1f} cycles a year.
+
+  The two drawdown columns: cycle-end sampling sees the position only {len(df)}
+  times, daily marking sees it {d.date.nunique():,} times. The gap is about one
+  percentage point, which is smaller than it might have been -- intra-cycle
+  swings mostly resolve in the same direction by the roll. Worth measuring, not
+  worth the alarm; the earlier cycle-end figures were close to right.
+
+  Both are still EOD marks. A real intraday drawdown is worse than either and
+  is not measurable from these files.""")
+
+    # capital actually required, which nothing above accounts for
+    hedge_notional = (df.shares_traded / df.n_hedges) * df.spot_open
+    print(f"""
+  AND THE CAPITAL IS UNDERSTATED. A long straddle ties up its premium, but the
+  delta hedge is a stock position that needs margin on top:
+
+    average premium per cycle          ${df.premium_paid.mean():>10,.0f}
+    average hedge notional held        ${hedge_notional.mean():>10,.0f}
+    Reg-T margin on that at 50%        ${hedge_notional.mean()*0.5:>10,.0f}
+    -> capital per cycle, roughly      ${df.premium_paid.mean() + hedge_notional.mean()*0.5:>10,.0f}
+       vs premium alone                ${df.premium_paid.mean():>10,.0f}
+       ratio                            {(df.premium_paid.mean() + hedge_notional.mean()*0.5)/df.premium_paid.mean():>10.2f}x
+
+  So a CAGR computed on premium alone overstates the return on the capital the
+  broker actually locks up by roughly that ratio. This is a MODEL, not a
+  measurement: the real number depends on Reg-T versus portfolio margin and has
+  not been looked up.""")
+
+
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--grid", action="store_true")
@@ -412,7 +517,7 @@ def main() -> int:
           f"{HEADLINE[1]} DTE. Buy the ask, sell the bid, every cost charged.")
     print("=" * 84)
 
-    cyc = run(chain, spot, *HEADLINE, trace=a.trace)
+    cyc, daily = run(chain, spot, *HEADLINE, trace=a.trace)
     bad = _audit(cyc)
     print(f"\n  AUDIT: {len(bad)} violations of the V30 discard rules")
     for b in bad[:10]:
@@ -421,6 +526,7 @@ def main() -> int:
         print("  Result is not reportable until these are explained.")
 
     head = summarize(cyc, "headline")
+    equity_report(cyc, daily)
 
     df = head["df"]
     r = Result.of(f"straddle, {PREMIUM_FRACTION:.0%} premium/cycle",
@@ -440,7 +546,7 @@ def main() -> int:
         rows = []
         for td in TARGET_DTE:
             for rd in ROLL_DTE:
-                c = run(chain, spot, td, rd)
+                c, _ = run(chain, spot, td, rd)
                 if not c:
                     continue
                 s = summarize(c, f"{td}/{rd}", verbose=False)
@@ -485,6 +591,7 @@ def main() -> int:
     os.makedirs(a.out, exist_ok=True)
     head["df"].to_csv(os.path.join(a.out, "V30_straddle_cycles.csv"),
                       index=False)
+    daily.to_csv(os.path.join(a.out, "V30_straddle_daily.csv"), index=False)
     print(f"\n  wrote out/V30_straddle_cycles.csv ({len(head['df'])} cycles)")
     return 0
 

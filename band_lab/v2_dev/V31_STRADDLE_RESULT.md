@@ -320,3 +320,126 @@ across 77 cycles and every one of nine prespecified parameter settings.
 The one assumption that could overturn it — A1, paying the full spread on every
 fill, forever — is testable on the paper account and is not testable from these
 files.
+
+---
+
+# CAGR and max drawdown (added in v2 — daily marking)
+
+## The answer
+
+| premium as % of capital per cycle | CAGR | max DD (daily) | max DD (cycle-end) | final equity | worst day |
+|---|---|---|---|---|---|
+| 2% | −1.0% | −8.9% | −8.4% | −4.5% | −0.8% |
+| **5%** | **−2.6%** | **−20.9%** | −19.8% | −11.2% | −2.0% |
+| 10% | −5.4% | −38.0% | −36.2% | −21.9% | −3.9% |
+| 20% | −11.3% | −62.9% | −60.8% | −41.6% | −8.0% |
+| 50% | −31.0% | −93.6% | −92.7% | −81.2% | −21.0% |
+| 100% | −63.5% | −99.9% | −99.8% | −98.9% | −45.7% |
+
+4.49 years, 77 cycles, 1,109 sessions marked, 17.1 cycles/year.
+
+**CAGR is a choice, not a measurement.** A long straddle carries no natural
+leverage, so nothing in the strategy says how much capital stands behind one.
+Double the fraction and you roughly double both the loss rate and the drawdown.
+The only scale-free fact is **−2.94% per cycle**.
+
+Benchmark: SOXL returned **+151.3%** over the identical window.
+
+## Two things the earlier numbers got wrong
+
+**Daily marking barely moved the drawdown.** Cycle-end sampling saw the position
+77 times; daily marking sees it 1,109 times, and the gap is about **one
+percentage point** (−20.9% vs −19.8% at 5%). I expected worse. Intra-cycle
+swings mostly resolve in the same direction by the roll, so the earlier
+cycle-end figures were close to right. Reported because it was measured, not
+because it changed anything.
+
+**The capital requirement was understated.** The premium is not the capital —
+the delta hedge is a stock position that needs margin on top:
+
+| | |
+|---|---|
+| average premium per cycle | $10,000 |
+| average hedge notional held | $5,934 |
+| Reg-T margin on that at 50% | $2,967 |
+| **capital per cycle** | **$12,967** |
+| **ratio to premium alone** | **1.30×** |
+
+**So every CAGR above overstates the return on capital the broker actually locks
+up by ~30%.** At 5% the honest figure is nearer **−2.0%** than −2.6%. This is a
+model, not a measurement — Reg-T versus portfolio margin has not been looked up.
+
+## Data integrity, checked because these numbers depend on it
+
+- Nearest listed strike to spot: median 0.36% away, p95 1.21%, max 3.03%. **Zero
+  dates** where no strike sits within 5% of spot.
+- Three day-over-day jumps above 30% in the option file's `underlying_price`
+  (2022-11-10 +30.7%, 2025-04-09 +54.8%, 2026-06-05 −30.5%). All three appear at
+  the same size in SOXL's independent 1-minute price file (+31.5%, +55.9%,
+  −30.7%). **Real moves, not split artifacts.**
+- A mishandled corporate action would show as a cluster of dates with no near
+  strike, or an unexplained spot jump. Neither is present.
+
+---
+
+# What more data would be needed
+
+Five gaps, ordered by how much they could change the answer.
+
+### 1. Actual fill prices — could overturn the result
+
+Assumption A1 pays the full quoted spread on every leg, every time, forever. The
+round trip is **10.6 vol points mean** and the shortfall is under 3% of premium.
+**Capturing even half the spread by working the order moves the arithmetic by
+~5 vol points — more than the whole deficit.**
+
+- *Not in this repository.* These are end-of-day quote snapshots.
+- *Obtainable in a week* by quoting straddles on the paper account and recording
+  where they actually fill against the touch.
+
+### 2. Intraday option quotes — would fix the drawdown, not the return
+
+Both drawdown columns above are EOD marks. A real intraday drawdown is worse
+than either and cannot be measured from these files. On a 3× ETF whose worst
+marked day at full sizing is −45.7%, that gap is not trivial.
+
+- *Not in this repository* — V30 established these files are EOD snapshots
+  (the `timestamp` column is 37% midnight placeholders and 61% unparseable in
+  2024–2026; 0.07% carry a real intraday stamp).
+
+### 3. More history — would settle significance
+
+| | cycles | years | vs today |
+|---|---|---|---|
+| now | 77 | 4.49 | — |
+| to reach \|t\| = 2.0 | **255** | **14.9** | 3.3× |
+| to reach \|t\| = 2.6 | 431 | 25.2 | 5.6× |
+
+**SOXL began trading 2010-03-11; these option files start 2022-01-03.** Twelve
+more years exist to be bought. That would add ~206 cycles for ~283 total, cut
+the standard error from 2.68% to ~1.40%, and take \|t\| to ~2.1 — just enough.
+
+Note what this does and does not mean. The single-cell t of −1.10 is weak, but
+**0 of 9 prespecified grid cells positive** is the stronger evidence, and those
+cells overlap heavily so they cannot be treated as nine independent tests.
+
+### 4. A margin schedule — needed for CAGR to mean anything
+
+The 1.30× above is Reg-T at 50% applied by hand. IBKR's actual requirement on a
+delta-hedged long straddle under portfolio margin is materially lower and has
+not been looked up. *Obtainable from IBKR directly, not from any file.*
+
+### 5. Dividends and financing — small, and both flatter the strategy
+
+SOXL pays distributions; a short stock hedge owes them. Cash earns ~4%. Neither
+is modelled (V30 A7, A8). Both are small next to a 2.94% per-cycle shortfall,
+and both lean **against** the strategy, so correcting them makes the result
+worse, not better. *SOXL's distribution history is public; the financing rate is
+on the statement.*
+
+## Which of these is worth doing
+
+Only #1. It is the single assumption that could reverse the verdict, it costs a
+week of paper-account quoting, and it needs no purchased data. Everything else
+either sharpens a number that is already pointing the same way (#3, #4, #5) or
+makes the loss look worse (#2, #5).
