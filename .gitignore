@@ -28,3 +28,7 @@ vix_lab/out/*.txt
 # Regenerate with `reparam.py --run`; `--verify` then rebuilds every summary
 # number from them. summary.csv IS committed, same split as phase1/out above.
 band_lab/v2_dev/out/reparam/trades__*.csv
+
+# band_lab/v2_dev: V23 writes one row per option trade per start date
+# (~870 paths x ~90 trades). paths.csv is the summary and IS tracked.
+band_lab/v2_dev/out/v23/trades.csv

@@ -1,0 +1,66 @@
+================================================================================================
+SOXL — every re-buy that happened in the same minute as a TARGET sell, 2022+
+================================================================================================
+  813 of them over 679 active days = 1.20 per day
+  the bar's open was BELOW the sell price in 770 of 813 (95%) — i.e. almost always a discount
+  size of the discount: median 0.215%, mean 0.265%
+
+  1.20 per day x 0.265% = 31.8 bp per day of return that came from a price that had already traded.
+
+  the 8 biggest, straight out of SOXL_1min.csv:
+
+  date          minute        open        high         low     sold at        paid   available    gift
+  ----------------------------------------------------------------------------------------------------
+  2022-11-02     14:00      9.2100      9.4500      9.1000      9.4031      9.2100      9.3951   2.01%
+  2024-08-05     11:11     27.6800     28.3600     27.6700     28.0679     27.6800     28.0679   1.40%
+  2022-10-21     11:21      7.9200      8.0200      7.9000      8.0194      7.9200      8.0194   1.26%
+  2024-09-18     14:00     32.0500     33.3500     31.6700     32.4715     32.0500     32.4423   1.22%
+  2026-07-02     11:08    190.2700    192.9300    190.1700    192.5969    190.2700    192.5969   1.22%
+  2025-03-11     11:01     16.8000     17.0300     16.7700     16.9882     16.8000     16.9882   1.12%
+  2025-04-08     11:56     10.0800     10.2000     10.0700     10.1909     10.0800     10.1909   1.10%
+  2022-10-13     11:35      7.8600      7.9600      7.8500      7.9392      7.8600      7.9392   1.01%
+
+  a typical one — 2026-07-02 at 11:09, one minute of SOXL:
+
+    the minute opened at 191.7600, ran up to 192.9300, down to 191.1500, closed at 192.1800
+    the backtest SOLD at 192.1727 — its target, hit on the way up
+    then BOUGHT BACK in that same minute at 191.7600, the minute's OPEN
+    but 191.7600 traded BEFORE the sell at 192.1727. Once you have sold at the high of the minute,
+    the low of that same minute is behind you. The cheapest thing still available was 192.1727.
+    The backtest booked 0.22% that nobody could have taken.
+
+  The rest of the bar is real. The sell is real. Only the re-buy price is a time machine.
+
+================================================================================================
+SOXS — every re-buy that happened in the same minute as a TARGET sell, 2022+
+================================================================================================
+  860 of them over 691 active days = 1.24 per day
+  the bar's open was BELOW the sell price in 802 of 860 (93%) — i.e. almost always a discount
+  size of the discount: median 0.240%, mean 0.294%
+
+  1.24 per day x 0.294% = 36.5 bp per day of return that came from a price that had already traded.
+
+  the 8 biggest, straight out of SOXS_1min.csv:
+
+  date          minute        open        high         low     sold at        paid   available    gift
+  ----------------------------------------------------------------------------------------------------
+  2022-09-21     14:00 102000.0000 107000.0000 101880.0000 105383.4000 102000.0000 105383.4000   3.32%
+  2022-12-14     14:00  58780.0000  61100.0000  58780.0000  60236.4000  58780.0000  59815.8000   1.76%
+  2026-07-20     12:41     51.0800     52.0000     51.0100     51.7928     51.0800     51.7928   1.40%
+  2026-06-18     11:38     36.7000     37.2000     36.7000     37.1680     36.7000     37.1680   1.28%
+  2026-05-05     12:27    113.4000    115.0000    113.4000    114.8370    113.4000    114.8370   1.27%
+  2022-03-28     11:01  70740.0000  71980.0000  70600.0000  71649.4000  70740.0000  71636.4000   1.27%
+  2022-03-21     12:30  77200.0000  78600.0000  77000.0000  78174.0000  77200.0000  78174.0000   1.26%
+  2022-05-17     14:20  91780.0000  93100.0000  91780.0000  92899.8000  91780.0000  92899.8000   1.22%
+
+  a typical one — 2022-03-23 at 13:26, one minute of SOXS:
+
+    the minute opened at 79800.0000, ran up to 80000.0000, down to 79600.0000, closed at 80000.0000
+    the backtest SOLD at 79992.0000 — its target, hit on the way up
+    then BOUGHT BACK in that same minute at 79800.0000, the minute's OPEN
+    but 79800.0000 traded BEFORE the sell at 79992.0000. Once you have sold at the high of the minute,
+    the low of that same minute is behind you. The cheapest thing still available was 79992.0000.
+    The backtest booked 0.24% that nobody could have taken.
+
+  The rest of the bar is real. The sell is real. Only the re-buy price is a time machine.
+

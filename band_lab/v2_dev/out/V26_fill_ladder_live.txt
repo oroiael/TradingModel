@@ -1,0 +1,37 @@
+======================================================================================================
+FILL LADDER — how much of the result is the strategy and how much is the fill convention
+   net bp per active day, after costs, 1-minute fills, 2022+   [live constraints on]
+======================================================================================================
+convention                                                       SOXL     SOXS   account      t   tr/d   band
+------------------------------------------------------------------------------------------------------
+A  CEILING: buy the bar's low, sell the bar's high            +148.92  +123.91   +114.14  21.90   6.99   100%
+------------------------------------------------------------------------------------------------------
+B  published backtest (same-minute re-buy at the open)         +44.36   +27.05    +29.84   6.90   6.50    64%
+C  no same-minute re-buy   <-- the V20 correction              +19.09    -4.17     +6.16   1.53   6.31    53%
+D  + stop fills at the bar's LOW (stop = market once hit)      +12.47    -8.59     +1.55   0.37   6.31    51%
+E  + must trade THROUGH the price, not just touch it            +0.46    -9.96     -4.01  -0.96   6.23    49%
+F  + 2 bp extra slippage on every fill                          -9.36   -26.08    -14.90  -3.61   6.13    44%
+------------------------------------------------------------------------------------------------------
+G  FLOOR: buy the bar's high, sell the bar's low              -129.52  -149.47   -116.89 -23.47   5.72     0%
+------------------------------------------------------------------------------------------------------
+X  force the fill AT the limit — IMPOSSIBLE on a gap, see docstring  -362.14  -355.50   -300.46 -30.25   4.55   -79%
+
+  'band' = where the row sits between the floor (-117 bp) and the ceiling (+114 bp).
+  A neutral convention should land near 50%. The published backtest landed at 64%.
+  The band is 231 bp per day wide. That is how much 1-minute bars cannot see.
+
+  A and G bound what could have happened inside a minute. Neither is producible
+  by these order types — a resting BUY LIMIT cannot fill above its limit and a
+  SELL LIMIT cannot fill below its. They are the width of what 1-minute bars
+  cannot see.
+
+  C is the current baseline. D, E and F are the three places a fill can honestly
+  be worse than the order price: a stop is a market order once touched, a touch
+  is not a fill, and everything unmodelled costs something.
+
+  X is in the table as a correction, not a result. It prices a resting buy at
+  its own limit even when the bar opened 2.5% below it — a purchase above the
+  market, which then instantly stops out. It is the version of "always assume
+  the worst price" that is not conservative but simply wrong, and it lands below
+  the floor, which is how you can tell.
+

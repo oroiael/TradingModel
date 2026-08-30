@@ -1,0 +1,386 @@
+====================================================================================================
+SOXL — enter at the first minute of the hour, exit at the 59th minute (open->close)
+====================================================================================================
+  11,535 hour-slots over 1,653 sessions, 2019-12-31 to 2026-07-30
+  friction 6.70 bp per hourly round trip (0.0670%)
+  * 09:30-09:59 is a 30-minute hold, not 60. Never pooled with the full hours.
+
+  EVERY CELL — 5 weekdays x 7 hours
+
+  day  hour                 n   win%    avg +    avg -     mean      net      MFE      MAE      t
+  ------------------------------------------------------------------------------------------------
+  Mon  09:30-09:59*       308  57.8%   +219.8   -199.4    +44.1    +37.4   +221.5   -179.3   2.76
+  Mon  10:00-10:59        308  49.4%   +170.7   -177.4     -3.9    -10.6   +171.4   -178.4  -0.30
+  Mon  11:00-11:59        308  56.5%   +133.6   -129.1    +20.1    +13.4   +135.5   -124.6   1.94
+  Mon  12:00-12:59        308  54.9%    +97.1   -111.6     +4.0     -2.7   +103.2   -108.8   0.46
+  Mon  13:00-13:59        307  52.8%    +99.9   -103.1     +4.7     -2.0    +96.1    -96.9   0.52
+  Mon  14:00-14:59        307  54.7%    +84.8   -102.4     +2.1     -4.6    +89.8    -96.5   0.29
+  Mon  15:00-15:59        307  54.7%   +145.1   -136.7    +19.8    +13.1   +123.3   -117.7   1.73
+
+  Tue  09:30-09:59*       343  48.1%   +192.6   -217.8    -17.8    -24.5   +178.0   -205.7  -1.25
+  Tue  10:00-10:59        343  49.0%   +170.1   -209.0    -20.3    -27.0   +161.3   -204.4  -1.47
+  Tue  11:00-11:59        343  54.5%   +137.7   -141.5    +11.1     +4.4   +134.5   -133.4   1.04
+  Tue  12:00-12:59        343  49.6%   +113.6   -111.0     +1.6     -5.1   +112.3   -113.7   0.19
+  Tue  13:00-13:59        342  55.0%   +106.8   -116.1     +8.2     +1.5   +104.1   -105.8   0.92
+  Tue  14:00-14:59        342  56.1%   +100.8   -105.0    +11.7     +5.0   +100.7   -104.4   1.44
+  Tue  15:00-15:59        342  46.8%   +124.0   -131.2    -11.4    -18.1   +112.1   -132.9  -1.17
+
+  Wed  09:30-09:59*       340  51.5%   +176.0   -179.3     +5.2     -1.5   +184.9   -182.2   0.41
+  Wed  10:00-10:59        340  49.7%   +171.0   -178.0     -2.4     -9.1   +165.2   -182.4  -0.20
+  Wed  11:00-11:59        340  51.8%   +121.7   -139.6     -2.3     -9.0   +120.3   -136.9  -0.25
+  Wed  12:00-12:59        340  48.8%   +106.0   -113.9     -4.5    -11.2    +98.3   -117.8  -0.53
+  Wed  13:00-13:59        338  52.1%   +118.5   -114.1     +9.4     +2.7   +106.3   -107.8   0.73
+  Wed  14:00-14:59        338  54.4%   +133.4   -123.7    +18.4    +11.7   +138.0   -125.3   1.74
+  Wed  15:00-15:59        338  50.9%   +144.4   -172.4     -9.1    -15.8   +136.0   -146.3  -0.69
+
+  Thu  09:30-09:59*       333  46.2%   +217.8   -219.9    -15.5    -22.2   +182.2   -217.6  -0.99
+  Thu  10:00-10:59        333  55.6%   +181.3   -205.8    +11.7     +5.0   +190.5   -192.2   0.84
+  Thu  11:00-11:59        333  56.5%   +142.4   -159.9    +13.2     +6.5   +148.5   -139.6   1.13
+  Thu  12:00-12:59        333  49.5%   +115.1   -135.3     -9.2    -15.9   +110.5   -136.5  -0.95
+  Thu  13:00-13:59        331  54.7%   +102.8   -138.9     -3.3    -10.0   +115.2   -121.9  -0.38
+  Thu  14:00-14:59        331  48.9%   +117.2   -129.9     -7.4    -14.1   +102.9   -122.4  -0.76
+  Thu  15:00-15:59        331  45.9%   +132.6   -144.0    -13.1    -19.8   +121.5   -141.0  -1.23
+
+  Fri  09:30-09:59*       329  48.9%   +181.9   -199.2    -11.5    -18.2   +177.4   -207.0  -0.84
+  Fri  10:00-10:59        329  48.9%   +190.1   -224.1    -18.0    -24.7   +180.5   -201.2  -1.22
+  Fri  11:00-11:59        329  51.4%   +130.1   -141.1     -0.1     -6.8   +134.2   -144.2  -0.01
+  Fri  12:00-12:59        329  55.6%   +101.6   -134.9     -1.7     -8.4   +107.3   -118.3  -0.20
+  Fri  13:00-13:59        323  50.2%    +92.3   -113.3     -8.8    -15.5    +98.0   -111.0  -1.14
+  Fri  14:00-14:59        323  53.6%    +91.9   -104.3     +2.1     -4.6    +91.4   -105.4   0.26
+  Fri  15:00-15:59        323  49.8%   +137.3   -117.7    +10.5     +3.8   +124.3   -117.7   0.88
+
+  all numbers are basis points. 1 bp = 0.01%. 100 bp = 1%.
+  avg + = mean of the hours that ENDED positive.  avg - = mean of the hours that ended negative.
+  mean  = the average of every hour = win% x (avg +) + (1-win%) x (avg -).  net = mean minus friction.
+  MFE / MAE = the average best and worst the position reached DURING the hour (from the bar highs and lows).
+
+  BY HOUR (all weekdays pooled)
+
+  hour                  n   win%    avg +    avg -     mean      net      MFE      MAE      t
+  -------------------------------------------------------------------------------------------
+  09:30-09:59*       1653  50.4%   +197.5   -203.8     +0.2     -6.5   +188.2   -198.6   0.03
+  10:00-10:59        1653  50.5%   +176.7   -198.9     -6.7    -13.4   +173.7   -191.9  -1.10
+  11:00-11:59        1653  54.1%   +133.3   -142.3     +8.2     +1.5   +134.5   -135.9   1.76
+  12:00-12:59        1653  51.6%   +106.6   -121.2     -2.0     -8.7   +106.4   -119.1  -0.51
+  13:00-13:59        1641  53.0%   +104.4   -116.9     +2.1     -4.6   +104.1   -108.8   0.49
+  14:00-14:59        1641  53.6%   +105.8   -113.7     +5.5     -1.2   +104.9   -111.1   1.39
+  15:00-15:59        1641  49.5%   +136.9   -140.4     -1.1     -7.8   +123.4   -131.4  -0.22
+
+  BY WEEKDAY (all hours pooled)
+
+  day                   n   win%    avg +    avg -     mean      net      MFE      MAE      t
+  -------------------------------------------------------------------------------------------
+  Mon                2153  54.4%   +136.2   -137.2    +13.0     +6.3   +134.4   -128.9   3.09
+  Tue                2398  51.3%   +133.9   -149.0     -2.4     -9.1   +129.0   -142.9  -0.59
+  Wed                2374  51.3%   +138.7   -146.3     +2.1     -4.6   +135.6   -142.7   0.48
+  Thu                2325  51.1%   +143.7   -162.2     -3.4    -10.1   +138.8   -153.1  -0.76
+  Fri                2285  51.2%   +131.1   -149.2     -4.0    -10.7   +130.6   -143.8  -0.95
+
+  MULTIPLE COMPARISONS
+    35 cells tested. At a 5% threshold, 1.75 cells are expected to look significant by chance alone.
+    raw p < 0.05:                 1 cells
+    survive Benjamini-Hochberg:   0 cells
+      none. Every cell is inside what 35 coin flips produce.
+
+  SPLIT-HALF STABILITY — the top 5 cells by mean, first half of the data vs second
+    split at 2023-04-12
+    cell                          full   first half   second half  same sign?
+    -----------------------------------------------------------------------
+    Mon 09:30-09:59*             +44.1        +45.5         +42.7         yes
+    Mon 11:00-11:59              +20.1        +22.5         +17.8         yes
+    Mon 15:00-15:59              +19.8        +14.0         +25.4         yes
+    Wed 14:00-14:59              +18.4        +21.7         +15.1         yes
+    Thu 11:00-11:59              +13.2        +18.4          +7.8         yes
+    A cell selected on the full sample keeps its sign in both halves only if it is real.
+
+  FRICTION, APPLIED
+    average full hour, gross:        +1.0 bp
+    friction per round trip:         -6.7 bp
+    average full hour, net:          -5.7 bp
+    trading all 6 full hours daily:  -34.2 bp/day  = -34.2 bp x 252 = -86.2% per year
+    the single best cell, net:       +37.4 bp on 308 trades (Mon 09:30-09:59*)
+    break-even gross mean needed:    +6.7 bp — the hour has to average at least this much just to pay for itself
+    cells whose GROSS mean clears friction: 11 of 35
+
+  T23 — THE BENCHMARK COLUMN (buy and hold SOXL, same window)
+
+  result                       strategy   benchmark    excess
+  --------------------------------------------------------------
+  best cell, gross               +244.2%      -22.4%    +266.6%   BEAT
+  best cell, net of costs        +180.2%      -22.4%    +202.6%   BEAT
+  every full hour, gross          -56.7%      -22.4%     -34.3%   LOST
+  every full hour, net            -99.9%      -22.4%     -77.5%   LOST
+  --------------------------------------------------------------
+  beat the benchmark: 2 of 4 (50%)
+
+    The best cell is the best of 35, chosen after seeing all 35. Its number is an upper bound on what an honest
+    out-of-sample version would earn, not an estimate of it. The split-half table above is the check that matters.
+    'every full hour' is in the market 360 minutes a day; buy and hold is in it 24 hours including the overnight gap. They are
+    not the same risk. The column is here because a return without one is not a result.
+
+  DRILL-DOWN — SOXL Mon 09:30-09:59*  (n=308, mean +44.1 bp, net +37.4 bp)
+
+    by calendar year
+    year        n   win%     mean      net      t
+    ---------------------------------------------
+    2020       48  66.7%    +98.6    +91.9   2.48
+    2021       47  53.2%    +25.3    +18.6   0.72
+    2022       45  48.9%     -4.9    -11.6  -0.12
+    2023       45  60.0%    +53.6    +46.9   1.73
+    2024       48  54.2%    +54.6    +47.9   1.21
+    2025       48  68.8%    +83.0    +76.3   1.95
+    2026       27  48.1%    -41.9    -48.6  -0.60
+    positive in 5 of 7 calendar years
+
+    outlier check — is a handful of days carrying this?
+      mean                    +44.1 bp
+      median                  +38.3 bp
+      5% trimmed both tails   +45.5 bp   (15 cut from each end)
+      drop the 5 best days    +28.9 bp
+      drop the 5 worst days   +58.0 bp
+      drop 5 best AND 5 worst +42.7 bp
+      best 5:  +13.44%, +11.05%, +10.79%, +6.85%, +6.34%
+      worst 5: -9.07%, -8.49%, -8.29%, -7.07%, -7.03%
+      Dropping only the best days is a rigged test — the tails are two-sided. The symmetric rows are the fair ones.
+
+    same cell, close->close (gives up the first minute): +31.3 bp, net +24.6 bp
+      29% of this cell's move happens in its first minute — the minute you are least likely to get filled in at the price shown.
+
+    what if the spread at the open is worse than the measured 5.71 bp?
+      spread x      friction   net mean
+      1                 6.7bp      +37.4
+      2                12.4bp      +31.7
+      3                18.1bp      +26.0
+      5                29.5bp      +14.6
+      10               58.1bp      -14.0
+      The measured figure is from 11:00-15:55 fills. The opening minute is not that. This row set is a range, not a measurement.
+
+====================================================================================================
+SOXS — enter at the first minute of the hour, exit at the 59th minute (open->close)
+====================================================================================================
+  11,535 hour-slots over 1,654 sessions, 2019-12-31 to 2026-07-31
+  friction 8.18 bp per hourly round trip (0.0818%)
+  * 09:30-09:59 is a 30-minute hold, not 60. Never pooled with the full hours.
+
+  EVERY CELL — 5 weekdays x 7 hours
+
+  day  hour                 n   win%    avg +    avg -     mean      net      MFE      MAE      t
+  ------------------------------------------------------------------------------------------------
+  Mon  09:30-09:59*       307  41.7%   +202.4   -220.8    -41.5    -49.7   +179.2   -222.0  -2.61
+  Mon  10:00-10:59        308  47.7%   +184.0   -169.9     +4.5     -3.7   +178.6   -173.4   0.36
+  Mon  11:00-11:59        308  41.2%   +135.8   -134.3    -19.9    -28.1   +125.4   -138.5  -1.91
+  Mon  12:00-12:59        308  43.5%   +109.2   -103.5     -7.3    -15.5   +107.6   -106.4  -0.87
+  Mon  13:00-13:59        307  45.0%   +107.5   -107.0     -4.3    -12.5    +97.8    -98.1  -0.49
+  Mon  14:00-14:59        307  39.4%   +111.5    -87.9     -2.2    -10.3    +96.9    -92.8  -0.30
+  Mon  15:00-15:59        307  42.7%   +140.9   -149.8    -20.4    -28.5   +121.0   -125.3  -1.76
+
+  Tue  09:30-09:59*       343  49.6%   +222.2   -197.4    +14.6     +6.4   +204.9   -182.6   1.03
+  Tue  10:00-10:59        343  48.1%   +217.2   -171.8    +20.4    +12.2   +205.4   -164.4   1.46
+  Tue  11:00-11:59        343  44.9%   +139.9   -142.7    -13.3    -21.5   +133.4   -137.3  -1.24
+  Tue  12:00-12:59        343  47.5%   +116.6   -117.2     -1.6     -9.8   +115.2   -114.4  -0.18
+  Tue  13:00-13:59        342  42.4%   +123.5   -108.1     -4.8    -13.0   +108.7   -105.1  -0.54
+  Tue  14:00-14:59        342  40.9%   +106.1   -105.2    -12.9    -21.0   +104.9   -104.0  -1.58
+  Tue  15:00-15:59        342  50.0%   +138.0   -132.1     +8.4     +0.2   +133.1   -116.6   0.83
+
+  Wed  09:30-09:59*       340  47.6%   +184.6   -181.5     -3.3    -11.5   +185.3   -187.7  -0.26
+  Wed  10:00-10:59        340  49.4%   +176.1   -172.0     +1.5     -6.6   +183.7   -169.0   0.13
+  Wed  11:00-11:59        340  45.3%   +142.8   -128.3     -0.6     -8.8   +137.3   -124.7  -0.07
+  Wed  12:00-12:59        340  47.9%   +114.5   -109.0     +2.7     -5.5   +116.5   -102.2   0.33
+  Wed  13:00-13:59        338  43.5%   +116.0   -125.3    -12.9    -21.1   +107.8   -110.3  -0.93
+  Wed  14:00-14:59        338  41.7%   +130.3   -133.6    -18.0    -26.2   +126.6   -144.9  -1.73
+  Wed  15:00-15:59        338  46.7%   +177.9   -160.3     +4.0     -4.2   +146.3   -144.6   0.27
+
+  Thu  09:30-09:59*       333  52.3%   +224.7   -224.2    +13.7     +5.6   +215.4   -187.1   0.84
+  Thu  10:00-10:59        333  42.9%   +208.5   -180.2    -10.6    -18.7   +192.5   -192.1  -0.77
+  Thu  11:00-11:59        333  40.2%   +158.1   -152.1    -20.4    -28.6   +136.0   -153.9  -1.78
+  Thu  12:00-12:59        333  48.3%   +135.8   -115.6     +9.4     +1.2   +135.6   -112.5   1.03
+  Thu  13:00-13:59        331  43.5%   +136.1   -108.4     +0.9     -7.3   +120.3   -117.2   0.10
+  Thu  14:00-14:59        331  48.3%   +134.6   -117.6     +8.9     +0.7   +123.0   -103.4   0.93
+  Thu  15:00-15:59        331  50.2%   +143.1   -136.2     +8.4     +0.2   +137.8   -125.5   0.79
+
+  Fri  09:30-09:59*       330  48.2%   +206.3   -183.1     +8.4     +0.2   +204.7   -185.1   0.61
+  Fri  10:00-10:59        329  49.2%   +223.1   -189.0    +17.9     +9.8   +200.8   -181.2   1.24
+  Fri  11:00-11:59        329  45.9%   +141.3   -129.9     -1.1     -9.2   +141.9   -134.4  -0.10
+  Fri  12:00-12:59        329  43.5%   +130.2   -104.8     -0.1     -8.3   +117.2   -108.2  -0.02
+  Fri  13:00-13:59        323  47.4%   +116.4    -98.2     +8.6     +0.4   +110.1    -99.1   1.10
+  Fri  14:00-14:59        323  43.7%   +103.1    -95.6     -4.1    -12.3   +102.8    -93.5  -0.53
+  Fri  15:00-15:59        323  46.1%   +119.0   -139.6    -15.5    -23.7   +112.6   -126.1  -1.28
+
+  all numbers are basis points. 1 bp = 0.01%. 100 bp = 1%.
+  avg + = mean of the hours that ENDED positive.  avg - = mean of the hours that ended negative.
+  mean  = the average of every hour = win% x (avg +) + (1-win%) x (avg -).  net = mean minus friction.
+  MFE / MAE = the average best and worst the position reached DURING the hour (from the bar highs and lows).
+
+  BY HOUR (all weekdays pooled)
+
+  hour                  n   win%    avg +    avg -     mean      net      MFE      MAE      t
+  -------------------------------------------------------------------------------------------
+  09:30-09:59*       1653  48.0%   +208.7   -201.2     -0.9     -9.1   +198.2   -192.4  -0.14
+  10:00-10:59        1653  47.5%   +201.8   -176.7     +6.8     -1.4   +192.4   -176.0   1.14
+  11:00-11:59        1653  43.6%   +143.5   -137.7    -10.9    -19.1   +134.9   -137.7  -2.35
+  12:00-12:59        1653  46.2%   +121.4   -110.0     +0.7     -7.5   +118.6   -108.8   0.19
+  13:00-13:59        1641  44.3%   +120.0   -109.7     -2.6    -10.8   +109.1   -106.1  -0.58
+  14:00-14:59        1641  42.8%   +117.8   -108.5     -5.8    -14.0   +111.1   -108.2  -1.48
+  15:00-15:59        1641  47.2%   +144.1   -143.8     -2.6    -10.8   +130.5   -127.7  -0.49
+
+  BY WEEKDAY (all hours pooled)
+
+  day                   n   win%    avg +    avg -     mean      net      MFE      MAE      t
+  -------------------------------------------------------------------------------------------
+  Mon                2152  43.0%   +142.1   -140.0    -13.0    -21.2   +129.5   -136.6  -3.11
+  Tue                2398  46.2%   +153.9   -138.5     +1.5     -6.6   +143.7   -132.1   0.37
+  Wed                2374  46.0%   +149.8   -144.3     -3.8    -12.0   +143.4   -140.5  -0.85
+  Thu                2325  46.5%   +163.4   -147.6     +1.5     -6.7   +151.6   -141.7   0.33
+  Fri                2286  46.3%   +150.3   -134.0     +2.1     -6.1   +141.7   -132.8   0.50
+
+  MULTIPLE COMPARISONS
+    35 cells tested. At a 5% threshold, 1.75 cells are expected to look significant by chance alone.
+    raw p < 0.05:                 1 cells
+    survive Benjamini-Hochberg:   0 cells
+      none. Every cell is inside what 35 coin flips produce.
+
+  SPLIT-HALF STABILITY — the top 5 cells by mean, first half of the data vs second
+    split at 2023-04-12
+    cell                          full   first half   second half  same sign?
+    -----------------------------------------------------------------------
+    Tue 10:00-10:59              +20.4        +28.5         +12.2         yes
+    Fri 10:00-10:59              +17.9        +10.9         +24.8         yes
+    Tue 09:30-09:59*             +14.6        +22.4          +6.8         yes
+    Thu 09:30-09:59*             +13.7        -24.5         +52.6          NO
+    Thu 12:00-12:59               +9.4        +16.5          +2.2         yes
+    A cell selected on the full sample keeps its sign in both halves only if it is real.
+
+  FRICTION, APPLIED
+    average full hour, gross:        -2.4 bp
+    friction per round trip:         -8.2 bp
+    average full hour, net:          -10.6 bp
+    trading all 6 full hours daily:  -63.4 bp/day  = -63.4 bp x 252 = -159.8% per year
+    the single best cell, net:       +12.2 bp on 343 trades (Tue 10:00-10:59)
+    break-even gross mean needed:    +8.2 bp — the hour has to average at least this much just to pay for itself
+    cells whose GROSS mean clears friction: 10 of 35
+
+  T23 — THE BENCHMARK COLUMN (buy and hold SOXS, same window)
+
+  result                       strategy   benchmark    excess
+  --------------------------------------------------------------
+  best cell, gross                +79.3%     -100.0%    +179.3%   BEAT
+  best cell, net of costs         +35.5%     -100.0%    +135.5%   BEAT
+  every full hour, gross          -98.6%     -100.0%      +1.4%   BEAT
+  every full hour, net           -100.0%     -100.0%      -0.0%   LOST
+  --------------------------------------------------------------
+  beat the benchmark: 3 of 4 (75%)
+
+    The best cell is the best of 35, chosen after seeing all 35. Its number is an upper bound on what an honest
+    out-of-sample version would earn, not an estimate of it. The split-half table above is the check that matters.
+    'every full hour' is in the market 360 minutes a day; buy and hold is in it 24 hours including the overnight gap. They are
+    not the same risk. The column is here because a return without one is not a result.
+
+  DRILL-DOWN — SOXS Mon 09:30-09:59*  (n=307, mean -41.5 bp, net -49.7 bp)
+
+    by calendar year
+    year        n   win%     mean      net      t
+    ---------------------------------------------
+    2020       47  34.0%   -102.9   -111.1  -2.67
+    2021       47  42.6%    -24.4    -32.6  -0.70
+    2022       45  51.1%     +4.3     -3.9   0.10
+    2023       45  40.0%    -52.5    -60.7  -1.66
+    2024       48  45.8%    -48.1    -56.3  -1.17
+    2025       48  31.2%    -75.7    -83.8  -1.78
+    2026       27  51.9%    +50.4    +42.2   0.68
+    positive in 2 of 7 calendar years
+
+    outlier check — is a handful of days carrying this?
+      mean                    -41.5 bp
+      median                  -34.3 bp
+      5% trimmed both tails   -47.2 bp   (15 cut from each end)
+      drop the 5 best days    -56.2 bp
+      drop the 5 worst days   -28.7 bp
+      drop 5 best AND 5 worst -43.5 bp
+      best 5:  +9.60%, +9.12%, +8.37%, +7.78%, +7.53%
+      worst 5: -9.52%, -9.34%, -9.18%, -6.29%, -6.23%
+      Dropping only the best days is a rigged test — the tails are two-sided. The symmetric rows are the fair ones.
+
+    same cell, close->close (gives up the first minute): -26.7 bp, net -34.9 bp
+      36% of this cell's move happens in its first minute — the minute you are least likely to get filled in at the price shown.
+
+    what if the spread at the open is worse than the measured 5.71 bp?
+      spread x      friction   net mean
+      1                 8.2bp      -49.7
+      2                13.9bp      -55.4
+      3                19.6bp      -61.1
+      5                31.0bp      -72.5
+      10               59.6bp     -101.1
+      The measured figure is from 11:00-15:55 fills. The opening minute is not that. This row set is a range, not a measurement.
+
+====================================================================================================
+CROSS-SYMBOL CHECK — the same 35 cells measured through a 3x long and a 3x short
+====================================================================================================
+
+  correlation of the 35 cell means, SOXL vs SOXS:   -0.985
+  cells with opposite signs:                        32 of 35
+
+  A perfectly inverse pair would be -1.000 and 35 of 35. It is not, and cannot
+  be: both are 3x daily-reset funds and both decay, so their means are pushed
+  down together rather than mirrored. But -0.985 is far from zero, which says
+  the time-of-day pattern is in the semiconductor index, not in one CSV.
+
+  This is one piece of evidence counted once, not two.
+
+  cell                        SOXL      SOXS   implied SOX*
+  ---------------------------------------------------------
+  Mon 09:30-09:59*           +44.1     -41.5          +14.3  <--
+  Mon 10:00-10:59             -3.9      +4.5           -1.4
+  Mon 11:00-11:59            +20.1     -19.9           +6.7  <--
+  Mon 12:00-12:59             +4.0      -7.3           +1.9
+  Mon 13:00-13:59             +4.7      -4.3           +1.5
+  Mon 14:00-14:59             +2.1      -2.2           +0.7
+  Mon 15:00-15:59            +19.8     -20.4           +6.7  <--
+  Tue 09:30-09:59*           -17.8     +14.6           -5.4  <--
+  Tue 10:00-10:59            -20.3     +20.4           -6.8  <--
+  Tue 11:00-11:59            +11.1     -13.3           +4.1  <--
+  Tue 12:00-12:59             +1.6      -1.6           +0.5
+  Tue 13:00-13:59             +8.2      -4.8           +2.2
+  Tue 14:00-14:59            +11.7     -12.9           +4.1  <--
+  Tue 15:00-15:59            -11.4      +8.4           -3.3  <--
+  Wed 09:30-09:59*            +5.2      -3.3           +1.4
+  Wed 10:00-10:59             -2.4      +1.5           -0.7
+  Wed 11:00-11:59             -2.3      -0.6           -0.3
+  Wed 12:00-12:59             -4.5      +2.7           -1.2
+  Wed 13:00-13:59             +9.4     -12.9           +3.7  <--
+  Wed 14:00-14:59            +18.4     -18.0           +6.1  <--
+  Wed 15:00-15:59             -9.1      +4.0           -2.2
+  Thu 09:30-09:59*           -15.5     +13.7           -4.9  <--
+  Thu 10:00-10:59            +11.7     -10.6           +3.7  <--
+  Thu 11:00-11:59            +13.2     -20.4           +5.6  <--
+  Thu 12:00-12:59             -9.2      +9.4           -3.1  <--
+  Thu 13:00-13:59             -3.3      +0.9           -0.7
+  Thu 14:00-14:59             -7.4      +8.9           -2.7
+  Thu 15:00-15:59            -13.1      +8.4           -3.6  <--
+  Fri 09:30-09:59*           -11.5      +8.4           -3.3  <--
+  Fri 10:00-10:59            -18.0     +17.9           -6.0  <--
+  Fri 11:00-11:59             -0.1      -1.1           +0.2
+  Fri 12:00-12:59             -1.7      -0.1           -0.3
+  Fri 13:00-13:59             -8.8      +8.6           -2.9
+  Fri 14:00-14:59             +2.1      -4.1           +1.0
+  Fri 15:00-15:59            +10.5     -15.5           +4.3  <--
+
+  * implied SOX = average of (SOXL/3) and (SOXS/-3). Rough: it ignores decay, financing and
+    the fact that leverage is exact only over a single day. Use it for direction and rough size only.
+
+====================================================================================================
+WHAT THIS IS NOT
+====================================================================================================
+
+  Not a backtest. There is no position sizing, no compounding rule beyond the
+  arithmetic printed above, no overnight exposure, no slippage model beyond the
+  measured round-trip friction, and no allowance for the fact that a market
+  order at 09:30 or 15:59 pays a wider spread than the daily average this
+  friction figure came from.
+
+  The averages are of one-hour returns. Nothing here says the hours are
+  independent of each other; they are not, and the t-statistics assume they
+  are, so treat them as a screen and not as a p-value you would publish.
+
+  Every cell count is a real count from the price files. Every return is
+  exit_close / entry_open - 1 on real bars. Nothing is modelled or imputed.
+
