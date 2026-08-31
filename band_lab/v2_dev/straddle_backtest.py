@@ -29,6 +29,7 @@ import pandas as pd
 
 _HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, _HERE)
+import bs                                                          # noqa: E402
 import option_data                                                 # noqa: E402
 from research_kit import Result, daily_closes, table               # noqa: E402
 
@@ -61,7 +62,14 @@ EXTRA_SPREAD_VOL_PTS = 0.0
 #: the OTM leg expires worthless, so the EXIT half of the option spread is never
 #: paid -- which is the only reason #2 could differ from #1 rather than merely
 #: be noisier, because the spread is what killed #1.
-HEDGE_MODE = "daily"                 # "daily" | "none"
+HEDGE_MODE = "daily"                 # "daily" | "none" | "open"
+
+#: [V39] Hedge at 09:30 instead of the close. The vendor file is end-of-day
+#: only, so no quoted delta exists at the open; A25 computes it by Black-Scholes
+#: from the 09:30 spot and the PRIOR CLOSE's implied vol. bs.py reproduces the
+#: vendor delta to 0.0002 at the close, so the model is sound and carrying the
+#: IV forward one session is the approximation.
+OPENS: dict = {}                     # date -> 09:30 spot, filled by main()
 EXIT_MODE = "roll"                   # "roll" | "expiry"
 EXERCISE_FEE = 0.0                   # [ASSUMED] V33 A14, unverified, flatters
 
@@ -119,6 +127,20 @@ class Cycle:
     @property
     def ret_on_premium(self):
         return self.net / self.premium_paid if self.premium_paid else np.nan
+
+
+def _load_opens():
+    """09:30 spot for every session, for V39's open-hedge mode."""
+    px = pd.read_csv(os.path.join(ROOT, "SOXL_1min.csv"),
+                     usecols=["Date", "Open"])
+    dt = pd.to_datetime(px["Date"].str.replace(" America/New_York", "",
+                                               regex=False),
+                        format="%Y%m%d %H:%M:%S")
+    m = dt.dt.hour * 60 + dt.dt.minute
+    first = px[m == 570].assign(d=dt[m == 570].dt.normalize())
+    OPENS.update(dict(zip(first["d"], first["Open"].astype(float))))
+    print(f"    loaded {len(OPENS):,} session opens for the 09:30 hedge",
+          flush=True)
 
 
 def load_chain(years=("2022", "2023", "2024", "2025", "2026")):
@@ -242,7 +264,8 @@ def run(chain: pd.DataFrame, spot: pd.Series, target_dte: int, roll_dte: int,
                 j += 1
                 continue                              # A10: skip, carry hedge
             cj, pj = pr
-            sj = float(cj.underlying_price)
+            sj = (OPENS.get(dj, float(cj.underlying_price))
+                  if HEDGE_MODE == "open" else float(cj.underlying_price))
             hedge_pnl += held_shares * (sj - prev_spot)
             prev_spot = sj
             marks.append(dict(date=dj,
@@ -261,8 +284,21 @@ def run(chain: pd.DataFrame, spot: pd.Series, target_dte: int, roll_dte: int,
                                  cost=hedge_cost + opt_comm)
                 break
 
-            want = (0.0 if HEDGE_MODE == "none"
-                    else -(float(cj.delta) + float(pj.delta)) * sz)
+            if HEDGE_MODE == "none":
+                want = 0.0
+            elif HEDGE_MODE == "open" and dj in OPENS:
+                # V39/A25: re-price both deltas at the 09:30 spot, carrying the
+                # prior close's IV. The hedge is then placed at that spot, so
+                # the interval this position is unhedged over runs open to open.
+                so = OPENS[dj]
+                T = max(int(cj.dte), 1) / 365.0
+                dc = float(bs.delta(so, strike, T, 0.04, 0.0,
+                                    float(cj.implied_vol), "CALL"))
+                dp = float(bs.delta(so, strike, T, 0.04, 0.0,
+                                    float(pj.implied_vol), "PUT"))
+                want = -(dc + dp) * sz
+            else:
+                want = -(float(cj.delta) + float(pj.delta)) * sz
             d_sh = want - held_shares
             if abs(d_sh) > 0.5:                       # whole shares only
                 d_sh = float(np.round(d_sh))
@@ -573,6 +609,51 @@ def equity_report(cyc: list[Cycle], daily: pd.DataFrame) -> None:
   not been looked up.""")
 
 
+def _v39(chain, spot) -> int:
+    """V29 Tier 2 #6 — hedge at the open vs at the close, same everything else."""
+    global HEDGE_MODE, EXIT_MODE, EXTRA_SPREAD_VOL_PTS
+    EXIT_MODE = "roll"
+    w = 92
+    print("=" * w)
+    print("V39 — HEDGE AT THE OPEN vs AT THE CLOSE. V29 Tier 2 #6.")
+    print("   B1b: the open cell must BEAT the close cell at the same DTE, or "
+          "#6 has no reason to exist.")
+    print("=" * w)
+    res = {}
+    for shortfall, lbl in ((0.0, "vendor EOD spread"),
+                           (7.2, "+ V32 measured shortfall  <-- headline")):
+        print(f"\n  {lbl}")
+        print(f"  {'entry DTE':<11}{'close-hedged':>15}{'open-hedged':>14}"
+              f"{'difference':>13}{'B1b':>7}")
+        print("  " + "-" * 60)
+        for td in (30, 37, 45):
+            got = {}
+            for mode in ("daily", "open"):
+                HEDGE_MODE = mode
+                EXTRA_SPREAD_VOL_PTS = shortfall
+                c, _ = run(chain, spot, td, 14)
+                got[mode] = summarize(c, "", verbose=False) if c else None
+            if not all(got.values()):
+                continue
+            a_, b_ = got["daily"]["mean"], got["open"]["mean"]
+            res[(shortfall, td)] = (a_, b_)
+            print(f"  {td:<11}{a_*100:>+14.2f}%{b_*100:>+13.2f}%"
+                  f"{(b_-a_)*100:>+12.2f}%{'PASS' if b_ > a_ else 'FAIL':>7}")
+    m = {k: v for k, v in res.items() if k[0] > 0}
+    wins = sum(1 for a_, b_ in m.values() if b_ > a_)
+    diffs = [(b_ - a_) * 100 for a_, b_ in m.values()]
+    print(f"""
+  B1b: the open-hedged cell beats the close-hedged cell in {wins} of {len(m)} cells.
+  mean difference {np.mean(diffs):+.2f} percentage points per cycle.
+
+  V39 predicted open-hedging loses, because open-to-open captures 4.35% less
+  variance than close-to-close -- about -2.6 volatility points. The measured
+  difference above is the test of that prediction.
+
+  ADOPTED: {'YES' if wins == len(m) else 'NO'}""")
+    return 0
+
+
 def _v37(chain, spot) -> int:
     """V29 Tier 2 #4 — the long-dated straddle, with the overlap correction.
 
@@ -764,12 +845,15 @@ def main() -> int:
     ap.add_argument("--grid", action="store_true")
     ap.add_argument("--trace", type=int, default=0)
     ap.add_argument("--out", default=os.path.join(_HERE, "out"))
-    ap.add_argument("--hedge", choices=("daily", "none"), default="daily")
+    ap.add_argument("--hedge", choices=("daily", "none", "open"),
+                    default="daily")
     ap.add_argument("--exit", dest="exit_mode",
                     choices=("roll", "expiry"), default="roll")
     ap.add_argument("--target-dte", type=int, default=None,
                     help="V37: override the entry tenor, e.g. 180")
     ap.add_argument("--dte-window", type=int, default=None)
+    ap.add_argument("--v39", action="store_true",
+                    help="open-hedged against close-hedged, six cells")
     ap.add_argument("--v37", action="store_true",
                     help="the six prespecified long-dated cells, with t "
                          "computed on NON-OVERLAPPING cycles")
@@ -787,9 +871,13 @@ def main() -> int:
     if a.dte_window:
         DTE_WINDOW = a.dte_window
     chain = load_chain()
+    if a.hedge == "open" or a.v39:
+        _load_opens()
     chain["expiry_key"] = chain["expiration"].astype("int64")
     spot = daily_closes("SOXL")
 
+    if a.v39:
+        return _v39(chain, spot)
     if a.v37:
         return _v37(chain, spot)
     if a.v33:
