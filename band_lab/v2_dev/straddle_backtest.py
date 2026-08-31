@@ -715,7 +715,7 @@ def _v41(chain, spot) -> int:
                                                "  <-- headline")):
         print(f"\n  {lbl}")
         print(f"  {'hedge':<8}{'call d':<8}{'straddle':>11}{'strangle':>11}"
-              f"{'difference':>12}{'B1b':>7}{'net delta':>11}")
+              f"{'difference':>12}{'B1b':>7}")
         print("  " + "-" * 68)
         for hedge in ("daily", "none"):
             HEDGE_MODE = hedge
@@ -729,15 +729,13 @@ def _v41(chain, spot) -> int:
                 if not c or b is None:
                     continue
                 st = summarize(c, "", verbose=False)
-                nd = np.mean([x.spot_close and 0 for x in c]) if False else np.nan
                 rows.append(dict(shortfall=shortfall, hedge=hedge, cd=cd,
                                  straddle=b, strangle=st["mean"], t=st["t"],
                                  n=st["n"], mdd=st["mdd"]))
                 print(f"  {hedge:<8}{cd:<8.2f}{b*100:>+10.2f}%"
                       f"{st['mean']*100:>+10.2f}%"
                       f"{(st['mean']-b)*100:>+11.2f}%"
-                      f"{'PASS' if st['mean'] > b else 'FAIL':>7}"
-                      f"{'':>11}")
+                      f"{'PASS' if st['mean'] > b else 'FAIL':>7}")
             STRUCTURE = "straddle"
     df = pd.DataFrame(rows)
     m = df[df.shortfall > 0]
