@@ -42,13 +42,52 @@ from __future__ import annotations
 
 import argparse
 import os
+import subprocess
 import sys
 import time
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 
-import numpy as np
-import pandas as pd
+
+def _reexec_in_venv() -> None:
+    """If a venv is active but this interpreter is not it, re-run under it.
+
+    On Windows `python3` resolves to the Python install-manager build (e.g.
+    `pythoncore-3.14-64`) or the Store shim, NOT the activated venv, while
+    `pip` does resolve to the venv. So `pip install X` reports success and the
+    import still fails, and the fix -- "type `python`, not `python3`" -- is
+    both invisible and easy to type past twice in a row. It cost two rounds
+    here before this function existed.
+
+    Rather than print advice, hand off to the right interpreter. `subprocess`
+    and not `os.execv`, because on Windows exec replaces the process in a way
+    that returns control to the shell before the child finishes.
+    """
+    venv = os.environ.get("VIRTUAL_ENV")
+    if not venv or os.environ.get("_SPREAD_PROBE_REEXEC"):
+        return                                  # no venv, or already handed off
+    same = (os.path.normcase(os.path.abspath(sys.prefix))
+            == os.path.normcase(os.path.abspath(venv)))
+    if same:
+        return
+    for exe in (os.path.join(venv, "Scripts", "python.exe"),
+                os.path.join(venv, "bin", "python")):
+        if os.path.exists(exe):
+            sys.stderr.write(
+                f"[re-exec] this is {sys.executable}\n"
+                f"[re-exec] the active venv is {venv}\n"
+                f"[re-exec] re-running under {exe}\n\n")
+            env = dict(os.environ, _SPREAD_PROBE_REEXEC="1")
+            sys.exit(subprocess.run([exe, os.path.abspath(__file__)]
+                                    + sys.argv[1:], env=env).returncode)
+    # No interpreter inside VIRTUAL_ENV. Fall through; the import error below
+    # reports the mismatch rather than this function guessing at it.
+
+
+_reexec_in_venv()
+
+import numpy as np                                                 # noqa: E402
+import pandas as pd                                                # noqa: E402
 
 _HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, _HERE)
@@ -163,6 +202,19 @@ def _atm_straddle(ib, when: datetime, target_dte: int):
     return call, put, strike, expiry, dte, spot
 
 
+def _last_weekday(d: datetime) -> datetime:
+    """Walk back to Friday if handed a Saturday or Sunday.
+
+    Contract resolution hides this: reqHistoricalData with a Saturday
+    endDateTime happily returns Friday's bars, so the straddle resolves and
+    only the TICK request comes back empty -- which then reads as a missing
+    subscription. The date is trivially checkable, so check it.
+    """
+    while d.weekday() >= 5:
+        d -= timedelta(days=1)
+    return d
+
+
 def _ticks(ib, contract, start: datetime, n: int):
     """BID_ASK ticks. Named fields, so nothing about the layout is guessed."""
     return ib.reqHistoricalTicks(
@@ -175,7 +227,11 @@ def cmd_check(a) -> int:
     """One small request. Prove the subscription serves this before collecting."""
     ib = _connect(a.host, a.port, a.client_id)
     try:
-        when = datetime.now(NY) - timedelta(days=a.days_back)
+        asked = datetime.now(NY) - timedelta(days=a.days_back)
+        when = _last_weekday(asked)
+        if when.date() != asked.date():
+            print(f"\n{asked:%Y-%m-%d} is a {asked:%A}; using "
+                  f"{when:%Y-%m-%d} ({when:%A}) instead")
         print(f"\nasking for the ATM straddle as of {when:%Y-%m-%d}")
         sel = _atm_straddle(ib, when, a.target_dte)
         if sel is None:
@@ -197,10 +253,34 @@ def cmd_check(a) -> int:
                 print(f"  [FAIL] request raised: {type(exc).__name__}: {exc}")
                 return 1
             if not tk:
-                print(f"  [FAIL] returned 0 ticks. This is what a missing OPRA "
-                      f"historical subscription looks like.\n"
-                      f"         It is NOT proof of one — a holiday or a "
-                      f"too-recent window does the same.")
+                # Do not blame the subscription until a control says so. The
+                # same empty result comes from a holiday, a window with no
+                # quotes, or a contract nobody quoted that day. Ask for TRADES
+                # on the SAME contract and the SAME window: if that returns
+                # data and BID_ASK does not, the difference is the entitlement.
+                print(f"  [ ?? ] returned 0 ticks for BID_ASK.")
+                try:
+                    ctrl = ib.reqHistoricalTicks(
+                        c, startDateTime=t0.strftime("%Y%m%d %H:%M:%S US/Eastern"),
+                        endDateTime="", numberOfTicks=10, whatToShow="TRADES",
+                        useRth=True, ignoreSize=False)
+                except Exception as exc:                # noqa: BLE001
+                    ctrl = []
+                    print(f"         control TRADES request raised: {exc}")
+                if ctrl:
+                    print(f"  [FAIL] but TRADES on the same contract and window "
+                          f"returned {len(ctrl)} ticks.\n"
+                          f"         Same contract, same window, one works and "
+                          f"one does not: that is an\n"
+                          f"         entitlement problem. You need the OPRA "
+                          f"top-of-book historical subscription.")
+                else:
+                    print(f"  [FAIL] and TRADES on the same window is also "
+                          f"empty, so this is NOT about BID_ASK.\n"
+                          f"         The window itself has no data: a holiday, "
+                          f"a contract nobody quoted that\n"
+                          f"         day, or a date outside IBKR's tick "
+                          f"history. Try --days-back 3.")
                 return 1
             print(f"  [PASS] {len(tk)} ticks")
             for t in tk[:5]:
@@ -221,9 +301,7 @@ def cmd_collect(a) -> int:
         day = datetime.now(NY) - timedelta(days=a.days_back)
         done = 0
         while done < a.sessions and day > datetime.now(NY) - timedelta(days=400):
-            if day.weekday() >= 5:
-                day -= timedelta(days=1)
-                continue
+            day = _last_weekday(day)
             sel = _atm_straddle(ib, day, a.target_dte)
             if sel is None:
                 print(f"  {day:%Y-%m-%d}: no straddle, skipping")
