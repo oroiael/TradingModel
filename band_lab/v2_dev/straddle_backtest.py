@@ -28,6 +28,12 @@ import numpy as np
 import pandas as pd
 
 _HERE = os.path.dirname(os.path.abspath(__file__))
+# [V39 BUG FIX] `_load_opens` referenced ROOT, which this module never defined --
+# the name was carried over from a file that has it. The whole V39 run died on
+# its first call and produced nothing for several minutes while it was reported
+# as "still running", because only the chain-load lines had appeared and that
+# was read as output buffering rather than a crash.
+ROOT = os.path.dirname(os.path.dirname(_HERE))
 sys.path.insert(0, _HERE)
 import bs                                                          # noqa: E402
 import option_data                                                 # noqa: E402
@@ -264,16 +270,27 @@ def run(chain: pd.DataFrame, spot: pd.Series, target_dte: int, roll_dte: int,
                 j += 1
                 continue                              # A10: skip, carry hedge
             cj, pj = pr
+            # [V39 BUG FIX] The option is always SOLD at the end-of-day bid, so
+            # on the exit bar the hedge must be marked to the CLOSE too. The
+            # first version accrued the hedge to the 09:30 OPEN and then sold
+            # the option at that afternoon's close, leaving the final intraday
+            # session unhedged on every cycle. A long straddle is long gamma, so
+            # an unhedged interval always contributes +0.5*gamma*(dS)^2 -- it
+            # manufactured a gain once per cycle and made open-hedging beat
+            # close-hedging in all three cells, which is the exact outcome V39
+            # named in advance as a discard trigger rather than a finding.
+            is_exit = (EXIT_MODE == "roll"
+                       and (int(cj.dte) <= roll_dte or j == len(dates) - 1))
             sj = (OPENS.get(dj, float(cj.underlying_price))
-                  if HEDGE_MODE == "open" else float(cj.underlying_price))
+                  if (HEDGE_MODE == "open" and not is_exit)
+                  else float(cj.underlying_price))
             hedge_pnl += held_shares * (sj - prev_spot)
             prev_spot = sj
             marks.append(dict(date=dj,
                               opt_mid=(float(cj.mid) + float(pj.mid)) * sz,
                               hedge=hedge_pnl, cost=hedge_cost + opt_comm))
 
-            if EXIT_MODE == "roll" and (int(cj.dte) <= roll_dte
-                                        or j == len(dates) - 1):
+            if is_exit:
                 recv = (float(cj.bid) + float(pj.bid)) * sz
                 opt_comm += 2 * OPT_COMMISSION * CONTRACTS
                 if held_shares:
