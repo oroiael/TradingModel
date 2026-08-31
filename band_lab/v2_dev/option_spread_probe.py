@@ -26,6 +26,12 @@ the sizes, which answers the depth question in the same pass.
     python3 band_lab/v2_dev/option_spread_probe.py --analyse
     python3 band_lab/v2_dev/option_spread_probe.py --selftest
 
+ON WINDOWS use `python`, not `python3`. Inside an activated venv, `pip` points
+at the venv but `python3` usually resolves to the Microsoft Store shim or a
+system Python, so `pip install ib_async` succeeds and the import still fails.
+`python -m pip install ib_async` and `python ...` keep both on the same
+interpreter. `--doctor` prints which interpreter you are actually on.
+
 RUN IT WHERE TWS IS. This file was written in a container with no ib_async and
 no reachable TWS on 7497/7496/4001, so **the IBKR half has never been executed.**
 The analysis half has: `--selftest` exercises it on synthetic ticks with a known
@@ -74,9 +80,27 @@ def _connect(host, port, client_id):
     try:
         from ib_async import IB
     except ImportError:
+        # This message used to say "run this on the machine with TWS", which is
+        # wrong and wasted a user's time: on Windows `pip` resolves to the
+        # ACTIVE VENV while `python3` resolves to the Microsoft Store shim or a
+        # system Python. So `pip install ib_async` reports "already satisfied"
+        # and the script still cannot import it. Print the interpreter rather
+        # than guessing at the cause.
+        venv = os.environ.get("VIRTUAL_ENV", "(none)")
         raise SystemExit(
-            "ib_async is not installed. This script must run on the machine "
-            "with TWS/Gateway. `pip install ib_async`.")
+            "ib_async is not importable from THIS interpreter.\n\n"
+            f"  interpreter : {sys.executable}\n"
+            f"  sys.prefix  : {sys.prefix}\n"
+            f"  VIRTUAL_ENV : {venv}\n\n"
+            "If VIRTUAL_ENV is set and sys.prefix does not match it, you are "
+            "running the wrong Python.\n"
+            "On Windows `python3` is often NOT the venv's interpreter while "
+            "`pip` is. Use:\n\n"
+            "    python band_lab/v2_dev/option_spread_probe.py --check\n"
+            "    .\\.venv-live\\Scripts\\python.exe "
+            "band_lab/v2_dev/option_spread_probe.py --check\n\n"
+            "If the interpreter above IS the venv, then install it there: "
+            "python -m pip install ib_async")
     ib = IB()
     print(f"connecting to {host}:{port} (clientId={client_id}) ...", flush=True)
     ib.connect(host, port, clientId=client_id, timeout=20)
@@ -430,8 +454,40 @@ def _selftest() -> int:
     return 1 if fails else 0
 
 
+def cmd_doctor() -> int:
+    """Which Python is this, and can it see what it needs?"""
+    print("=" * 72)
+    print("INTERPRETER CHECK")
+    print("=" * 72)
+    print(f"  executable  {sys.executable}")
+    print(f"  version     {sys.version.split()[0]}")
+    print(f"  sys.prefix  {sys.prefix}")
+    venv = os.environ.get("VIRTUAL_ENV", "(none)")
+    print(f"  VIRTUAL_ENV {venv}")
+    if venv != "(none)":
+        match = os.path.normcase(os.path.abspath(sys.prefix)) == \
+            os.path.normcase(os.path.abspath(venv))
+        print(f"  {'[PASS]' if match else '[FAIL]'} sys.prefix "
+              f"{'matches' if match else 'DOES NOT MATCH'} VIRTUAL_ENV")
+        if not match:
+            print("         You are running a different Python from the one "
+                  "pip installs into.\n"
+                  "         On Windows use `python`, not `python3`.")
+    print()
+    for mod in ("numpy", "pandas", "ib_async"):
+        try:
+            m = __import__(mod)
+            v = getattr(m, "__version__", "?")
+            print(f"  [PASS] {mod:<10} {v:<10} {getattr(m, '__file__', '')}")
+        except ImportError as exc:
+            print(f"  [FAIL] {mod:<10} {exc}")
+    return 0
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__.split("\n")[1])
+    ap.add_argument("--doctor", action="store_true",
+                    help="which interpreter am I on and can it import ib_async")
     ap.add_argument("--check", action="store_true",
                     help="one small request: does the subscription serve this?")
     ap.add_argument("--collect", action="store_true")
@@ -448,6 +504,8 @@ def main() -> int:
                     help="seconds between requests (IBKR pacing)")
     a = ap.parse_args()
 
+    if a.doctor:
+        return cmd_doctor()
     if a.selftest:
         return _selftest()
     if a.check:
