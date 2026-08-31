@@ -70,6 +70,14 @@ EXTRA_SPREAD_VOL_PTS = 0.0
 #: be noisier, because the spread is what killed #1.
 HEDGE_MODE = "daily"                 # "daily" | "none" | "open"
 
+#: [V41] Strike selection. "straddle" puts both legs at the strike nearest spot.
+#: "strangle" puts the PUT nearest 50 delta and the CALL at CALL_DELTA -- V29
+#: Tier 2 #7, which avoids the expensive 25-delta put wing (106.2%) and buys the
+#: cheap call wing (93.8%). Everything else is identical to V31/V32 so the
+#: comparison isolates the structure.
+STRUCTURE = "straddle"               # "straddle" | "strangle"
+CALL_DELTA = 0.25
+
 #: [V39] Hedge at 09:30 instead of the close. The vendor file is end-of-day
 #: only, so no quoted delta exists at the open; A25 computes it by Black-Scholes
 #: from the 09:30 spot and the PRIOR CLOSE's implied vol. bs.py reproduces the
@@ -156,6 +164,20 @@ def load_chain(years=("2022", "2023", "2024", "2025", "2026")):
     return d
 
 
+def _pair2(day: pd.DataFrame, k_call, k_put, expiry):
+    """The call at k_call and the put at k_put, same expiry, or None.
+
+    A straddle has k_call == k_put; a strangle does not. Keeping one function
+    for both means the strangle cannot silently fall back to same-strike legs.
+    """
+    g = day[day.expiry_key == expiry]
+    c = g[(g.strike == k_call) & (g.right == "CALL")]
+    p = g[(g.strike == k_put) & (g.right == "PUT")]
+    if len(c) != 1 or len(p) != 1:
+        return None
+    return c.iloc[0], p.iloc[0]
+
+
 def _pair(day: pd.DataFrame, strike, expiry):
     """The call and the put at one strike and expiry, or None."""
     g = day[(day.strike == strike) & (day.expiry_key == expiry)]
@@ -167,10 +189,12 @@ def _pair(day: pd.DataFrame, strike, expiry):
 
 
 def pick(day: pd.DataFrame, target_dte: int):
-    """Choose the straddle: expiry nearest the target DTE, strike nearest spot.
+    """Choose the structure: expiry nearest the target DTE, then the strikes.
 
-    Both legs must exist with a two-sided quote at the same strike and expiry,
-    otherwise this is not a straddle and the day is skipped.
+    STRUCTURE == "straddle": both legs at the strike nearest spot.
+    STRUCTURE == "strangle": put nearest 50 delta, call at CALL_DELTA. V41 A26 --
+    a date where either leg is not within 0.08 delta is skipped rather than
+    filled with the nearest available, which would quietly change the structure.
     """
     spot = float(day["underlying_price"].iloc[0])
     cand = day[(day.dte - target_dte).abs() <= DTE_WINDOW]
@@ -178,6 +202,17 @@ def pick(day: pd.DataFrame, target_dte: int):
         return None
     exp = cand.loc[(cand.dte - target_dte).abs().idxmin(), "expiry_key"]
     at_exp = cand[cand.expiry_key == exp]
+
+    if STRUCTURE == "strangle":
+        cs = at_exp[at_exp.right == "CALL"]
+        ps = at_exp[at_exp.right == "PUT"]
+        if cs.empty or ps.empty:
+            return None
+        c = cs.iloc[(cs.delta - CALL_DELTA).abs().argsort()[:1]].iloc[0]
+        p = ps.iloc[(ps.delta + 0.50).abs().argsort()[:1]].iloc[0]
+        if abs(c.delta - CALL_DELTA) > 0.08 or abs(p.delta + 0.50) > 0.08:
+            return None
+        return c, p
     strikes = at_exp["strike"].unique()
     near = strikes[np.abs(strikes / spot - 1.0) <= ATM_BAND]
     if not len(near):
@@ -207,6 +242,7 @@ def run(chain: pd.DataFrame, spot: pd.Series, target_dte: int, roll_dte: int,
             continue
         c0, p0 = sel
         strike, expiry = float(c0.strike), c0.expiry_key
+        k_call, k_put = float(c0.strike), float(p0.strike)
         spot0 = float(c0.underlying_price)
         sz = CONTRACT * CONTRACTS                     # shares of option exposure
 
@@ -260,8 +296,8 @@ def run(chain: pd.DataFrame, spot: pd.Series, target_dte: int, roll_dte: int,
             # settlement price comes from SOXL's price series, not the chain.
             if EXIT_MODE == "expiry" and dj >= expiry_ts:
                 settle = float(spot.asof(expiry_ts))
-                recv = (max(settle - strike, 0.0)
-                        + max(strike - settle, 0.0)) * sz
+                recv = (max(settle - k_call, 0.0)
+                        + max(k_put - settle, 0.0)) * sz
                 if recv > 0:              # the ITM leg exercises into stock
                     hedge_cost += sz * settle * f_rt / 1e4
                     opt_comm += EXERCISE_FEE * CONTRACTS
@@ -274,7 +310,7 @@ def run(chain: pd.DataFrame, spot: pd.Series, target_dte: int, roll_dte: int,
                 cj = pj = None
                 break
             day_j = by_date[dj]
-            pr = _pair(day_j, strike, expiry)
+            pr = _pair2(day_j, k_call, k_put, expiry)
             if pr is None:
                 j += 1
                 continue                              # A10: skip, carry hedge
@@ -306,9 +342,9 @@ def run(chain: pd.DataFrame, spot: pd.Series, target_dte: int, roll_dte: int,
                 hedge_pnl += held_shares * (so - prev_spot)
                 prev_spot = so
                 Tx = max(int(cj.dte), 1) / 365.0
-                wx = -(float(bs.delta(so, strike, Tx, 0.04, 0.0,
+                wx = -(float(bs.delta(so, k_call, Tx, 0.04, 0.0,
                                       iv_c, "CALL"))
-                       + float(bs.delta(so, strike, Tx, 0.04, 0.0,
+                       + float(bs.delta(so, k_put, Tx, 0.04, 0.0,
                                         iv_p, "PUT"))) * sz
                 dx = float(np.round(wx - held_shares))
                 if abs(dx) > 0.5:
@@ -345,8 +381,8 @@ def run(chain: pd.DataFrame, spot: pd.Series, target_dte: int, roll_dte: int,
                 # the interval this position is unhedged over runs open to open.
                 so = OPENS[dj]
                 T = max(int(cj.dte), 1) / 365.0
-                dc = float(bs.delta(so, strike, T, 0.04, 0.0, iv_c, "CALL"))
-                dp = float(bs.delta(so, strike, T, 0.04, 0.0, iv_p, "PUT"))
+                dc = float(bs.delta(so, k_call, T, 0.04, 0.0, iv_c, "CALL"))
+                dp = float(bs.delta(so, k_put, T, 0.04, 0.0, iv_p, "PUT"))
                 want = -(dc + dp) * sz
             else:
                 want = -(float(cj.delta) + float(pj.delta)) * sz
@@ -660,6 +696,64 @@ def equity_report(cyc: list[Cycle], daily: pd.DataFrame) -> None:
   not been looked up.""")
 
 
+def _v41(chain, spot) -> int:
+    """V29 Tier 2 #7 — asymmetric strangle against the straddle, same everything."""
+    global HEDGE_MODE, EXIT_MODE, EXTRA_SPREAD_VOL_PTS, STRUCTURE, CALL_DELTA
+    EXIT_MODE = "roll"
+    w = 96
+    print("=" * w)
+    print("V41 — ASYMMETRIC STRANGLE (ATM put + wide call) vs STRADDLE. "
+          "V29 Tier 2 #7.")
+    print("   B1b: the strangle must BEAT the straddle at the same DTE and "
+          "hedge mode, or it has no reason to exist.")
+    print("   Screen said +0.94 vol points of advantage against a -6.3 point "
+          "deficit. Discard trigger at ~1 point.")
+    print("=" * w)
+    rows = []
+    for shortfall, lbl in ((0.0, "vendor EOD spread"),
+                           (7.2 * 14.1 / 13.9, "+ V32 shortfall scaled (A27)"
+                                               "  <-- headline")):
+        print(f"\n  {lbl}")
+        print(f"  {'hedge':<8}{'call d':<8}{'straddle':>11}{'strangle':>11}"
+              f"{'difference':>12}{'B1b':>7}{'net delta':>11}")
+        print("  " + "-" * 68)
+        for hedge in ("daily", "none"):
+            HEDGE_MODE = hedge
+            EXTRA_SPREAD_VOL_PTS = shortfall
+            STRUCTURE = "straddle"
+            base, _ = run(chain, spot, 37, 14)
+            b = summarize(base, "", verbose=False)["mean"] if base else None
+            for cd in (0.20, 0.25, 0.30):
+                STRUCTURE, CALL_DELTA = "strangle", cd
+                c, _ = run(chain, spot, 37, 14)
+                if not c or b is None:
+                    continue
+                st = summarize(c, "", verbose=False)
+                nd = np.mean([x.spot_close and 0 for x in c]) if False else np.nan
+                rows.append(dict(shortfall=shortfall, hedge=hedge, cd=cd,
+                                 straddle=b, strangle=st["mean"], t=st["t"],
+                                 n=st["n"], mdd=st["mdd"]))
+                print(f"  {hedge:<8}{cd:<8.2f}{b*100:>+10.2f}%"
+                      f"{st['mean']*100:>+10.2f}%"
+                      f"{(st['mean']-b)*100:>+11.2f}%"
+                      f"{'PASS' if st['mean'] > b else 'FAIL':>7}"
+                      f"{'':>11}")
+            STRUCTURE = "straddle"
+    df = pd.DataFrame(rows)
+    m = df[df.shortfall > 0]
+    wins = int((m.strangle > m.straddle).sum())
+    print(f"""
+  B1b: the strangle beats the straddle in {wins} of {len(m)} cells.
+  mean difference {(m.strangle - m.straddle).mean()*100:+.2f} percentage points per cycle.
+  The screen predicted about +0.94 points of structural advantage, which on the
+  V32 conversion of -0.996% per volatility point is worth roughly +0.94% per
+  cycle. A win materially larger than that is the discard trigger, not a result.
+
+  ADOPTED: {'YES' if wins == len(m) and (m.strangle > 0).all() else 'NO'}""")
+    df.to_csv(os.path.join(_HERE, "out", "V41_strangle_grid.csv"), index=False)
+    return 0
+
+
 def _v39(chain, spot) -> int:
     """V29 Tier 2 #6 — hedge at the open vs at the close, same everything else."""
     global HEDGE_MODE, EXIT_MODE, EXTRA_SPREAD_VOL_PTS
@@ -909,6 +1003,8 @@ def main() -> int:
     ap.add_argument("--target-dte", type=int, default=None,
                     help="V37: override the entry tenor, e.g. 180")
     ap.add_argument("--dte-window", type=int, default=None)
+    ap.add_argument("--v41", action="store_true",
+                    help="V29 Tier 2 #7: asymmetric strangle vs the straddle")
     ap.add_argument("--v39", action="store_true",
                     help="open-hedged against close-hedged, six cells")
     ap.add_argument("--v37", action="store_true",
@@ -923,6 +1019,7 @@ def main() -> int:
     a = ap.parse_args()
 
     global EXTRA_SPREAD_VOL_PTS, HEDGE_MODE, EXIT_MODE, DTE_WINDOW
+    global STRUCTURE, CALL_DELTA
     EXTRA_SPREAD_VOL_PTS = a.extra_spread
     HEDGE_MODE, EXIT_MODE = a.hedge, a.exit_mode
     if a.dte_window:
@@ -933,6 +1030,8 @@ def main() -> int:
     chain["expiry_key"] = chain["expiration"].astype("int64")
     spot = daily_closes("SOXL")
 
+    if a.v41:
+        return _v41(chain, spot)
     if a.v39:
         return _v39(chain, spot)
     if a.v37:
