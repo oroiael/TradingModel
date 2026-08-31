@@ -48,6 +48,14 @@ CONTRACTS = 10
 #: capital on premium each cycle.
 PREMIUM_FRACTION = 0.05
 
+#: [V32 MEASURED] The backtest charges the vendor's END-OF-DAY bid/ask. Live
+#: IBKR BID_ASK ticks over 9 sessions and 126 straddle observations put the real
+#: intraday round trip at 17.8 vol points against the 10.6 those EOD snapshots
+#: imply. The vendor file understates the cost by 7.2 points, so charge the
+#: difference against each cycle's own vega rather than guessing at a dollar
+#: figure. Set to 0.0 to reproduce the V31 numbers exactly.
+EXTRA_SPREAD_VOL_PTS = 0.0
+
 # ---- prespecified grid, V30
 TARGET_DTE = (30, 37, 45)
 ROLL_DTE = (7, 14, 21)
@@ -252,7 +260,9 @@ def run(chain: pd.DataFrame, spot: pd.Series, target_dte: int, roll_dte: int,
             iv_open=(float(c0.implied_vol) + float(p0.implied_vol)) / 2,
             premium_paid=paid, premium_recv=recv,
             option_pnl=recv - paid, hedge_pnl=hedge_pnl,
-            hedge_cost=hedge_cost, opt_commission=opt_comm,
+            hedge_cost=hedge_cost + EXTRA_SPREAD_VOL_PTS
+            * ((float(c0.vega) + float(p0.vega)) * sz) / 100.0,
+            opt_commission=opt_comm,
             n_hedges=n_hedges, shares_traded=shares_traded,
             sessions=len(wnd), rv_realised=rv)
         cycles.append(cyc)
@@ -505,8 +515,13 @@ def main() -> int:
     ap.add_argument("--grid", action="store_true")
     ap.add_argument("--trace", type=int, default=0)
     ap.add_argument("--out", default=os.path.join(_HERE, "out"))
+    ap.add_argument("--extra-spread", type=float, default=0.0,
+                    help="extra vol points of option spread to charge per "
+                         "cycle; 7.2 is the V32 measured shortfall")
     a = ap.parse_args()
 
+    global EXTRA_SPREAD_VOL_PTS
+    EXTRA_SPREAD_VOL_PTS = a.extra_spread
     chain = load_chain()
     chain["expiry_key"] = chain["expiration"].astype("int64")
     spot = daily_closes("SOXL")
