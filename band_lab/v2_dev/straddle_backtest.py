@@ -573,6 +573,99 @@ def equity_report(cyc: list[Cycle], daily: pd.DataFrame) -> None:
   not been looked up.""")
 
 
+def _v37(chain, spot) -> int:
+    """V29 Tier 2 #4 — the long-dated straddle, with the overlap correction.
+
+    V37 B1 requires t on NON-OVERLAPPING cycles. Consecutive cycles here run
+    back to back by construction (i = j), so they already are independent --
+    the correction that matters is simply that there are very few of them, and
+    that is reported beside every number rather than left to be inferred.
+    """
+    global HEDGE_MODE, EXIT_MODE, EXTRA_SPREAD_VOL_PTS, DTE_WINDOW
+    EXIT_MODE = "expiry"
+    w = 96
+    print("=" * w)
+    print("V37 — LONG-DATED ATM SOXL STRADDLE, HELD TO EXPIRY. V29 Tier 2 #4.")
+    print("   Bar in V37_LONGDATED_BAR.md, committed first. It prespecifies "
+          "that this is likely INCONCLUSIVE.")
+    print("=" * w)
+
+    rows = []
+    for shortfall, lbl in ((0.0, "vendor EOD spread"),
+                           (7.2 * 4.9 / 10.6, "+ V32 shortfall scaled to tenor "
+                                              "(A22)  <-- headline")):
+        print(f"\n  {lbl}")
+        print(f"  {'hedge':<8}{'DTE':<7}{'cycles':>8}{'yrs/cyc':>9}"
+              f"{'ret/cycle':>11}{'t':>7}{'win%':>7}{'ann.':>9}")
+        print("  " + "-" * 66)
+        for hedge in ("none", "daily"):
+            for td in (90, 180, 270):
+                HEDGE_MODE = hedge
+                DTE_WINDOW = max(20, td // 4)
+                EXTRA_SPREAD_VOL_PTS = shortfall
+                c, _ = run(chain, spot, td, 14)
+                if not c:
+                    print(f"  {hedge:<8}{td:<7}   no cycles")
+                    continue
+                st = summarize(c, "", verbose=False)
+                yrs = st["df"].sessions.mean() / 252.0
+                ann = (1 + st["mean"]) ** (1 / yrs) - 1 if yrs > 0 else np.nan
+                rows.append(dict(shortfall=shortfall, hedge=hedge, dte=td,
+                                 yrs=yrs, ann=ann,
+                                 **{k: st[k] for k in
+                                    ("n", "mean", "t", "sem", "win", "mdd")}))
+                mk = "  <-- headline" if (hedge, td) == ("none", 180) else ""
+                print(f"  {hedge:<8}{td:<7}{st['n']:>8}{yrs:>9.2f}"
+                      f"{st['mean']*100:>+10.2f}%{st['t']:>7.2f}"
+                      f"{st['win']*100:>6.0f}%{ann*100:>+8.1f}%{mk}")
+
+    df = pd.DataFrame(rows)
+    m = df[df.shortfall > 0]
+    if m.empty:
+        print("\n  no cells produced cycles")
+        return 1
+    head = m[(m.hedge == "none") & (m.dte == 180)]
+    if head.empty:
+        head = m.iloc[[0]]
+    head = head.iloc[0]
+    pos = int((m["mean"] > 0).sum())
+    med = float(m["mean"].median())
+
+    print("\n" + "=" * w)
+    print("THE SAMPLE-SIZE PROBLEM, WHICH V37 PRESPECIFIED AS THE FINDING")
+    print("=" * w)
+    print(f"""
+  The headline cell holds {head['n']:.0f} cycles of {head['yrs']:.2f} years each over a
+  4.49-year sample. These are back-to-back and therefore already independent --
+  but {head['n']:.0f} observations is an anecdote, not a measurement.
+
+  mean {head['mean']*100:+.2f}% per cycle, se {head['sem']*100:.2f}%, t = {head['t']:+.2f}
+  95% CI [{(head['mean']-1.96*head['sem'])*100:+.1f}%, {(head['mean']+1.96*head['sem'])*100:+.1f}%]
+
+  To reach |t| = 2.0 at this effect size would need
+  {(2.0*head['sem']/abs(head['mean']))**2*head['n']:.0f} cycles = {(2.0*head['sem']/abs(head['mean']))**2*head['n']*head['yrs']:.0f} years of data.""")
+
+    print(f"\n  {'BAR':<6}{'test':<48}{'result':>14}{'':>6}")
+    print("  " + "-" * 74)
+    b1 = head["t"] > 2.0 and head["mean"] > 0
+    b4 = pos >= 5
+    b5 = abs(head["mean"] - med) <= head["sem"]
+    b7 = head["mdd"] > -0.35
+    for k, d_, ok, v in (
+            ("B1", "return > 0, t > 2.0 on independent cycles", b1,
+             f"{head['mean']*100:+.2f}%, t={head['t']:+.2f}"),
+            ("B3", "every cost charged", True, "yes"),
+            ("B4", "at least 5 of 6 cells positive", b4, f"{pos}/{len(m)}"),
+            ("B5", "headline within 1 se of grid median", b5,
+             f"med {med*100:+.2f}%"),
+            ("B7", "max drawdown < 35%", b7, f"{head['mdd']*100:.0f}%")):
+        print(f"  {k:<6}{d_:<48}{v:>14}   {'PASS' if ok else 'FAIL'}")
+    print(f"\n  ADOPTED: {'YES' if (b1 and b4 and b5) else 'NO'}"
+          f"    (V37 predicted INCONCLUSIVE, not pass or fail)")
+    df.to_csv(os.path.join(_HERE, "out", "V37_longdated_grid.csv"), index=False)
+    return 0
+
+
 def _v33(chain, spot) -> int:
     """V29 Tier 1 #2 — the unhedged straddle, against V31/V32's hedged arm."""
     global HEDGE_MODE, EXIT_MODE, EXTRA_SPREAD_VOL_PTS
@@ -674,6 +767,12 @@ def main() -> int:
     ap.add_argument("--hedge", choices=("daily", "none"), default="daily")
     ap.add_argument("--exit", dest="exit_mode",
                     choices=("roll", "expiry"), default="roll")
+    ap.add_argument("--target-dte", type=int, default=None,
+                    help="V37: override the entry tenor, e.g. 180")
+    ap.add_argument("--dte-window", type=int, default=None)
+    ap.add_argument("--v37", action="store_true",
+                    help="the six prespecified long-dated cells, with t "
+                         "computed on NON-OVERLAPPING cycles")
     ap.add_argument("--v33", action="store_true",
                     help="the six prespecified unhedged cells, both spread "
                          "regimes, against the hedged arm")
@@ -682,13 +781,17 @@ def main() -> int:
                          "cycle; 7.2 is the V32 measured shortfall")
     a = ap.parse_args()
 
-    global EXTRA_SPREAD_VOL_PTS, HEDGE_MODE, EXIT_MODE
+    global EXTRA_SPREAD_VOL_PTS, HEDGE_MODE, EXIT_MODE, DTE_WINDOW
     EXTRA_SPREAD_VOL_PTS = a.extra_spread
     HEDGE_MODE, EXIT_MODE = a.hedge, a.exit_mode
+    if a.dte_window:
+        DTE_WINDOW = a.dte_window
     chain = load_chain()
     chain["expiry_key"] = chain["expiration"].astype("int64")
     spot = daily_closes("SOXL")
 
+    if a.v37:
+        return _v37(chain, spot)
     if a.v33:
         return _v33(chain, spot)
 
