@@ -221,6 +221,15 @@ def run(chain: pd.DataFrame, spot: pd.Series, target_dte: int, roll_dte: int,
         n_hedges, shares_traded = (0, 0.0) if HEDGE_MODE == "none" else (1, abs(shares))
         held_shares = shares
         prev_spot = spot0
+        # [V39 BUG FIX 3] A25 says the 09:30 delta uses the PRIOR close's
+        # implied vol, because at 09:30 that afternoon's vol is not knowable.
+        # The code used cj.implied_vol -- the SAME session's close -- which is
+        # lookahead, the class of error this project has been burned by more
+        # than any other. It is the third defect found in this one feature and
+        # the only one that could not have been caught by arithmetic: the two
+        # before it moved the number, this one moves information backwards in
+        # time. Seeded from the entry quote and rolled forward each bar.
+        iv_c, iv_p = float(c0.implied_vol), float(p0.implied_vol)
         # [v2] Daily mark-to-market. Cycle-end sampling cannot see a drawdown
         # that opens and closes inside a cycle, and cycles run 15 sessions.
         # Options are MARKED at the mid and TRADED at the bid/ask, so the entry
@@ -298,9 +307,9 @@ def run(chain: pd.DataFrame, spot: pd.Series, target_dte: int, roll_dte: int,
                 prev_spot = so
                 Tx = max(int(cj.dte), 1) / 365.0
                 wx = -(float(bs.delta(so, strike, Tx, 0.04, 0.0,
-                                      float(cj.implied_vol), "CALL"))
+                                      iv_c, "CALL"))
                        + float(bs.delta(so, strike, Tx, 0.04, 0.0,
-                                        float(pj.implied_vol), "PUT"))) * sz
+                                        iv_p, "PUT"))) * sz
                 dx = float(np.round(wx - held_shares))
                 if abs(dx) > 0.5:
                     hedge_cost += abs(dx) * so * HEDGE_BP_ONE_WAY / 1e4
@@ -336,10 +345,8 @@ def run(chain: pd.DataFrame, spot: pd.Series, target_dte: int, roll_dte: int,
                 # the interval this position is unhedged over runs open to open.
                 so = OPENS[dj]
                 T = max(int(cj.dte), 1) / 365.0
-                dc = float(bs.delta(so, strike, T, 0.04, 0.0,
-                                    float(cj.implied_vol), "CALL"))
-                dp = float(bs.delta(so, strike, T, 0.04, 0.0,
-                                    float(pj.implied_vol), "PUT"))
+                dc = float(bs.delta(so, strike, T, 0.04, 0.0, iv_c, "CALL"))
+                dp = float(bs.delta(so, strike, T, 0.04, 0.0, iv_p, "PUT"))
                 want = -(dc + dp) * sz
             else:
                 want = -(float(cj.delta) + float(pj.delta)) * sz
