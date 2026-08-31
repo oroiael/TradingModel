@@ -32,3 +32,11 @@ band_lab/v2_dev/out/reparam/trades__*.csv
 # band_lab/v2_dev: V23 writes one row per option trade per start date
 # (~870 paths x ~90 trades). paths.csv is the summary and IS tracked.
 band_lab/v2_dev/out/v23/trades.csv
+
+# V33 sweep output is written live by a long run; committed only when complete
+band_lab/v2_dev/out/V33_unhedged.txt
+band_lab/v2_dev/out/V35_backspread.txt
+band_lab/v2_dev/out/V37_longdated.txt
+band_lab/v2_dev/out/V39_openhedge.txt
+band_lab/v2_dev/out/V30_straddle_cycles.csv
+band_lab/v2_dev/out/V41_strangle.txt

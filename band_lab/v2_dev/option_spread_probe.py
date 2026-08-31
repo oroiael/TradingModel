@@ -98,6 +98,24 @@ NY = ZoneInfo("America/New_York")
 OUT = os.path.join(_HERE, "out")
 TICKS_CSV = os.path.join(OUT, "V32_option_ticks.csv")
 
+#: [V43] The whole option catalogue was measured on SOXL, a 3x leveraged ETF
+#: whose options carry among the widest spreads in the listed market. V32
+#: measured its ATM straddle round trip at 17.8 volatility points against a
+#: gross edge of 11.5, and every structure in V29 failed on that gap. Nothing
+#: tested says the premium is unharvestable on a LIQUID underlying, because no
+#: other underlying has ever been measured. This is that measurement.
+#:
+#: primaryExchange matters: qualifyContracts is ambiguous without it for some
+#: of these, and a wrong listing silently returns a different instrument.
+SYMBOLS = {
+    "SOXL": "ARCA",     # 3x semis, the instrument everything was tested on
+    "SOXS": "ARCA",     # 3x inverse semis
+    "SOXX": "NASDAQ",   # unlevered semis -- the direct comparison
+    "SMH":  "NASDAQ",   # the other semis ETF
+    "QQQ":  "NASDAQ",
+    "SPY":  "ARCA",
+}
+
 # Match the straddle backtest so the measurement is comparable to what it costed.
 TARGET_DTE = 37
 DTE_WINDOW = 13
@@ -147,7 +165,7 @@ def _connect(host, port, client_id):
     return ib
 
 
-def _atm_straddle(ib, when: datetime, target_dte: int):
+def _atm_straddle(ib, when: datetime, target_dte: int, symbol: str = "SOXL"):
     """The same contract the backtest would have picked, on `when`.
 
     Returns (call, put, strike, expiry, spot) or None. Selection rule copied
@@ -156,9 +174,11 @@ def _atm_straddle(ib, when: datetime, target_dte: int):
     """
     from ib_async import Option, Stock
 
-    stk = ib.qualifyContracts(Stock("SOXL", "SMART", "USD", primaryExchange="ARCA"))
+    stk = ib.qualifyContracts(
+        Stock(symbol, "SMART", "USD",
+              primaryExchange=SYMBOLS.get(symbol, "ARCA")))
     if not stk:
-        raise RuntimeError("could not qualify SOXL")
+        raise RuntimeError(f"could not qualify {symbol}")
     stk = stk[0]
 
     bars = ib.reqHistoricalData(
@@ -200,7 +220,7 @@ def _atm_straddle(ib, when: datetime, target_dte: int):
         return None
     try:
         det = ib.reqContractDetails(
-            Option("SOXL", expiry, 0, "C", "SMART", tradingClass="SOXL"))
+            Option(symbol, expiry, 0, "C", "SMART", tradingClass=symbol))
         listed = {float(d.contract.strike) for d in det}
         if listed:
             want = [k for k in want if k in listed]
@@ -214,8 +234,8 @@ def _atm_straddle(ib, when: datetime, target_dte: int):
     # rather than indexing into them.
     for strike in sorted(want, key=lambda k: abs(k / spot - 1.0)):
         legs = [c for c in ib.qualifyContracts(
-            Option("SOXL", expiry, strike, "C", "SMART", tradingClass="SOXL"),
-            Option("SOXL", expiry, strike, "P", "SMART", tradingClass="SOXL"))
+            Option(symbol, expiry, strike, "C", "SMART", tradingClass=symbol),
+            Option(symbol, expiry, strike, "P", "SMART", tradingClass=symbol))
             if c is not None]
         call = next((c for c in legs if c.right == "C"), None)
         put = next((c for c in legs if c.right == "P"), None)
@@ -245,6 +265,103 @@ def _ticks(ib, contract, start: datetime, n: int):
         ignoreSize=False)
 
 
+def cmd_compare(a) -> int:
+    """V43 — the same measurement across underlyings, side by side.
+
+    The decisive number is the round-trip spread in VOLATILITY POINTS, because
+    that is the unit the edge is measured in. SOXL's is 17.8 against an edge of
+    11.5, which is why every structure in V29 failed. A symbol whose spread is a
+    fraction of a point does not need an 11.5-point edge to clear its costs.
+    """
+    ib = _connect(a.host, a.port, a.client_id)
+    syms = [x.strip().upper() for x in a.compare.split(",") if x.strip()]
+    when = _last_weekday(datetime.now(NY) - timedelta(days=a.days_back))
+    rows = []
+    try:
+        print(f"\n  as of {when:%Y-%m-%d} ({when:%A}), nearest "
+              f"{a.target_dte} DTE, at the money\n")
+        for sym in syms:
+            try:
+                sel = _atm_straddle(ib, when, a.target_dte, sym)
+            except Exception as exc:                    # noqa: BLE001
+                print(f"  {sym:<6} could not resolve: "
+                      f"{type(exc).__name__}: {exc}")
+                continue
+            if sel is None:
+                print(f"  {sym:<6} no ATM straddle within "
+                      f"{DTE_WINDOW} days of {a.target_dte} DTE")
+                continue
+            call, put, strike, expiry, dte, spot = sel
+            q = {}
+            t0 = when.replace(hour=12, minute=0, second=0, microsecond=0)
+            for right, c in (("CALL", call), ("PUT", put)):
+                try:
+                    tk = _ticks(ib, c, t0, 20)
+                except Exception as exc:                # noqa: BLE001
+                    print(f"  {sym:<6} {right} ticks failed: {exc}")
+                    tk = []
+                if tk:
+                    q[right] = (float(tk[-1].priceBid), float(tk[-1].priceAsk),
+                                float(tk[-1].sizeBid), float(tk[-1].sizeAsk))
+                time.sleep(a.pause)
+            if len(q) != 2:
+                print(f"  {sym:<6} incomplete quotes, skipping")
+                continue
+            T = dte / 365.0
+            spr = vg = 0.0
+            ivs = []
+            depth = []
+            for right, (b, k, bs_, as_) in q.items():
+                mid = (b + k) / 2.0
+                iv = float(bs.implied_vol(mid, spot, strike, T, R, Q, right))
+                vg += float(bs.vega(spot, strike, T, R, Q, iv))
+                spr += k - b
+                ivs.append(iv)
+                depth.append(min(bs_, as_))
+            vp = spr / (vg / 100.0) if vg else float("nan")
+            rows.append(dict(sym=sym, spot=spot, strike=strike, dte=dte,
+                             iv=np.mean(ivs) * 100, spread=spr, vol_pts=vp,
+                             depth=min(depth)))
+            print(f"  {sym:<6} spot {spot:>8.2f}  K {strike:>7.1f}  "
+                  f"{dte:>3}d  IV {np.mean(ivs)*100:>6.1f}%  "
+                  f"spread ${spr:>6.2f}  ->  {vp:>6.1f} VOL POINTS  "
+                  f"depth {min(depth):>5.0f}")
+    finally:
+        ib.disconnect()
+
+    if not rows:
+        print("\n  nothing resolved. Run --check first.")
+        return 1
+    d = pd.DataFrame(rows).sort_values("vol_pts")
+    base = d[d.sym == "SOXL"]["vol_pts"]
+    b = float(base.iloc[0]) if len(base) else float("nan")
+    print("\n" + "=" * 84)
+    print("ROUND-TRIP SPREAD IN VOLATILITY POINTS — cheapest first")
+    print("=" * 84)
+    print(f"\n  {'symbol':<8}{'IV':>8}{'spread $':>11}{'VOL POINTS':>13}"
+          f"{'vs SOXL':>10}{'edge needed':>14}")
+    print("  " + "-" * 64)
+    for _, r in d.iterrows():
+        rel = f"{r.vol_pts/b:.2f}x" if np.isfinite(b) and b else "-"
+        print(f"  {r.sym:<8}{r.iv:>7.1f}%{r.spread:>11.2f}{r.vol_pts:>13.1f}"
+              f"{rel:>10}{r.vol_pts:>13.1f}")
+    print(f"""
+  'edge needed' is simply the spread: a long-volatility structure has to beat
+  its own round trip before anything else. SOXL's measured gross edge is +11.5
+  volatility points (V31) against a 17.8-point spread, which is the entire
+  reason six structures failed.
+
+  A symbol in this table whose spread is below 11.5 would clear that same edge.
+  Whether it HAS that edge is a separate measurement -- the premium has only
+  ever been measured on SOXL -- but a cheap spread is the necessary condition
+  and it is the one thing that has never been checked anywhere else.
+""")
+    os.makedirs(OUT, exist_ok=True)
+    d.to_csv(os.path.join(OUT, "V43_spread_by_symbol.csv"), index=False)
+    print(f"  wrote out/V43_spread_by_symbol.csv")
+    return 0
+
+
 def cmd_check(a) -> int:
     """One small request. Prove the subscription serves this before collecting."""
     ib = _connect(a.host, a.port, a.client_id)
@@ -255,7 +372,7 @@ def cmd_check(a) -> int:
             print(f"\n{asked:%Y-%m-%d} is a {asked:%A}; using "
                   f"{when:%Y-%m-%d} ({when:%A}) instead")
         print(f"\nasking for the ATM straddle as of {when:%Y-%m-%d}")
-        sel = _atm_straddle(ib, when, a.target_dte)
+        sel = _atm_straddle(ib, when, a.target_dte, a.symbol)
         if sel is None:
             print("[FAIL] no ATM straddle resolved. Either the date is a "
                   "holiday, or no expiry sits within "
@@ -629,6 +746,11 @@ def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__.split("\n")[1])
     ap.add_argument("--doctor", action="store_true",
                     help="which interpreter am I on and can it import ib_async")
+    ap.add_argument("--compare", metavar="SYMS",
+                    help="V43: measure the ATM straddle spread in volatility "
+                         "points across several underlyings, e.g. "
+                         "SOXL,SOXX,SMH,QQQ,SPY")
+    ap.add_argument("--symbol", default="SOXL")
     ap.add_argument("--check", action="store_true",
                     help="one small request: does the subscription serve this?")
     ap.add_argument("--collect", action="store_true")
@@ -647,6 +769,8 @@ def main() -> int:
 
     if a.doctor:
         return cmd_doctor()
+    if a.compare:
+        return cmd_compare(a)
     if a.selftest:
         return _selftest()
     if a.check:
