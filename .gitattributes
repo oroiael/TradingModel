@@ -25,3 +25,4 @@ vol_anatomy/out/*.csv -filter -diff -merge text
 fas_lab/out/*.csv -filter -diff -merge text
 band_lab/v2_dev/out/reparam/*.csv -filter -diff -merge text
 band_lab/v2_dev/out/v23/paths.csv -filter -diff -merge text
+band_lab/v2_dev/data/*.csv -filter -diff -merge text
