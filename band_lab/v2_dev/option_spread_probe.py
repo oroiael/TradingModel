@@ -186,20 +186,42 @@ def _atm_straddle(ib, when: datetime, target_dte: int):
         return None
     _, expiry, dte = min(exps)
 
-    strikes = sorted(float(s) for s in p.strikes
-                     if abs(float(s) / spot - 1.0) <= 0.05)
-    if not strikes:
+    # `reqSecDefOptParams` returns the UNION of strikes across every expiration
+    # and trading class, so a strike it lists may not exist for the expiry we
+    # picked. Taking the nearest one blindly asked for a 116.5 strike on the
+    # 20261002 expiry, IBKR answered "Error 200 no security definition",
+    # qualifyContracts returned None, and reading `.right` off None killed the
+    # whole collection run on its third session.
+    #
+    # Ask which strikes that expiry actually lists, instead of guessing from
+    # the union. One request, exact answer, no error spam.
+    want = [float(k) for k in p.strikes if abs(float(k) / spot - 1.0) <= 0.05]
+    if not want:
         return None
-    strike = min(strikes, key=lambda k: abs(k / spot - 1.0))
+    try:
+        det = ib.reqContractDetails(
+            Option("SOXL", expiry, 0, "C", "SMART", tradingClass="SOXL"))
+        listed = {float(d.contract.strike) for d in det}
+        if listed:
+            want = [k for k in want if k in listed]
+    except Exception:                                   # noqa: BLE001
+        pass                    # fall through to the nearest-first loop below
+    if not want:
+        return None
 
-    legs = ib.qualifyContracts(
-        Option("SOXL", expiry, strike, "C", "SMART", tradingClass="SOXL"),
-        Option("SOXL", expiry, strike, "P", "SMART", tradingClass="SOXL"))
-    if len(legs) != 2:
-        return None
-    call = [c for c in legs if c.right == "C"][0]
-    put = [c for c in legs if c.right == "P"][0]
-    return call, put, strike, expiry, dte, spot
+    # Nearest first, and keep going if one fails. `qualifyContracts` returns
+    # None in place of a contract it could not resolve, so filter those out
+    # rather than indexing into them.
+    for strike in sorted(want, key=lambda k: abs(k / spot - 1.0)):
+        legs = [c for c in ib.qualifyContracts(
+            Option("SOXL", expiry, strike, "C", "SMART", tradingClass="SOXL"),
+            Option("SOXL", expiry, strike, "P", "SMART", tradingClass="SOXL"))
+            if c is not None]
+        call = next((c for c in legs if c.right == "C"), None)
+        put = next((c for c in legs if c.right == "P"), None)
+        if call is not None and put is not None:
+            return call, put, strike, expiry, dte, spot
+    return None
 
 
 def _last_weekday(d: datetime) -> datetime:
@@ -289,6 +311,41 @@ def cmd_check(a) -> int:
                       f"spread {t.priceAsk - t.priceBid:.2f}")
         print(f"\n  Subscription serves option BID_ASK history. "
               f"Run --collect next.")
+
+        # The check already holds a full straddle quote. Do the arithmetic here
+        # rather than leaving it to be done by hand.
+        quotes = {}
+        for right, c in (("CALL", call), ("PUT", put)):
+            t0 = when.replace(hour=12, minute=0, second=0, microsecond=0)
+            tk = _ticks(ib, c, t0, 5)
+            if tk:
+                quotes[right] = (float(tk[-1].priceBid), float(tk[-1].priceAsk),
+                                 float(tk[-1].sizeBid), float(tk[-1].sizeAsk))
+        if len(quotes) == 2:
+            T = dte / 365.0
+            tot_spread = tot_vega = 0.0
+            print(f"\n  {'':<6}{'bid':>9}{'ask':>9}{'spread':>9}{'IV':>9}"
+                  f"{'vol pts':>10}{'bid sz':>9}{'ask sz':>9}")
+            print("  " + "-" * 64)
+            for right, (b, k, bsz, asz) in quotes.items():
+                mid = (b + k) / 2.0
+                iv = float(bs.implied_vol(mid, spot, strike, T, R, Q, right))
+                v = float(bs.vega(spot, strike, T, R, Q, iv))
+                tot_spread += k - b
+                tot_vega += v
+                print(f"  {right:<6}{b:>9.2f}{k:>9.2f}{k-b:>9.2f}"
+                      f"{iv*100:>8.1f}%{(k-b)/(v/100):>10.1f}"
+                      f"{bsz:>9.0f}{asz:>9.0f}")
+            vp = tot_spread / (tot_vega / 100.0) if tot_vega else float("nan")
+            print("  " + "-" * 64)
+            print(f"  {'STRADDLE':<6}{'':<18}{tot_spread:>9.2f}{'':>9}"
+                  f"{vp:>10.1f}")
+            print(f"\n  ONE SAMPLE, ONE MOMENT. Not a distribution — that is "
+                  f"what --collect is for.")
+            print(f"    measured here                    {vp:>6.1f} vol points")
+            print(f"    V28 end-of-day mean (used by V31){EOD_MEAN_VOL_PTS:>6.1f}")
+            print(f"    V31 net = edge 11.5 - spread     {11.5 - vp:>+6.1f} "
+                  f"(V31 had +1.0)")
         return 0
     finally:
         ib.disconnect()
@@ -302,7 +359,13 @@ def cmd_collect(a) -> int:
         done = 0
         while done < a.sessions and day > datetime.now(NY) - timedelta(days=400):
             day = _last_weekday(day)
-            sel = _atm_straddle(ib, day, a.target_dte)
+            try:
+                sel = _atm_straddle(ib, day, a.target_dte)
+            except Exception as exc:                    # noqa: BLE001
+                # A single unresolvable session is not a reason to lose the
+                # sessions already collected.
+                print(f"  {day:%Y-%m-%d}: {type(exc).__name__}: {exc} — skipping")
+                sel = None
             if sel is None:
                 print(f"  {day:%Y-%m-%d}: no straddle, skipping")
                 day -= timedelta(days=1)
