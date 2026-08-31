@@ -281,6 +281,33 @@ def run(chain: pd.DataFrame, spot: pd.Series, target_dte: int, roll_dte: int,
             # named in advance as a discard trigger rather than a finding.
             is_exit = (EXIT_MODE == "roll"
                        and (int(cj.dte) <= roll_dte or j == len(dates) - 1))
+
+            # [V39 BUG FIX 2] The first fix marked the exit bar to the close but
+            # SKIPPED the 09:30 re-hedge on that session, so the position ran
+            # unhedged from the previous open all the way to the exit close --
+            # about 1.5 sessions instead of being re-hedged twice. Long gamma
+            # over a longer unhedged interval captures more variance, so it kept
+            # manufacturing a gain: the effect only fell from +2.18 to +1.50
+            # points and open-hedging still beat close-hedging 3 of 3, which
+            # V39 named as a discard trigger. The exit session now gets its open
+            # hedge and THEN marks to the close, so every interval in open mode
+            # runs open-to-open with a final open-to-close stub.
+            if HEDGE_MODE == "open" and is_exit and dj in OPENS:
+                so = OPENS[dj]
+                hedge_pnl += held_shares * (so - prev_spot)
+                prev_spot = so
+                Tx = max(int(cj.dte), 1) / 365.0
+                wx = -(float(bs.delta(so, strike, Tx, 0.04, 0.0,
+                                      float(cj.implied_vol), "CALL"))
+                       + float(bs.delta(so, strike, Tx, 0.04, 0.0,
+                                        float(pj.implied_vol), "PUT"))) * sz
+                dx = float(np.round(wx - held_shares))
+                if abs(dx) > 0.5:
+                    hedge_cost += abs(dx) * so * HEDGE_BP_ONE_WAY / 1e4
+                    shares_traded += abs(dx)
+                    n_hedges += 1
+                    held_shares += dx
+
             sj = (OPENS.get(dj, float(cj.underlying_price))
                   if (HEDGE_MODE == "open" and not is_exit)
                   else float(cj.underlying_price))
@@ -641,8 +668,9 @@ def _v39(chain, spot) -> int:
                            (7.2, "+ V32 measured shortfall  <-- headline")):
         print(f"\n  {lbl}")
         print(f"  {'entry DTE':<11}{'close-hedged':>15}{'open-hedged':>14}"
-              f"{'difference':>13}{'B1b':>7}")
-        print("  " + "-" * 60)
+              f"{'difference':>13}{'B1b':>7}{'hedges/session':>16}")
+        print(f"  {'':<60}{'close':>8}{'open':>8}")
+        print("  " + "-" * 76)
         for td in (30, 37, 45):
             got = {}
             for mode in ("daily", "open"):
@@ -654,8 +682,13 @@ def _v39(chain, spot) -> int:
                 continue
             a_, b_ = got["daily"]["mean"], got["open"]["mean"]
             res[(shortfall, td)] = (a_, b_)
+            ha = got["daily"]["df"]
+            hb = got["open"]["df"]
+            pa = (ha.n_hedges / ha.sessions).mean()
+            pb = (hb.n_hedges / hb.sessions).mean()
             print(f"  {td:<11}{a_*100:>+14.2f}%{b_*100:>+13.2f}%"
-                  f"{(b_-a_)*100:>+12.2f}%{'PASS' if b_ > a_ else 'FAIL':>7}")
+                  f"{(b_-a_)*100:>+12.2f}%{'PASS' if b_ > a_ else 'FAIL':>7}"
+                  f"{pa:>8.2f}{pb:>8.2f}")
     m = {k: v for k, v in res.items() if k[0] > 0}
     wins = sum(1 for a_, b_ in m.values() if b_ > a_)
     diffs = [(b_ - a_) * 100 for a_, b_ in m.values()]
