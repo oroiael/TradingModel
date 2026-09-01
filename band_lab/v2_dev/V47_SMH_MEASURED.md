@@ -126,6 +126,52 @@ Two selftests now enforce it: one asserts no grid column name collides with a
 the exact operation that crashed. Both were confirmed to fail against the old
 names before being kept. 10/10.
 
+## Calibration ran. The estimator search FAILED; the units are identified anyway.
+
+```
+ window       estimator  lag  dates  median ratio  IQR/median    corr
+     45   rms_zero_mean    0  1,207        1.0157      13.76%  0.9300
+     45       std_ddof1    0  1,207        1.0164      13.84%  0.9273
+     45       std_ddof0    0  1,207        1.0050      13.84%  0.9273
+     30   rms_zero_mean    0  1,222        1.0335      13.99%  0.9606
+     30       std_ddof1    0  1,222        1.0351      15.09%  0.9596
+```
+
+**Best dispersion 13.76% against a 2% bar. That is a failure and it is reported
+as one — IBKR's exact estimator is not in the grid.** Its window is somewhere
+near 30–45 sessions and is probably calendar-based, which no session count
+reproduces exactly. Correlation 0.93–0.96 confirms both series are measuring the
+same thing; they just use different windows, and two windows 15 sessions apart
+genuinely disagree 10–15% day to day.
+
+**But the units question is a different question, and I set the gate on the
+wrong one.**
+
+| | |
+|---|---|
+| identifying the **estimator** | needs a tight ratio — 2% is the right bar, and it failed |
+| identifying the **units** | asks only whether the ratio is near **1.0** or near **0.063** |
+
+Those two hypotheses are a **factor of 16** apart. Across all ten best
+estimators the ratio spans **1.0041 to 1.0351** — every one on daily sigma,
+**16× clear of the alternative**. Window noise of a few percent cannot move a
+band from 1.0 to 0.063. **The units survive never identifying the estimator at
+all.**
+
+So: `OPTION_IMPLIED_VOLATILITY` and `HISTORICAL_VOLATILITY` are **daily sigma**,
+and annualising needs **√252 = 15.8745**. Corroborated independently — SOXL's
+raw IV bars run 0.0645–0.0748 in late August, which annualise to 102%–119%,
+squarely where SOXL's implied vol actually sits.
+
+**This is not self-validating and is not meant to be.** The arbiter is the Part B
+control against V37's vendor option files, a completely independent source. If
+SOXL's 1-month edge lands within 3 points of +10.9 the scale is confirmed. If it
+does not, the scale is wrong and Part B stays unreported.
+
+Three selftests now guard the units logic: it must read the real observed band
+as daily, flip correctly for an annualised band, and **refuse an ambiguous one**
+— so it cannot say yes to everything. 13/13 pass.
+
 ## Where this is heading, stated before the rerun
 
 Applying √252 to the printed figures gives:

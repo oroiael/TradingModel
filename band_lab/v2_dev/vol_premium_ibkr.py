@@ -529,6 +529,28 @@ def calibration_grid(lr: pd.Series, ibkr: pd.Series,
     return pd.DataFrame(rows).sort_values("disp").reset_index(drop=True)
 
 
+def identify_units(lo: float, hi: float, tol: float = 0.5):
+    """Which unit convention does a band of candidate ratios sit on?
+
+    Separate from identifying the ESTIMATOR, and far cruder. The two
+    conventions are a factor of sqrt(252) = 16 apart, so a band that wanders a
+    few percent because the window is wrong still lands unambiguously on one of
+    them. Returns (daily_ok, annual_ok, separation_from_the_other). Both flags
+    true or both false means the band is not clean and nothing is adopted.
+    """
+    daily, annual = 1.0, 1.0 / math.sqrt(TRADING_DAYS)
+
+    def fits(t):
+        return abs(lo / t - 1.0) <= tol and abs(hi / t - 1.0) <= tol
+
+    d_ok, a_ok = fits(daily), fits(annual)
+    if d_ok == a_ok:
+        return d_ok, a_ok, float("nan")
+    other = annual if d_ok else daily
+    s = min(abs(lo / other), abs(hi / other))
+    return d_ok, a_ok, max(s, 1.0 / s) if s else float("nan")
+
+
 def calibrate_hv(ib, sym, years, pause) -> int:
     """Reconstruct IBKR's HISTORICAL_VOLATILITY from its own TRADES bars.
 
@@ -583,46 +605,66 @@ def calibrate_hv(ib, sym, years, pause) -> int:
               f"{r.ratio:>14.4f}{r.disp*100:>11.2f}%{r.correl:>8.4f}")
 
     b = d.iloc[0]
-    ann = 1.0 / b.ratio if b.ratio else np.nan
-    pinned = b.disp <= 0.02
     print(f"""
   Best: a {b.win:.0f}-session {b.est} at lag {b.lag:.0f}, ratio {b.ratio:.4f},
   dispersion {b.disp*100:.2f}%, correlation {b.correl:.4f}.
 """)
-    _v = ("CONSTANT to within 2% — the estimator is identified" if pinned
-          else "NOT constant; no estimator here reproduces IBKR")
+
+    # -------------------------------------------------- question 1: estimator
+    pinned = b.disp <= 0.02
+    _v = ("CONSTANT to within 2% — IBKR's exact estimator is identified"
+          if pinned else
+          "NOT constant — IBKR's exact estimator is NOT in this grid")
     print(f"  [{'PASS' if pinned else 'FAIL'}] the per-date ratio is {_v}")
-    if not pinned:
-        print("\n  Units remain unpinned. No scale adopted.\n")
+
+    # -------------------------------------------------- question 2: units
+    #
+    # These are DIFFERENT questions and the 2% bar belongs only to the first.
+    # Pinning the estimator needs a tight ratio because two windows that differ
+    # by 15 sessions genuinely disagree 10-15% day to day. The UNITS question
+    # asks something far cruder: is the ratio near 1.0 or near 0.063? Those are
+    # a factor of 16 apart, so window noise of a few percent cannot confuse
+    # them, and the answer survives never identifying the estimator at all.
+    top = d.head(10)
+    lo, hi = float(top.ratio.min()), float(top.ratio.max())
+    daily_ok, annual_ok, sep = identify_units(lo, hi)
+
+    print(f"""
+  UNITS — a separate question, and a much cruder one:
+
+      ~1.000  IBKR reports DAILY sigma, same unit as mine
+      ~0.063  IBKR reports an ALREADY-ANNUALISED figure
+
+  Across the 10 best estimators the ratio spans {lo:.4f} to {hi:.4f}.""")
+
+    if daily_ok == annual_ok:
+        print(f"\n  [FAIL] that band does not sit cleanly on either "
+              f"convention. Nothing adopted.\n")
         return 1
 
-    near_daily = abs(b.ratio - 1.0) <= 0.03
-    near_annual = abs(b.ratio - 1.0 / math.sqrt(TRADING_DAYS)) <= 0.03
+    scale = math.sqrt(TRADING_DAYS) if daily_ok else 1.0
+    which = "DAILY sigma" if daily_ok else "already annualised"
     print(f"""
-  The ratio settles at {b.ratio:.4f}:
-
-      ~1.000  would mean IBKR reports DAILY sigma in the same unit as mine
-      ~0.063  would mean IBKR reports an ALREADY-ANNUALISED figure
+  [PASS] every one of the 10 lands on {which}, and the whole band is
+  {sep:.0f}x away from the alternative. Window noise is a few percent; the two
+  hypotheses are 16x apart. **The units are identified even though the
+  estimator is not**, and the 2% bar above was the wrong gate for this
+  question — it was set for identifying the estimator, which genuinely failed.
 """)
-    if near_daily:
-        scale = math.sqrt(TRADING_DAYS)
-        print(f"  It is the first. IBKR's volatility bars are DAILY sigma, so "
-              f"annualising\n  needs sqrt(252) = {scale:.4f}. The implied day "
-              f"count from the ratio itself is\n  {ann**2:.0f} sessions, "
-              f"consistent with 252 to within the estimator's own noise.\n")
-        print(f"      python band_lab/v2_dev/vol_premium_ibkr.py "
-              f"--iv-scale {scale:.4f}\n")
-        print("  The Part B CONTROL against V37 is what validates it. If the "
-              "control still\n  fails, the scale is wrong and Part B stays "
-              "unreported.\n")
+    if not daily_ok:
+        print("  The series is already annualised, so the control failure is "
+              "NOT a unit\n  problem. Do not scale.\n")
         return 0
-    if near_annual:
-        print("  It is the second. The series is already annualised and the "
-              "control failure\n  is NOT a unit problem. Do not scale.\n")
-        return 0
-    print(f"  It is neither. {b.ratio:.4f} matches no convention, so "
-          f"nothing is adopted.\n")
-    return 1
+    print(f"""  So annualising needs sqrt(252) = {scale:.4f}:
+
+      python band_lab/v2_dev/vol_premium_ibkr.py --iv-scale {scale:.4f}
+
+  This is NOT self-validating, and it is not meant to be. The arbiter is the
+  Part B CONTROL against V37's vendor option files — a completely independent
+  source. If SOXL's 1-month edge lands within 3 points of +10.9 the scale is
+  confirmed; if it does not, the scale is wrong and Part B stays unreported.
+""")
+    return 0
 
 
 def _selftest() -> int:
@@ -736,6 +778,22 @@ def _selftest() -> int:
     except (TypeError, AttributeError) as exc:
         fmt_ok, detail = False, f"{type(exc).__name__}: {exc}"
     ok("every grid column formats via attribute access", fmt_ok, detail)
+
+    # 6d. The units verdict must be right on the ACTUAL observed band, must
+    #     flip correctly for an annualised series, and must refuse an
+    #     ambiguous one. This is the logic that overrode a failed 2% gate, so
+    #     it carries the burden of not being able to say yes to everything.
+    d_ok, a_ok, sep = identify_units(1.0041, 1.0351)      # the real run
+    ok("units: the observed band reads as DAILY sigma",
+       d_ok and not a_ok and sep > 10,
+       f"1.0041-1.0351 -> daily={d_ok} annual={a_ok}, {sep:.0f}x from the "
+       f"alternative")
+    d_ok, a_ok, _ = identify_units(0.0620, 0.0645)        # annualised instead
+    ok("units: an annualised band reads as ALREADY ANNUALISED",
+       a_ok and not d_ok, f"0.0620-0.0645 -> daily={d_ok} annual={a_ok}")
+    d_ok, a_ok, _ = identify_units(0.20, 0.55)            # neither
+    ok("units: an ambiguous band is refused",
+       not d_ok and not a_ok, f"0.20-0.55 -> daily={d_ok} annual={a_ok}")
 
     # 7. And it must NOT claim a match when none exists.
     noise = pd.Series(rng.uniform(0.01, 0.05, len(idx)), index=idx)
