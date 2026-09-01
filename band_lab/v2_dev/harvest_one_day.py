@@ -178,7 +178,17 @@ def hhmm(m):
     return f"{m // 60:02d}:{m % 60:02d}"
 
 
-def simulate(bars, pct, park_losers, equity, reserve, slots):
+def ibkr_tiered(shares, price):
+    """IBKR Pro tiered US equity commission for ONE order.
+
+    $0.0035 a share, a $1.00 order minimum, capped at 1% of trade value. The
+    cap is what stops a 30-share order in a $3 stock costing more than the
+    stock. Charged on the buy and again on the sell.
+    """
+    return min(max(1.00, 0.0035 * shares), 0.01 * shares * price)
+
+
+def simulate(bars, pct, park_losers, equity, reserve, slots, commission=None):
     """Walk the session once with real money and real share counts.
 
     Sequential by construction: the next entry is only considered after the
@@ -186,9 +196,11 @@ def simulate(bars, pct, park_losers, equity, reserve, slots):
     the two runs -- when True a loser is kept, unsold, until the 15:55 close,
     which is what lets positions pile up.
     """
+    fee = commission or (lambda shares, price: 0.0)
     eod_close = bars[-1][4]
     cash, ledger, held, blocked = equity, [], [], []
     peak_open = peak_cost = 0
+    paid = 0.0
     i = 0
 
     while i < len(bars):
@@ -202,15 +214,24 @@ def simulate(bars, pct, park_losers, equity, reserve, slots):
         # account compounds.
         budget = (equity - reserve) / slots if park_losers else cash - reserve
         shares = int(budget // entry)
+        # The commission is cash out of the same pot, so it has to be sized for.
+        # Without this the first order eats into the floor and every entry is
+        # rejected -- silently producing a zero-trade backtest.
+        if shares >= 1:
+            shares = int(max(0.0, budget - fee(shares, entry)) // entry)
+        while shares >= 1 and cash - shares * entry - fee(shares, entry) < reserve - 1e-9:
+            shares -= 1
         cost = shares * entry
+        buy_fee = fee(shares, entry) if shares >= 1 else 0.0
 
-        if shares < 1 or len(held) >= slots or cash - cost < reserve - 1e-9:
+        if shares < 1 or len(held) >= slots:
             # No room. Try again next minute; a sold winner may free a slot.
             blocked.append(minute)
             i += 1
             continue
 
-        cash -= cost
+        cash -= cost + buy_fee
+        paid += buy_fee
         held.append(dict(entry_min=minute, entry=entry, shares=shares, cost=cost))
         peak_open = max(peak_open, len(held))
         peak_cost = max(peak_cost, sum(h["cost"] for h in held))
@@ -219,12 +240,15 @@ def simulate(bars, pct, park_losers, equity, reserve, slots):
         outcome, j, fill, ambiguous = resolve(bars, i, target, stop)
 
         if outcome == "up" or (outcome == "down" and not park_losers):
-            cash += shares * fill
+            sell_fee = fee(shares, fill)
+            cash += shares * fill - sell_fee
+            paid += sell_fee
             held.pop()                         # sold; the slot and cash come back
             exit_min, exit_px, exit_why = bars[j][0], fill, "sold"
         else:
             # Still owned. It keeps its slot and its cash stays committed for the
             # rest of the session -- this is what makes positions pile up.
+            sell_fee = fee(shares, eod_close)
             exit_min, exit_px = FLAT_MIN, eod_close
             exit_why = "parked" if outcome == "down" else "unresolved"
 
@@ -233,17 +257,22 @@ def simulate(bars, pct, park_losers, equity, reserve, slots):
             cost=cost, outcome=outcome, ambiguous=ambiguous,
             touch_min=bars[j][0] if j is not None else FLAT_MIN,
             exit_min=exit_min, exit=exit_px, exit_why=exit_why,
-            proceeds=shares * exit_px, pnl=shares * (exit_px - entry)))
+            proceeds=shares * exit_px, buy_fee=buy_fee, sell_fee=sell_fee,
+            fees=buy_fee + sell_fee,
+            pnl=shares * (exit_px - entry) - buy_fee - sell_fee))
 
         if outcome == "open":
             break
         i = j + 1                              # "wait until the next minute"
 
     for h in held:                             # 15:55: liquidate what is left
-        cash += h["shares"] * eod_close
+        liq_fee = fee(h["shares"], eod_close)
+        cash += h["shares"] * eod_close - liq_fee
+        paid += liq_fee
 
     return dict(ledger=ledger, ending=cash, peak_open=peak_open,
-                peak_cost=peak_cost, blocked=blocked, eod_close=eod_close)
+                peak_cost=peak_cost, blocked=blocked, eod_close=eod_close,
+                fees=paid)
 
 
 def report_run(title, rule, sim, equity, reserve, slots, show_ledger):
