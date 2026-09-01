@@ -514,11 +514,16 @@ def calibration_grid(lr: pd.Series, ibkr: pd.Series,
                 med = float(r.median())
                 if not med:
                     continue
-                rows.append(dict(win=win, est=est, shift=shift, n=len(j),
-                                 median=med,
+                # Column names deliberately avoid `shift`, `median` and `corr`:
+                # those are Series METHODS, so `row.shift` returns the bound
+                # method rather than the value and formatting it raises
+                # TypeError. Renaming removes the whole class of bug instead of
+                # relying on remembering to use bracket access.
+                rows.append(dict(win=win, est=est, lag=shift, n=len(j),
+                                 ratio=med,
                                  disp=float((r.quantile(.75)
                                              - r.quantile(.25)) / med),
-                                 corr=float(j["mine"].corr(j["ibkr"]))))
+                                 correl=float(j["mine"].corr(j["ibkr"]))))
     if not rows:
         return pd.DataFrame()
     return pd.DataFrame(rows).sort_values("disp").reset_index(drop=True)
@@ -574,15 +579,15 @@ def calibrate_hv(ib, sym, years, pause) -> int:
           f"{'median ratio':>14}{'IQR/median':>12}{'corr':>8}")
     print("  " + "-" * 69)
     for _, r in d.head(10).iterrows():
-        print(f"  {r.win:>7.0f}{r.est:>16}{r.shift:>5.0f}{r.n:>7,.0f}"
-              f"{r['median']:>14.4f}{r.disp*100:>11.2f}%{r.corr:>8.4f}")
+        print(f"  {r.win:>7.0f}{r.est:>16}{r.lag:>5.0f}{r.n:>7,.0f}"
+              f"{r.ratio:>14.4f}{r.disp*100:>11.2f}%{r.correl:>8.4f}")
 
     b = d.iloc[0]
-    ann = 1.0 / b["median"] if b["median"] else np.nan
-    pinned = b["disp"] <= 0.02
+    ann = 1.0 / b.ratio if b.ratio else np.nan
+    pinned = b.disp <= 0.02
     print(f"""
-  Best: a {b.win:.0f}-session {b.est} at lag {b.shift:.0f}, ratio {b['median']:.4f},
-  dispersion {b.disp*100:.2f}%, correlation {b.corr:.4f}.
+  Best: a {b.win:.0f}-session {b.est} at lag {b.lag:.0f}, ratio {b.ratio:.4f},
+  dispersion {b.disp*100:.2f}%, correlation {b.correl:.4f}.
 """)
     _v = ("CONSTANT to within 2% — the estimator is identified" if pinned
           else "NOT constant; no estimator here reproduces IBKR")
@@ -591,10 +596,10 @@ def calibrate_hv(ib, sym, years, pause) -> int:
         print("\n  Units remain unpinned. No scale adopted.\n")
         return 1
 
-    near_daily = abs(b["median"] - 1.0) <= 0.03
-    near_annual = abs(b["median"] - 1.0 / math.sqrt(TRADING_DAYS)) <= 0.03
+    near_daily = abs(b.ratio - 1.0) <= 0.03
+    near_annual = abs(b.ratio - 1.0 / math.sqrt(TRADING_DAYS)) <= 0.03
     print(f"""
-  The ratio settles at {b['median']:.4f}:
+  The ratio settles at {b.ratio:.4f}:
 
       ~1.000  would mean IBKR reports DAILY sigma in the same unit as mine
       ~0.063  would mean IBKR reports an ALREADY-ANNUALISED figure
@@ -615,7 +620,7 @@ def calibrate_hv(ib, sym, years, pause) -> int:
         print("  It is the second. The series is already annualised and the "
               "control failure\n  is NOT a unit problem. Do not scale.\n")
         return 0
-    print(f"  It is neither. {b['median']:.4f} matches no convention, so "
+    print(f"  It is neither. {b.ratio:.4f} matches no convention, so "
           f"nothing is adopted.\n")
     return 1
 
@@ -704,10 +709,33 @@ def _selftest() -> int:
         top = g.iloc[0]
         ok(f"calibration recovers a planted {win}-session {est}",
            bool(top.win == win and top.est == est and top.disp < 1e-9
-                and abs(top["median"] - factor) < 1e-6),
+                and abs(top.ratio - factor) < 1e-6),
            f"found {top.win:.0f}-session {top.est}, ratio "
-           f"{top['median']:.4f} vs planted {factor:.4f}, "
+           f"{top.ratio:.4f} vs planted {factor:.4f}, "
            f"dispersion {top.disp:.2e}")
+
+    # 6b. No grid column may collide with a pandas method. `--calibrate`
+    #     crashed on a live run with "unsupported format string passed to
+    #     method.__format__" because the column was named `shift`, and
+    #     `row.shift` silently returned the bound METHOD instead of the value.
+    #     `median` and `corr` were the same trap. This checks the names rather
+    #     than trusting anyone to remember bracket access.
+    g0 = calibration_grid(lr, planted)
+    clash = [c for c in g0.columns if hasattr(pd.Series([1.0]), c)]
+    ok("no grid column shadows a pandas Series method",
+       not clash, f"columns {list(g0.columns)}"
+       + (f" — COLLIDES: {clash}" if clash else ""))
+
+    # 6c. Every column must survive attribute access AND formatting, which is
+    #     the exact operation that crashed.
+    try:
+        r0 = g0.iloc[0]
+        rendered = (f"{r0.win:.0f}{r0.est}{r0.lag:.0f}{r0.n:,.0f}"
+                    f"{r0.ratio:.4f}{r0.disp:.4f}{r0.correl:.4f}")
+        fmt_ok, detail = True, f"formatted {len(rendered)} chars cleanly"
+    except (TypeError, AttributeError) as exc:
+        fmt_ok, detail = False, f"{type(exc).__name__}: {exc}"
+    ok("every grid column formats via attribute access", fmt_ok, detail)
 
     # 7. And it must NOT claim a match when none exists.
     noise = pd.Series(rng.uniform(0.01, 0.05, len(idx)), index=idx)

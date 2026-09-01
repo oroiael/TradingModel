@@ -107,7 +107,24 @@ options, so whatever it settles at is a property of the encoding.
 
 Verified offline in `--selftest`: the search recovers a planted 21-session
 `std_ddof1` at √252 and a planted 30-session `rms_zero_mean` at 1.0, both to
-dispersion 0.00e+00, and reports 74% dispersion on an unrelated series. 8/8.
+dispersion 0.00e+00, and reports 74% dispersion on an unrelated series.
+
+### And it crashed on the first live run
+
+```
+TypeError: unsupported format string passed to method.__format__
+```
+
+The grid column was named `shift`. **`shift` is a pandas Series method**, so
+`row.shift` returned the bound method rather than the value, and formatting it
+raised. `median` and `corr` were the same trap — `median` survived only because
+I happened to use bracket access there.
+
+The fix is the rename (`lag`, `ratio`, `correl`), not a reminder to use brackets.
+Two selftests now enforce it: one asserts no grid column name collides with a
+`pd.Series` attribute, the other formats every column through attribute access —
+the exact operation that crashed. Both were confirmed to fail against the old
+names before being kept. 10/10.
 
 ## Where this is heading, stated before the rerun
 
