@@ -193,8 +193,31 @@ def _atm_straddle(ib, when: datetime, target_dte: int, symbol: str = "SOXL"):
                                                stk.conId)
               if p.exchange == "SMART"]
     if not params:
-        raise RuntimeError("no SMART option parameters for SOXL")
-    p = params[0]
+        raise RuntimeError(f"no SMART option parameters for {symbol}")
+
+    # [V43 BUG FIX] Taking params[0] silently failed for SPY and QQQ, which
+    # reported "no ATM straddle within 13 days of 37 DTE" -- impossible for the
+    # two most heavily traded option chains in the market, both of which list
+    # expiries three times a week. reqSecDefOptParams returns SEVERAL SMART
+    # parameter sets per underlying, one per trading class, and [0] can land on
+    # a sparse one. The two most important comparisons in this study were
+    # dropped by an arbitrary index, and the failure looked like a data gap
+    # rather than a selection bug.
+    #
+    # Prefer the set whose tradingClass matches the root; otherwise union every
+    # SMART set so nothing is lost to ordering.
+    exact = [x for x in params if x.tradingClass == symbol]
+    if exact:
+        p = exact[0]
+        all_exp, all_strk = set(p.expirations), set(p.strikes)
+    else:
+        all_exp = set().union(*(set(x.expirations) for x in params))
+        all_strk = set().union(*(set(x.strikes) for x in params))
+
+    class _P:
+        pass
+    p = _P()
+    p.expirations, p.strikes = sorted(all_exp), sorted(all_strk)
 
     exps = []
     for e in p.expirations:
