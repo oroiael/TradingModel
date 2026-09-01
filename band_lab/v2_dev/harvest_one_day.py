@@ -146,7 +146,7 @@ def run(bars, pct):
         if minute >= NO_NEW_MIN:            # 14:00 cutoff on NEW entries only
             break
 
-        target, stop = entry * (1 + pct), entry * (1 - pct)
+        target, stop = entry * (1 + up_pct), entry * (1 - dn_pct)
         outcome, j, fill, ambiguous = resolve(bars, i, target, stop)
 
         if outcome == "up":
@@ -178,6 +178,17 @@ def hhmm(m):
     return f"{m // 60:02d}:{m % 60:02d}"
 
 
+def levels(pct):
+    """(up, down) fractions from a scalar (symmetric) or an (up, down) pair.
+
+    Kept permissive so every existing caller that passes one number keeps
+    working and means the same thing it always did.
+    """
+    if isinstance(pct, (tuple, list)):
+        return float(pct[0]), float(pct[1])
+    return float(pct), float(pct)
+
+
 def ibkr_tiered(shares, price):
     """IBKR Pro tiered US equity commission for ONE order.
 
@@ -198,6 +209,7 @@ def simulate(bars, pct, park_losers, equity, reserve, slots, commission=None,
     which is what lets positions pile up.
     """
     fee = commission or (lambda shares, price: 0.0)
+    up_pct, dn_pct = levels(pct)
     # Slippage is a per-share fill penalty: you pay above the print on the way
     # in and receive below it on the way out. The +/-pct levels are measured
     # from what was actually PAID, so the market has to travel slightly further
@@ -241,7 +253,7 @@ def simulate(bars, pct, park_losers, equity, reserve, slots, commission=None,
         peak_open = max(peak_open, len(held))
         peak_cost = max(peak_cost, sum(h["cost"] for h in held))
 
-        target, stop = entry * (1 + pct), entry * (1 - pct)
+        target, stop = entry * (1 + up_pct), entry * (1 - dn_pct)
         outcome, j, fill, ambiguous = resolve(bars, i, target, stop)
 
         if outcome == "up" or (outcome == "down" and not park_losers):
