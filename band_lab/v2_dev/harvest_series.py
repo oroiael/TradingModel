@@ -48,7 +48,7 @@ import pandas as pd
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from harvest_one_day import (  # noqa: E402  -- one implementation of the rule
-    FLAT_MIN, OPEN_MIN, ROOT, ibkr_tiered, simulate)
+    FLAT_MIN, NO_NEW_MIN, OPEN_MIN, ROOT, ibkr_tiered, simulate)
 
 TRADING_DAYS = 252.0
 
@@ -109,18 +109,20 @@ def intraday_marks(bars, ledger, start_equity):
     return cash + shares * close, cash + shares * low
 
 
-def run_series(sessions, pct, park, equity0, reserve, slots, commission):
+def run_series(sessions, pct, park, equity0, reserve, slots, commission,
+               slippage=0.0, cutoff=NO_NEW_MIN, marks=True):
     """Compound the rule day after day. One row per session."""
     equity = equity0
     rows, trade_pnl, trade_won, curve_min_c, curve_min_l = [], [], [], [], []
 
     for day, bars in sessions.items():
         start = equity
-        sim = simulate(bars, pct, park, start, reserve, slots, commission=commission)
+        sim = simulate(bars, pct, park, start, reserve, slots,
+                       commission=commission, slippage=slippage, cutoff=cutoff)
         led = sim["ledger"]
         equity = sim["ending"]
 
-        if led:
+        if led and marks:
             mc, ml = intraday_marks(bars, led, start)
             trough_c, trough_l = float(mc.min()), float(ml.min())
         else:

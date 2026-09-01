@@ -188,7 +188,8 @@ def ibkr_tiered(shares, price):
     return min(max(1.00, 0.0035 * shares), 0.01 * shares * price)
 
 
-def simulate(bars, pct, park_losers, equity, reserve, slots, commission=None):
+def simulate(bars, pct, park_losers, equity, reserve, slots, commission=None,
+             slippage=0.0, cutoff=NO_NEW_MIN):
     """Walk the session once with real money and real share counts.
 
     Sequential by construction: the next entry is only considered after the
@@ -197,6 +198,10 @@ def simulate(bars, pct, park_losers, equity, reserve, slots, commission=None):
     which is what lets positions pile up.
     """
     fee = commission or (lambda shares, price: 0.0)
+    # Slippage is a per-share fill penalty: you pay above the print on the way
+    # in and receive below it on the way out. The +/-pct levels are measured
+    # from what was actually PAID, so the market has to travel slightly further
+    # than the headline threshold to pay out.
     eod_close = bars[-1][4]
     cash, ledger, held, blocked = equity, [], [], []
     peak_open = peak_cost = 0
@@ -204,8 +209,8 @@ def simulate(bars, pct, park_losers, equity, reserve, slots, commission=None):
     i = 0
 
     while i < len(bars):
-        minute, entry = bars[i][0], bars[i][1]
-        if minute >= NO_NEW_MIN:               # 14:00 cutoff on NEW entries
+        minute, entry = bars[i][0], bars[i][1] + slippage
+        if minute >= cutoff:                   # no NEW entries from here
             break
 
         # Sizing. Parked losers tie capital up for the rest of the day, so each
@@ -240,6 +245,7 @@ def simulate(bars, pct, park_losers, equity, reserve, slots, commission=None):
         outcome, j, fill, ambiguous = resolve(bars, i, target, stop)
 
         if outcome == "up" or (outcome == "down" and not park_losers):
+            fill -= slippage
             sell_fee = fee(shares, fill)
             cash += shares * fill - sell_fee
             paid += sell_fee
@@ -248,8 +254,8 @@ def simulate(bars, pct, park_losers, equity, reserve, slots, commission=None):
         else:
             # Still owned. It keeps its slot and its cash stays committed for the
             # rest of the session -- this is what makes positions pile up.
-            sell_fee = fee(shares, eod_close)
-            exit_min, exit_px = FLAT_MIN, eod_close
+            sell_fee = fee(shares, eod_close - slippage)
+            exit_min, exit_px = FLAT_MIN, eod_close - slippage
             exit_why = "parked" if outcome == "down" else "unresolved"
 
         ledger.append(dict(
@@ -266,8 +272,9 @@ def simulate(bars, pct, park_losers, equity, reserve, slots, commission=None):
         i = j + 1                              # "wait until the next minute"
 
     for h in held:                             # 15:55: liquidate what is left
-        liq_fee = fee(h["shares"], eod_close)
-        cash += h["shares"] * eod_close - liq_fee
+        px = eod_close - slippage
+        liq_fee = fee(h["shares"], px)
+        cash += h["shares"] * px - liq_fee
         paid += liq_fee
 
     return dict(ledger=ledger, ending=cash, peak_open=peak_open,
