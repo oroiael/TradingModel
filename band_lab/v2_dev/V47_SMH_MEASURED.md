@@ -67,6 +67,48 @@ against two references on matched dates:
 A correction fitting only one reference is rejected. If both agree the factor is
 identified, and the Part B control is then what validates it.
 
+## The diagnostic ran, and my verdict logic was wrong
+
+```
+raw OPTION_IMPLIED_VOLATILITY, last 5 bars:  0.0748 0.0740 0.0706 0.0691 0.0645
+
+reference 1  live ATM chain 116.04%  vs series 6.91%   ratio 16.793
+reference 2  my realised   101.96%   vs HV     6.12%   ratio 16.432
+```
+
+It reported **"the two references DISAGREE"** and refused the correction. That
+verdict is wrong. **The two references agree with each other to 2.2%** — 16.793
+against 16.432. What they disagree with is my *candidate list*: the nearest
+convention, √252 = 15.87, is 3.5–5.8% below both. I coded the check to compare
+each reference against the candidates instead of first asking whether the
+references agreed with each other, so a 2% agreement got reported as a
+disagreement. Fixed.
+
+The substantive conclusion still stands, for a different reason: **a unit
+convention is exact.** A consistent 3–6% overshoot on 1,222 matched dates is not
+noise, and no convention sits at 16.6. So something beyond units is in play, and
+the obvious candidate is that IBKR's estimator is not mine — its window, mean
+handling and day count are all unknown here, and each moves the level a few
+percent without touching the unit.
+
+### `--calibrate` separates the two
+
+It reconstructs `HISTORICAL_VOLATILITY` from IBKR's own TRADES bars across 72
+estimators (12 windows × 3 mean treatments × 2 lags) and forms
+
+    ratio_t = my_daily_sigma_t / ibkr_raw_t
+
+**If the estimator is right, that ratio is constant.** The dispersion is the
+evidence; the value it settles at is the unit convention, read off rather than
+guessed — ~1.00 means daily sigma, ~0.063 means already annualised. Candidates
+are ranked by dispersion alone, never by closeness to an expected answer, so the
+search cannot find what it is looking for. `HISTORICAL_VOLATILITY` involves no
+options, so whatever it settles at is a property of the encoding.
+
+Verified offline in `--selftest`: the search recovers a planted 21-session
+`std_ddof1` at √252 and a planted 30-session `rms_zero_mean` at 1.0, both to
+dispersion 0.00e+00, and reports 74% dispersion on an unrelated series. 8/8.
+
 ## Where this is heading, stated before the rerun
 
 Applying √252 to the printed figures gives:
