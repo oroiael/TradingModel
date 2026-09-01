@@ -443,21 +443,181 @@ def diagnose_iv(ib, sym, years, when, target_dte, pause) -> int:
     if best is None:
         print("  [FAIL] neither reference resolved. No correction adopted.")
         return 1
-    agree = best_err <= 0.05
-    print(f"  [{'PASS' if agree else 'FAIL'}] best candidate {best:.4f} — "
-          f"worst-case error across BOTH references {best_err*100:.1f}%")
-    if agree:
-        print(f"\n  Both independent references agree, so the convention is "
-              f"identified, not guessed.\n  Re-run Part B with it, and the "
-              f"CONTROL is what validates it:\n\n"
-              f"      python band_lab/v2_dev/vol_premium_ibkr.py "
-              f"--iv-scale {best:.4f}\n")
-    else:
-        print(f"\n  The two references DISAGREE (worst error "
-              f"{best_err*100:.1f}%). A factor that fits one and not the\n"
-              f"  other is not a unit convention, it is a coincidence. "
-              f"Not adopted.\n")
-    return 0 if agree else 1
+
+    # The question is NOT whether each reference matches a candidate. It is
+    # whether the two references agree with EACH OTHER -- that is what makes
+    # the factor a property of the encoding rather than of one field. An
+    # earlier version of this compared each reference to the candidate list
+    # and reported "the references disagree" when they agreed to 2%; the
+    # disagreement was between the references and my list of guesses.
+    if r1 and r2:
+        spread = abs(r1 - r2) / ((r1 + r2) / 2.0)
+        consensus = (r1 + r2) / 2.0
+        print(f"  reference 1 says {r1:.3f}, reference 2 says {r2:.3f} — "
+              f"they differ by {spread*100:.1f}%")
+        print(f"  {'[PASS]' if spread <= 0.05 else '[FAIL]'} the two "
+              f"references {'AGREE' if spread <= 0.05 else 'DISAGREE'} with "
+              f"each other; consensus {consensus:.3f}")
+        if spread > 0.05:
+            print("\n  No correction adopted.\n")
+            return 1
+        gap = abs(consensus - best) / best
+        print(f"\n  Nearest candidate convention: {best:.4f} "
+              f"({[l for f, l in IV_SCALES if f == best][0]}),\n"
+              f"  which the consensus overshoots by {gap*100:.1f}%.")
+        print(f"""
+  A UNIT convention is exact. {gap*100:.1f}% is not measurement noise on 1,222
+  matched dates, so something beyond units is in play -- and the obvious
+  candidate is that IBKR's estimator is not mine. Its window, its mean
+  handling, and its day count are all unknown here, and each shifts the level
+  by a few percent without changing the unit.
+
+  So the units are NOT yet pinned, and no scale is adopted on this evidence.
+  `--calibrate` settles it: it reconstructs HISTORICAL_VOLATILITY from the
+  TRADES bars across a grid of estimators and finds which one IBKR actually
+  uses. The right estimator makes the per-date ratio CONSTANT; the value it
+  is constant AT is then the unit convention, read off rather than guessed.
+
+      python band_lab/v2_dev/vol_premium_ibkr.py --calibrate
+""")
+    return 1
+
+
+#: Estimator grid searched by `calibrate_hv`. Kept separate from the IBKR call
+#: so `--selftest` can verify the search recovers a KNOWN answer offline.
+CAL_WINDOWS = (10, 14, 20, 21, 22, 25, 30, 45, 60, 63, 90, 100)
+CAL_ESTIMATORS = ("std_ddof1", "std_ddof0", "rms_zero_mean")
+
+
+def calibration_grid(lr: pd.Series, ibkr: pd.Series,
+                     min_dates: int = 200) -> pd.DataFrame:
+    """Per-date ratio of a reconstructed vol series to IBKR's, every estimator.
+
+    Sorted by DISPERSION, not by closeness to any expected value -- the search
+    must not be able to find what it is looking for. The right estimator is the
+    one whose ratio is constant; what it is constant AT is then read off.
+    """
+    rows = []
+    for win in CAL_WINDOWS:
+        for est in CAL_ESTIMATORS:
+            if est == "rms_zero_mean":
+                mine = np.sqrt((lr ** 2).rolling(win).mean())
+            else:
+                mine = lr.rolling(win).std(ddof=1 if est.endswith("1") else 0)
+            for shift in (0, 1):
+                j = pd.DataFrame({"mine": mine.shift(shift),
+                                  "ibkr": ibkr}).dropna()
+                j = j[j["ibkr"] > 0]
+                if len(j) < min_dates:
+                    continue
+                r = j["mine"] / j["ibkr"]
+                med = float(r.median())
+                if not med:
+                    continue
+                rows.append(dict(win=win, est=est, shift=shift, n=len(j),
+                                 median=med,
+                                 disp=float((r.quantile(.75)
+                                             - r.quantile(.25)) / med),
+                                 corr=float(j["mine"].corr(j["ibkr"]))))
+    if not rows:
+        return pd.DataFrame()
+    return pd.DataFrame(rows).sort_values("disp").reset_index(drop=True)
+
+
+def calibrate_hv(ib, sym, years, pause) -> int:
+    """Reconstruct IBKR's HISTORICAL_VOLATILITY from its own TRADES bars.
+
+    `--diagnose` showed the two references agreeing with each other (16.79 and
+    16.43) but overshooting sqrt(252) by 3-6%. A unit convention is exact, so
+    the residual is an ESTIMATOR difference -- IBKR's window, mean handling and
+    day count are all unknown here and each shifts the level a few percent.
+
+    This separates the two. For a candidate estimator, form
+
+        ratio_t = my_daily_sigma_t / ibkr_raw_t
+
+    **If the estimator is right, ratio_t is CONSTANT.** Its dispersion is the
+    evidence; the value it settles at is then the unit convention, read off
+    instead of guessed:
+
+        ratio ~ 1.00   IBKR reports DAILY sigma -> annualise by sqrt(252)
+        ratio ~ 0.063  IBKR already annualised  -> no correction
+
+    HISTORICAL_VOLATILITY involves no options at all, so whatever it settles at
+    is a property of IBKR's volatility encoding, not of the option chain.
+    """
+    from ib_async import Stock
+    w = 92
+    print("\n" + "=" * w)
+    print("CALIBRATION — which estimator is IBKR's HISTORICAL_VOLATILITY?")
+    print("=" * w)
+
+    q = ib.qualifyContracts(
+        Stock(sym, "SMART", "USD", primaryExchange=SYMBOLS.get(sym, "ARCA")))
+    if not q:
+        print(f"  could not qualify {sym}")
+        return 1
+    px = _series(ib, q[0], "TRADES", years)
+    time.sleep(pause)
+    hv = _series(ib, q[0], "HISTORICAL_VOLATILITY", years)
+    if px.empty or hv.empty:
+        print(f"  TRADES {len(px)} bars, HV {len(hv)} bars — nothing to do")
+        return 1
+
+    d = calibration_grid(np.log(px / px.shift(1)), hv)
+    if d.empty:
+        print("  not enough matched dates")
+        return 1
+    print(f"\n  {len(d)} candidate estimators, best 10 by dispersion of the "
+          f"per-date ratio\n")
+    print(f"  {'window':>7}{'estimator':>16}{'lag':>5}{'dates':>7}"
+          f"{'median ratio':>14}{'IQR/median':>12}{'corr':>8}")
+    print("  " + "-" * 69)
+    for _, r in d.head(10).iterrows():
+        print(f"  {r.win:>7.0f}{r.est:>16}{r.shift:>5.0f}{r.n:>7,.0f}"
+              f"{r['median']:>14.4f}{r.disp*100:>11.2f}%{r.corr:>8.4f}")
+
+    b = d.iloc[0]
+    ann = 1.0 / b["median"] if b["median"] else np.nan
+    pinned = b["disp"] <= 0.02
+    print(f"""
+  Best: a {b.win:.0f}-session {b.est} at lag {b.shift:.0f}, ratio {b['median']:.4f},
+  dispersion {b.disp*100:.2f}%, correlation {b.corr:.4f}.
+""")
+    _v = ("CONSTANT to within 2% — the estimator is identified" if pinned
+          else "NOT constant; no estimator here reproduces IBKR")
+    print(f"  [{'PASS' if pinned else 'FAIL'}] the per-date ratio is {_v}")
+    if not pinned:
+        print("\n  Units remain unpinned. No scale adopted.\n")
+        return 1
+
+    near_daily = abs(b["median"] - 1.0) <= 0.03
+    near_annual = abs(b["median"] - 1.0 / math.sqrt(TRADING_DAYS)) <= 0.03
+    print(f"""
+  The ratio settles at {b['median']:.4f}:
+
+      ~1.000  would mean IBKR reports DAILY sigma in the same unit as mine
+      ~0.063  would mean IBKR reports an ALREADY-ANNUALISED figure
+""")
+    if near_daily:
+        scale = math.sqrt(TRADING_DAYS)
+        print(f"  It is the first. IBKR's volatility bars are DAILY sigma, so "
+              f"annualising\n  needs sqrt(252) = {scale:.4f}. The implied day "
+              f"count from the ratio itself is\n  {ann**2:.0f} sessions, "
+              f"consistent with 252 to within the estimator's own noise.\n")
+        print(f"      python band_lab/v2_dev/vol_premium_ibkr.py "
+              f"--iv-scale {scale:.4f}\n")
+        print("  The Part B CONTROL against V37 is what validates it. If the "
+              "control still\n  fails, the scale is wrong and Part B stays "
+              "unreported.\n")
+        return 0
+    if near_annual:
+        print("  It is the second. The series is already annualised and the "
+              "control failure\n  is NOT a unit problem. Do not scale.\n")
+        return 0
+    print(f"  It is neither. {b['median']:.4f} matches no convention, so "
+          f"nothing is adopted.\n")
+    return 1
 
 
 def _selftest() -> int:
@@ -525,6 +685,37 @@ def _selftest() -> int:
        f"additive {add:.2f}x vs proportional {LEVERAGE:.2f}x, "
        f"apart by {abs(add - LEVERAGE):.2f}")
 
+    # 6. The calibration search must RECOVER A PLANTED ANSWER. Build a fake
+    #    "IBKR" series from a known window/estimator, divided by a known
+    #    factor, and check the grid finds exactly that and reads the factor
+    #    back. A search that cannot recover a known answer cannot be trusted
+    #    with an unknown one.
+    rng = np.random.default_rng(0)
+    idx = pd.bdate_range("2019-01-01", periods=1300)
+    lr = pd.Series(rng.normal(0, 0.03, len(idx)), index=idx)
+    for win, est, factor in ((21, "std_ddof1", math.sqrt(TRADING_DAYS)),
+                             (30, "rms_zero_mean", 1.0)):
+        if est == "rms_zero_mean":
+            truth = np.sqrt((lr ** 2).rolling(win).mean())
+        else:
+            truth = lr.rolling(win).std(ddof=1)
+        planted = (truth / factor).dropna()
+        g = calibration_grid(lr, planted)
+        top = g.iloc[0]
+        ok(f"calibration recovers a planted {win}-session {est}",
+           bool(top.win == win and top.est == est and top.disp < 1e-9
+                and abs(top["median"] - factor) < 1e-6),
+           f"found {top.win:.0f}-session {top.est}, ratio "
+           f"{top['median']:.4f} vs planted {factor:.4f}, "
+           f"dispersion {top.disp:.2e}")
+
+    # 7. And it must NOT claim a match when none exists.
+    noise = pd.Series(rng.uniform(0.01, 0.05, len(idx)), index=idx)
+    g = calibration_grid(lr, noise)
+    ok("calibration reports high dispersion on an unrelated series",
+       g.iloc[0].disp > 0.02,
+       f"best dispersion {g.iloc[0].disp*100:.1f}% (must exceed the 2% bar)")
+
     print(f"\n  {'ALL PASS' if not fails else 'FAILED: ' + ', '.join(fails)}")
     return 1 if fails else 0
 
@@ -535,6 +726,9 @@ def main() -> int:
                     help="offline arithmetic checks, no IBKR connection")
     ap.add_argument("--diagnose", action="store_true",
                     help="identify the unit convention of IBKR's vol series")
+    ap.add_argument("--calibrate", action="store_true",
+                    help="find which estimator IBKR's HISTORICAL_VOLATILITY "
+                         "uses, and read the unit convention off it")
     ap.add_argument("--iv-scale", type=float, default=1.0,
                     help="multiply the IV series by this before measuring. "
                          "Only ever a value --diagnose has verified against "
@@ -564,6 +758,9 @@ def main() -> int:
     ib = _connect(a.host, a.port, a.client_id)
     xs, data = pd.DataFrame(), {}
     try:
+        if a.calibrate:
+            return calibrate_hv(ib, CONTROL["symbol"], a.years, a.pause)
+
         if a.diagnose:
             when = _last_weekday(datetime.now(NY) - timedelta(days=a.days_back))
             return diagnose_iv(ib, CONTROL["symbol"], a.years, when,
