@@ -241,8 +241,11 @@ def measure(px: pd.Series, iv: pd.Series, n: int, lo=None, hi=None):
                 pos=float((edge > 0).mean()))
 
 
-def report_historical(data, syms) -> bool:
+def report_historical(data, syms, iv_scale=1.0) -> bool:
     w = 92
+    if iv_scale != 1.0:
+        print(f"\n  [scaled] IV series multiplied by {iv_scale:.4f} "
+              f"(--iv-scale). The control below is what validates it.")
     px, iv = data[CONTROL["symbol"]]
     c = measure(px, iv, CONTROL["horizon"], CONTROL["start"], CONTROL["end"])
     print("\n" + "=" * w)
@@ -269,6 +272,13 @@ def report_historical(data, syms) -> bool:
                "the sources DISAGREE. Everything below is printed only so the "
                "disagreement is visible, and is NOT a measurement.")
     print(f"\n  [{'PASS' if ok else 'FAIL'}] {verdict}")
+    if not ok:
+        ratio = CONTROL["iv"] / c["iv"] if c["iv"] else float("nan")
+        print(f"\n  The gap is a FACTOR of {ratio:.2f}, not an offset — "
+              f"{CONTROL['iv']:.1f} / {c['iv']:.1f}. That is a units problem "
+              f"in\n  IBKR's volatility encoding, not a disagreement about "
+              f"volatility. Identify it:\n\n"
+              f"      python band_lab/v2_dev/vol_premium_ibkr.py --diagnose\n")
 
     print("\n" + "=" * w)
     print("PART B — VOLATILITY PREMIUM BY SYMBOL, realised minus implied")
@@ -314,6 +324,140 @@ def report_historical(data, syms) -> bool:
             os.path.join(OUT, "V46_premium_by_symbol.csv"), index=False)
         print("  wrote out/V46_premium_by_symbol.csv")
     return ok
+
+
+#: Candidate unit conventions for IBKR's volatility series, and what each would
+#: mean. The diagnostic picks between them against MEASURED references; it does
+#: not assume one. V28's vega error was exactly this kind of mistake -- a factor
+#: nobody checked -- and it made every option strategy look free.
+IV_SCALES = [
+    (1.0, "already annualised, decimal (1.0 = 100%)"),
+    (math.sqrt(TRADING_DAYS), "DAILY sigma; annualise by sqrt(252)"),
+    (math.sqrt(365.0), "daily sigma on calendar days; sqrt(365)"),
+    (100.0, "percent-vs-decimal mixup"),
+]
+
+
+def diagnose_iv(ib, sym, years, when, target_dte, pause) -> int:
+    """Why did the Part B control fail by a factor of ~16?
+
+    The control caught that IBKR's OPTION_IMPLIED_VOLATILITY series reports SOXL
+    at 6.2% where the vendor files and the live chain both say ~99%. That is a
+    units question, and it is settled by measurement, not by multiplying until
+    the number looks right.
+
+    TWO INDEPENDENT REFERENCES, both on MATCHED DATES:
+
+      1. OPTION_IMPLIED_VOLATILITY  vs  the live ATM chain IV computed here
+         from bid/ask through Black-Scholes. Same symbol, same session, two
+         completely different paths through the API.
+
+      2. HISTORICAL_VOLATILITY      vs  trailing 30-session realised vol
+         computed here from the TRADES bars. Same idea, and it does not involve
+         options at all -- so if both series need the same factor, the factor is
+         a property of IBKR's volatility encoding rather than of one field.
+
+    A correction that only fits one reference is not adopted.
+    """
+    from ib_async import Stock
+    w = 92
+    print("\n" + "=" * w)
+    print("DIAGNOSTIC — what unit is IBKR's volatility series in?")
+    print("=" * w)
+
+    q = ib.qualifyContracts(
+        Stock(sym, "SMART", "USD", primaryExchange=SYMBOLS.get(sym, "ARCA")))
+    if not q:
+        print(f"  could not qualify {sym}")
+        return 1
+    stk = q[0]
+
+    px = _series(ib, stk, "TRADES", years)
+    time.sleep(pause)
+    iv = _series(ib, stk, "OPTION_IMPLIED_VOLATILITY", years)
+    time.sleep(pause)
+    hv = _series(ib, stk, "HISTORICAL_VOLATILITY", years)
+    time.sleep(pause)
+    if px.empty or iv.empty:
+        print(f"  TRADES {len(px)} bars, IV {len(iv)} bars — nothing to do")
+        return 1
+
+    print(f"\n  raw OPTION_IMPLIED_VOLATILITY bars, last 5 — the actual "
+          f"numbers, unscaled:")
+    for d, v in iv.tail(5).items():
+        print(f"      {d.date()}   close = {v!r}")
+
+    # ---- reference 1: the live ATM chain, same session
+    xs = cross_section(ib, [sym], when, target_dte, pause)
+    r1 = None
+    if not xs.empty:
+        live = float(xs.iloc[0]["iv"]) / 100.0        # back to decimal
+        near = iv.index[iv.index <= pd.Timestamp(when.date())]
+        if len(near):
+            d0 = near[-1]
+            r1 = live / float(iv.loc[d0])
+            print(f"\n  reference 1 — live ATM chain vs the IV series, "
+                  f"{d0.date()}")
+            print(f"      live chain, Black-Scholes from bid/ask : "
+                  f"{live*100:>8.2f}%")
+            print(f"      OPTION_IMPLIED_VOLATILITY series       : "
+                  f"{float(iv.loc[d0])*100:>8.2f}%")
+            print(f"      ratio                                  : "
+                  f"{r1:>8.3f}")
+
+    # ---- reference 2: trailing realised vol, no options involved
+    r2 = None
+    if not hv.empty:
+        lr = np.log(px / px.shift(1))
+        trail = lr.rolling(30).std(ddof=1) * math.sqrt(TRADING_DAYS)
+        j = pd.DataFrame({"hv": hv, "mine": trail}).dropna()
+        if len(j) > 50:
+            r2 = float((j["mine"] / j["hv"]).median())
+            print(f"\n  reference 2 — HISTORICAL_VOLATILITY vs 30-session "
+                  f"realised computed here ({len(j):,} matched dates)")
+            print(f"      my trailing realised, annualised, median : "
+                  f"{j['mine'].median()*100:>8.2f}%")
+            print(f"      HISTORICAL_VOLATILITY series, median     : "
+                  f"{j['hv'].median()*100:>8.2f}%")
+            print(f"      ratio, median                            : "
+                  f"{r2:>8.3f}")
+    else:
+        print("\n  reference 2 — HISTORICAL_VOLATILITY returned no bars")
+
+    print(f"\n  {'candidate convention':<46}{'factor':>9}"
+          f"{'fits ref 1':>12}{'fits ref 2':>12}")
+    print("  " + "-" * 79)
+    best, best_err = None, None
+    for f, label in IV_SCALES:
+        e1 = abs(r1 - f) / f if r1 else np.nan
+        e2 = abs(r2 - f) / f if r2 else np.nan
+        errs = [e for e in (e1, e2) if e == e]
+        tot = max(errs) if errs else np.nan
+        print(f"  {label:<46}{f:>9.3f}"
+              f"{('%.1f%%' % (e1*100)) if e1 == e1 else '-':>12}"
+              f"{('%.1f%%' % (e2*100)) if e2 == e2 else '-':>12}")
+        if tot == tot and (best_err is None or tot < best_err):
+            best, best_err = f, tot
+
+    print()
+    if best is None:
+        print("  [FAIL] neither reference resolved. No correction adopted.")
+        return 1
+    agree = best_err <= 0.05
+    print(f"  [{'PASS' if agree else 'FAIL'}] best candidate {best:.4f} — "
+          f"worst-case error across BOTH references {best_err*100:.1f}%")
+    if agree:
+        print(f"\n  Both independent references agree, so the convention is "
+              f"identified, not guessed.\n  Re-run Part B with it, and the "
+              f"CONTROL is what validates it:\n\n"
+              f"      python band_lab/v2_dev/vol_premium_ibkr.py "
+              f"--iv-scale {best:.4f}\n")
+    else:
+        print(f"\n  The two references DISAGREE (worst error "
+              f"{best_err*100:.1f}%). A factor that fits one and not the\n"
+              f"  other is not a unit convention, it is a coincidence. "
+              f"Not adopted.\n")
+    return 0 if agree else 1
 
 
 def _selftest() -> int:
@@ -389,6 +533,13 @@ def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--selftest", action="store_true",
                     help="offline arithmetic checks, no IBKR connection")
+    ap.add_argument("--diagnose", action="store_true",
+                    help="identify the unit convention of IBKR's vol series")
+    ap.add_argument("--iv-scale", type=float, default=1.0,
+                    help="multiply the IV series by this before measuring. "
+                         "Only ever a value --diagnose has verified against "
+                         "BOTH of its independent references; the Part B "
+                         "control is what validates it.")
     ap.add_argument("--symbols", default="SOXL,SOXX,SMH")
     ap.add_argument("--years", default="5 Y")
     ap.add_argument("--target-dte", type=int, default=37)
@@ -413,6 +564,11 @@ def main() -> int:
     ib = _connect(a.host, a.port, a.client_id)
     xs, data = pd.DataFrame(), {}
     try:
+        if a.diagnose:
+            when = _last_weekday(datetime.now(NY) - timedelta(days=a.days_back))
+            return diagnose_iv(ib, CONTROL["symbol"], a.years, when,
+                               a.target_dte, a.pause)
+
         if not a.skip_cross_section:
             when = _last_weekday(datetime.now(NY) - timedelta(days=a.days_back))
             print(f"\n  cross-section as of {when:%Y-%m-%d} ({when:%A}), "
@@ -430,7 +586,8 @@ def main() -> int:
                     continue
                 px = _series(ib, q[0], "TRADES", a.years)
                 time.sleep(a.pause)
-                iv = _series(ib, q[0], "OPTION_IMPLIED_VOLATILITY", a.years)
+                iv = _series(ib, q[0], "OPTION_IMPLIED_VOLATILITY",
+                             a.years) * a.iv_scale
                 time.sleep(a.pause)
                 if px.empty or iv.empty:
                     print(f"  {sym}: TRADES {len(px)} bars, IV {len(iv)} bars "
@@ -454,7 +611,7 @@ def main() -> int:
                   f"data; Part B is not reportable.")
             ok = False
         else:
-            ok = report_historical(data, syms)
+            ok = report_historical(data, syms, a.iv_scale)
     if xs.empty and not data:
         print("\n  nothing resolved. Run "
               "`option_spread_probe.py --check` first.")
