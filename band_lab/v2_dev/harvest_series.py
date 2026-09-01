@@ -386,8 +386,14 @@ def main():
                 print(f"    {n:>3} days   {s} -> {e}   "
                       f"${seg.pnl.sum():>+14,.2f}")
 
+        # The window has to be in the filename. Without it a --since run
+        # silently overwrites the full-history artifact with a different
+        # study, and the file on disk stops matching the numbers it is cited
+        # for.
         slug = ("run2" if a.close_losers else "run1") + "_" + tag.split()[0].lower()
-        path = os.path.join(a.outdir, f"harvest_series_{a.symbol}_{slug}.csv")
+        span = f"{df.date.iloc[0]}_{df.date.iloc[-1]}"
+        path = os.path.join(a.outdir,
+                            f"harvest_series_{a.symbol}_{span}_{slug}.csv")
         df.to_csv(path, index=False)
         results[tag] = (m, df, path)
         print(f"\n  per-day results -> {path}")

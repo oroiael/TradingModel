@@ -187,7 +187,8 @@ def main():
               f"subtract.\n  The rule has no profitable setting anywhere in this "
               f"grid.")
 
-    path = os.path.join(a.outdir, f"harvest_sweep_{a.symbol}.csv")
+    span = f"{min(sessions).date()}_{max(sessions).date()}"
+    path = os.path.join(a.outdir, f"harvest_sweep_{a.symbol}_{span}.csv")
     pd.concat(frames).to_csv(path, index=False)
     print(f"\n  full grid -> {path}\n")
 
