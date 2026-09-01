@@ -110,12 +110,20 @@ def intraday_marks(bars, ledger, start_equity):
 
 
 def run_series(sessions, pct, park, equity0, reserve, slots, commission,
-               slippage=0.0, cutoff=NO_NEW_MIN, marks=True):
+               slippage=0.0, cutoff=NO_NEW_MIN, marks=True,
+               sweep_at=None, sweep_amount=0.0, sweep_yield=0.0):
     """Compound the rule day after day. One row per session."""
     equity = equity0
     rows, trade_pnl, trade_won, curve_min_c, curve_min_l = [], [], [], [], []
+    # Swept cash leaves the trading account for good and earns a cash rate.
+    # It cannot change the per-trade expectation -- it changes the base the
+    # expectation is applied to, and it caps how large an order can get.
+    swept, sweeps, prev_day = 0.0, 0, None
 
     for day, bars in sessions.items():
+        if prev_day is not None and swept:
+            swept *= (1 + sweep_yield) ** ((day - prev_day).days / 365.25)
+        prev_day = day
         start = equity
         sim = simulate(bars, pct, park, start, reserve, slots,
                        commission=commission, slippage=slippage, cutoff=cutoff)
@@ -136,8 +144,14 @@ def run_series(sessions, pct, park, equity0, reserve, slots, commission,
         curve_min_c.append(trough_c)
         curve_min_l.append(trough_l)
 
+        while sweep_at and sweep_amount and equity >= sweep_at:
+            equity -= sweep_amount
+            swept += sweep_amount
+            sweeps += 1
+
         rows.append(dict(
             date=day.date(), start_equity=start, end_equity=equity,
+            swept=swept, sweeps=sweeps, total=equity + swept,
             pnl=equity - start, ret=equity / start - 1 if start else 0.0,
             trades=len(led), wins=wins, losses=losses,
             unresolved=sum(t["outcome"] == "open" for t in led),
