@@ -45,11 +45,26 @@ Five years of quotes exist — `SOXL_Options_2022..2026.csv`, ~570 MB — not th
 one year used so far. One snapshot per contract per day (mean 1.00, max 1), so
 nothing intraday is testable.
 
-**But the underlying price does not match the quote.** In the 2023 file the
-option quote timestamps run across the session (median 11:13) while
-`underlying_price` is a single end-of-day value per day (17:16). **100% of rows
-are stamped more than an hour apart, median lag six hours**, against a median
-intraday range of 6.06%.
+**But the underlying price does not match the quote**, and the shape of the
+mismatch is worse than a simple lag. Corrected audit of both files:
+
+| | 2023 yearly | 1-year greeks |
+|---|---|---|
+| quote stamped `00:00:00` — a placeholder, no trade | **43.0%** | **37.7%** |
+| quote stamped with a real time | 57.0% | 62.3% |
+| of those, median time of day | 15:08 | 14:59 |
+| `underlying_timestamp`, distinct values per day | 1 (17:16) | 1 (17:15) |
+| real-stamped rows more than 60 min from the underlying | **100%** | **100%** |
+| more than 240 min | 27.1% | 29.7% |
+
+Median lag is about **two hours**, not six — an earlier draft of this file said
+six, having let the midnight placeholders drag the median down and read them as
+pre-market quotes. They are not quotes at all. **Roughly 40% of rows carry no
+usable timestamp**, which is the harder problem: a mismatch can be repaired, a
+missing stamp cannot.
+
+Both files share this structure, so the 1-year greeks file is not the clean
+end-of-day snapshot its name suggests.
 
 `option_data.py` validates `underlying_price` against the *daily* price file, so
 it confirms the value is a correct EOD close — it does not detect that the quote
