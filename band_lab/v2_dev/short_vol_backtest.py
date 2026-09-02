@@ -118,7 +118,7 @@ def pick_legs(day, structure):
     return cl.iloc[0], pl.iloc[0]
 
 
-def run(chain, spot_px, structure, lo, hi, exit_rule):
+def run(chain, spot_px, structure, lo, hi, exit_rule, side='short'):
     """Walk the file, one non-overlapping cycle at a time."""
     dates = np.array(sorted(chain.trade_date.unique()))
     by_date = {d: g for d, g in chain.groupby("trade_date")}
@@ -139,9 +139,13 @@ def run(chain, spot_px, structure, lo, hi, exit_rule):
             continue
         cl, pl = legs
         spot0 = cl.underlying_price
-        credit = cl.bid + pl.bid                       # SOLD at the bid
+        # short sells at the bid; long buys at the ask. Either way the
+        # trader is on the losing side of the quote at entry.
+        credit = (cl.bid + pl.bid) if side == "short" else -(cl.ask + pl.ask)
         fees_in = 2 * COMMISSION
-        if credit <= 0.10:
+        # Skip a position whose premium is too small to be worth trading.
+        # `credit` is a debit (negative) on the long side, so test magnitude.
+        if abs(credit) <= 0.10:
             i += 1
             continue
 
@@ -154,9 +158,17 @@ def run(chain, spot_px, structure, lo, hi, exit_rule):
             pp = g[(g.expiration == exp) & (g.strike == pl.strike) & (g.right == "P")]
             if cc.empty or pp.empty:
                 continue
-            buyback = cc.ask.iloc[0] + pp.ask.iloc[0]  # BOUGHT at the ask
+            # short buys back at the ask; long sells out at the bid.
+            buyback = ((cc.ask.iloc[0] + pp.ask.iloc[0]) if side == "short"
+                       else -(cc.bid.iloc[0] + pp.bid.iloc[0]))
             dte_now = (exp - d1).days
-            if exit_rule == "tp50" and buyback <= 0.50 * credit:
+            # "Take half the profit off." For a short that means buying back
+            # at half the credit taken in. The mirror for a long is selling out
+            # at 1.5x the debit paid -- NOT at half of it, which is a stop-loss
+            # and fires on almost every cycle.
+            take = ((buyback <= 0.50 * credit) if side == "short"
+                    else (-buyback >= 1.50 * -credit))
+            if exit_rule == "tp50" and take:
                 exit_d, cost, fees_out, why = d1, buyback, 2 * COMMISSION, "tp50"
                 break
             if exit_rule == "roll21" and dte_now <= 21:
@@ -167,7 +179,8 @@ def run(chain, spot_px, structure, lo, hi, exit_rule):
             if s is None or np.isnan(s):
                 i += 1
                 continue
-            cost = max(s - cl.strike, 0) + max(pl.strike - s, 0)   # intrinsic
+            intr = max(s - cl.strike, 0) + max(pl.strike - s, 0)
+            cost = intr if side == "short" else -intr
             exit_d, fees_out, why = exp, 0.0, "expiry"             # no closing spread
 
         pnl = (credit - cost) * 100 - fees_in - fees_out
@@ -200,6 +213,7 @@ def main():
     p = argparse.ArgumentParser(description=__doc__,
                                 formatter_class=argparse.RawDescriptionHelpFormatter)
     p.add_argument("--structure", default="straddle", choices=["straddle", "strangle"])
+    p.add_argument("--side", default="short", choices=["short", "long"])
     p.add_argument("--outdir", default="band_lab/v2_dev/out")
     a = p.parse_args()
 
@@ -207,15 +221,15 @@ def main():
     spot = soxl_daily()
     print(f"\nloaded {len(chain):,} quotes, {chain.trade_date.nunique()} dates, "
           f"{chain.trade_date.min().date()} -> {chain.trade_date.max().date()}")
-    print(f"SHORT {a.structure.upper()} — entry at the bid, exit at the ask, "
-          f"expiry at intrinsic\n")
+    print(f"{a.side.upper()} {a.structure.upper()} — the trader always crosses: "
+          f"short sells the bid and buys the ask, long buys the ask and sells the bid\n")
 
     print(f"  {'tenor':<9}{'exit':<9}{'n':>5}{'mean/cycle':>12}{'t':>7}"
           f"{'total':>10}{'maxDD':>9}{'win%':>7}{'worst':>9}")
     grid, ledgers = [], []
     for lo, hi, tl in TENORS:
         for ex in EXITS:
-            t = run(chain, spot, a.structure, lo, hi, ex)
+            t = run(chain, spot, a.structure, lo, hi, ex, a.side)
             s = stats(t)
             if s is None:
                 print(f"  {tl:<9}{ex:<9}    no cycles")
@@ -228,9 +242,9 @@ def main():
     g = pd.DataFrame(grid)
     os.makedirs(a.outdir, exist_ok=True)
     pd.concat(ledgers).to_csv(
-        os.path.join(a.outdir, f"short_vol_{a.structure}_ledger.csv"), index=False)
-    g.to_csv(os.path.join(a.outdir, f"short_vol_{a.structure}_grid.csv"), index=False)
-    print(f"\n  ledger -> {a.outdir}/short_vol_{a.structure}_ledger.csv")
+        os.path.join(a.outdir, f"short_vol_{a.side}_{a.structure}_ledger.csv"), index=False)
+    g.to_csv(os.path.join(a.outdir, f"short_vol_{a.side}_{a.structure}_grid.csv"), index=False)
+    print(f"\n  ledger -> {a.outdir}/short_vol_{a.side}_{a.structure}_ledger.csv")
     return g, pd.concat(ledgers), spot
 
 
