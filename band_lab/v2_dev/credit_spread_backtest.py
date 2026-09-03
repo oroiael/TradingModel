@@ -25,11 +25,16 @@ four to close, and pays eight commissions a round trip. Holding to expiry
 settles at intrinsic and pays no closing spread, which is a real property of
 that exit rather than an accounting convenience.
 
+`--fill k` varies that convention -- k = 1.0 is the touch and the default, so
+the published result is unchanged; see V58_OPTION_FILL_LADDER.md. Four legs
+makes this the structure most sensitive to it, and the one that clears the bar
+at no rung at all, the impossible one included.
+
 Return is P&L over max loss -- the capital a defined-risk spread commits, and
 directly comparable to buy-and-hold on the share price.
 
     python3 band_lab/v2_dev/credit_spread_backtest.py
-    python3 band_lab/v2_dev/credit_spread_backtest.py --structure condor
+    python3 band_lab/v2_dev/credit_spread_backtest.py --fill 0.0
 """
 
 from __future__ import annotations
@@ -42,7 +47,8 @@ import numpy as np
 import pandas as pd
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from short_vol_backtest import COMMISSION, TENORS, load_chain, soxl_daily  # noqa: E402
+from short_vol_backtest import (COMMISSION, TENORS, buy_px, load_chain,  # noqa: E402
+                                sell_px, soxl_daily)
 
 EXITS = ("expiry", "tp50", "roll21")
 SHORT_DELTA, LONG_DELTA = 0.25, 0.10
@@ -72,14 +78,16 @@ def build(day, structure):
     return legs or None
 
 
-def open_credit(legs):
-    """Sell shorts at the bid, buy longs at the ask."""
-    return sum((-q) * (r.bid if q < 0 else r.ask) for r, q in legs)
+def open_credit(legs, fill=1.0):
+    """Sell the shorts, buy the longs. At fill=1.0 that is bid and ask."""
+    return sum((-q) * (sell_px(r.bid, r.ask, fill) if q < 0
+                       else buy_px(r.bid, r.ask, fill)) for r, q in legs)
 
 
-def close_debit(rows):
-    """Buy shorts back at the ask, sell longs at the bid."""
-    return sum((-q) * (r.ask if q < 0 else r.bid) for r, q in rows)
+def close_debit(rows, fill=1.0):
+    """Buy the shorts back, sell the longs. At fill=1.0 that is ask and bid."""
+    return sum((-q) * (buy_px(r.bid, r.ask, fill) if q < 0
+                       else sell_px(r.bid, r.ask, fill)) for r, q in rows)
 
 
 def max_loss(legs, credit):
@@ -100,7 +108,7 @@ def intrinsic(legs, s):
     return v
 
 
-def run(chain, spot_px, structure, lo, hi, exit_rule):
+def run(chain, spot_px, structure, lo, hi, exit_rule, fill=1.0):
     dates = np.array(sorted(chain.trade_date.unique()))
     by_date = {d: g for d, g in chain.groupby("trade_date")}
     rows, i = [], 0
@@ -117,7 +125,7 @@ def run(chain, spot_px, structure, lo, hi, exit_rule):
         if legs is None:
             i += 1
             continue
-        credit = open_credit(legs)
+        credit = open_credit(legs, fill)
         ml = max_loss(legs, credit)
         if credit <= 0.05 or not np.isfinite(ml) or ml <= 0:
             i += 1
@@ -139,7 +147,7 @@ def run(chain, spot_px, structure, lo, hi, exit_rule):
                 cur.append((m.iloc[0], q))
             if cur is None:
                 continue
-            db = close_debit(cur)
+            db = close_debit(cur, fill)
             if exit_rule == "tp50" and db <= 0.50 * credit:
                 exit_d, debit, fees_out, why = d1, db, n_legs * COMMISSION, "tp50"
                 break
@@ -183,6 +191,9 @@ def stats(t):
 def main():
     p = argparse.ArgumentParser(description=__doc__,
                                 formatter_class=argparse.RawDescriptionHelpFormatter)
+    p.add_argument("--fill", type=float, default=1.0,
+                   help="half-spreads given up per fill: 1.0 cross (published), "
+                        "0.0 mid, -1.0 the far touch (impossible)")
     p.add_argument("--outdir", default="band_lab/v2_dev/out")
     a = p.parse_args()
 
@@ -197,7 +208,7 @@ def main():
     for st in ("put_cs", "call_cs", "condor"):
         for lo, hi, tl in TENORS:
             for ex in EXITS:
-                t = run(chain, spot, st, lo, hi, ex)
+                t = run(chain, spot, st, lo, hi, ex, a.fill)
                 s = stats(t)
                 if s is None:
                     print(f"  {st:<9}{tl:<9}{ex:<8}   no cycles")
@@ -210,8 +221,9 @@ def main():
                       f"{s['cw']*100:>7.0f}%{'ok' if s['breaches']==0 else 'X':>5}")
     g = pd.DataFrame(grid)
     os.makedirs(a.outdir, exist_ok=True)
-    pd.concat(led).to_csv(os.path.join(a.outdir, "credit_spread_ledger.csv"), index=False)
-    g.to_csv(os.path.join(a.outdir, "credit_spread_grid.csv"), index=False)
+    tag = "" if a.fill == 1.0 else f"_k{a.fill:+.2f}"
+    pd.concat(led).to_csv(os.path.join(a.outdir, f"credit_spread{tag}_ledger.csv"), index=False)
+    g.to_csv(os.path.join(a.outdir, f"credit_spread{tag}_grid.csv"), index=False)
     print(f"\n  cells positive: {(g['mean']>0).sum()} of {len(g)}"
           f"     B8 breaches across all cells: {g.breaches.sum()}")
     print(f"  ledger -> {a.outdir}/credit_spread_ledger.csv\n")

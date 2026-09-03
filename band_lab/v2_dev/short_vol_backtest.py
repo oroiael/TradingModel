@@ -22,6 +22,10 @@ Holding to expiry genuinely avoids a closing spread. That is a real property of
 the exit, not an accounting shortcut, and it is why the expiry column is
 expected to beat the managed ones on cost alone.
 
+`--fill k` varies that convention -- k = 1.0 is the touch and the default, so
+the published result is unchanged; see V58_OPTION_FILL_LADDER.md. Read sell_px
+for what k means and what it cannot model.
+
 Return convention
 -----------------
 P&L per straddle over 100 x the spot at entry -- the notional the contract
@@ -30,6 +34,7 @@ directly comparable to holding the shares, which is what B7 requires.
 
     python3 band_lab/v2_dev/short_vol_backtest.py
     python3 band_lab/v2_dev/short_vol_backtest.py --structure strangle
+    python3 band_lab/v2_dev/short_vol_backtest.py --side long --fill 0.0
 """
 
 from __future__ import annotations
@@ -45,6 +50,46 @@ YEARS = ("2022", "2023", "2024", "2025", "2026")
 TENORS = ((21, 30, "21-30d"), (31, 45, "31-45d"), (46, 60, "46-60d"))
 EXITS = ("expiry", "tp50", "roll21")
 COMMISSION = 0.65
+TICK_BREAK, TICK_LO, TICK_HI = 3.00, 0.01, 0.05
+EPS = 1e-9
+
+
+def tick_size(bid, ask):
+    """SOXL options quote in $0.01 under $3.00 and $0.05 at or above it.
+
+    Measured on the file rather than assumed: at a mid below $3.00, 100% of
+    bids sit on the penny grid and only 20% on the nickel; at or above $3.00,
+    99.4% of bids and 100% of asks sit on the nickel grid.
+    """
+    return TICK_LO if 0.5 * (bid + ask) < TICK_BREAK else TICK_HI
+
+
+def sell_px(bid, ask, k=1.0):
+    """Price received on a sale, k half-spreads on the wrong side of the mid.
+
+    k = 1 is the bid -- cross the whole spread, which is what every published
+    result in this project assumes. k = 0 is the mid, k > 1 is worse than the
+    bid, k = -1 is the ask and cannot happen.
+
+    The price is snapped to a whole tick measured FROM THE BID, so k = 1
+    returns the bid exactly (the regression against the published numbers is
+    exact) and a market only one tick wide has nothing inside it to fill at.
+    """
+    half = 0.5 * (ask - bid)
+    t = tick_size(bid, ask)
+    n = np.floor((1.0 - k) * half / t + EPS)
+    return max(bid + n * t, 0.0)
+
+
+def buy_px(bid, ask, k=1.0):
+    """Price paid on a purchase, k half-spreads on the wrong side of the mid.
+
+    Mirror of sell_px: k = 1 is the ask, k = 0 the mid, k = -1 the bid.
+    """
+    half = 0.5 * (ask - bid)
+    t = tick_size(bid, ask)
+    n = np.ceil(-(1.0 - k) * half / t - EPS)
+    return max(ask + n * t, 0.0)
 
 
 def parse_dates(s, year):
@@ -118,7 +163,7 @@ def pick_legs(day, structure):
     return cl.iloc[0], pl.iloc[0]
 
 
-def run(chain, spot_px, structure, lo, hi, exit_rule, side='short'):
+def run(chain, spot_px, structure, lo, hi, exit_rule, side='short', fill=1.0):
     """Walk the file, one non-overlapping cycle at a time."""
     dates = np.array(sorted(chain.trade_date.unique()))
     by_date = {d: g for d, g in chain.groupby("trade_date")}
@@ -139,9 +184,15 @@ def run(chain, spot_px, structure, lo, hi, exit_rule, side='short'):
             continue
         cl, pl = legs
         spot0 = cl.underlying_price
-        # short sells at the bid; long buys at the ask. Either way the
-        # trader is on the losing side of the quote at entry.
-        credit = (cl.bid + pl.bid) if side == "short" else -(cl.ask + pl.ask)
+        # short sells, long buys. At fill=1.0 that is the bid and the ask --
+        # the trader on the losing side of the whole quote, which is the
+        # published convention. Lower fill rests the order inside the spread.
+        if side == "short":
+            credit = (sell_px(cl.bid, cl.ask, fill)
+                      + sell_px(pl.bid, pl.ask, fill))
+        else:
+            credit = -(buy_px(cl.bid, cl.ask, fill)
+                       + buy_px(pl.bid, pl.ask, fill))
         fees_in = 2 * COMMISSION
         # Skip a position whose premium is too small to be worth trading.
         # `credit` is a debit (negative) on the long side, so test magnitude.
@@ -158,9 +209,14 @@ def run(chain, spot_px, structure, lo, hi, exit_rule, side='short'):
             pp = g[(g.expiration == exp) & (g.strike == pl.strike) & (g.right == "P")]
             if cc.empty or pp.empty:
                 continue
-            # short buys back at the ask; long sells out at the bid.
-            buyback = ((cc.ask.iloc[0] + pp.ask.iloc[0]) if side == "short"
-                       else -(cc.bid.iloc[0] + pp.bid.iloc[0]))
+            # short buys back, long sells out; same fill convention as entry.
+            c1, p1 = cc.iloc[0], pp.iloc[0]
+            if side == "short":
+                buyback = (buy_px(c1.bid, c1.ask, fill)
+                           + buy_px(p1.bid, p1.ask, fill))
+            else:
+                buyback = -(sell_px(c1.bid, c1.ask, fill)
+                            + sell_px(p1.bid, p1.ask, fill))
             dte_now = (exp - d1).days
             # "Take half the profit off." For a short that means buying back
             # at half the credit taken in. The mirror for a long is selling out
@@ -214,6 +270,9 @@ def main():
                                 formatter_class=argparse.RawDescriptionHelpFormatter)
     p.add_argument("--structure", default="straddle", choices=["straddle", "strangle"])
     p.add_argument("--side", default="short", choices=["short", "long"])
+    p.add_argument("--fill", type=float, default=1.0,
+                   help="half-spreads given up per fill: 1.0 cross (published), "
+                        "0.0 mid, -1.0 the far touch (impossible)")
     p.add_argument("--outdir", default="band_lab/v2_dev/out")
     a = p.parse_args()
 
@@ -221,15 +280,15 @@ def main():
     spot = soxl_daily()
     print(f"\nloaded {len(chain):,} quotes, {chain.trade_date.nunique()} dates, "
           f"{chain.trade_date.min().date()} -> {chain.trade_date.max().date()}")
-    print(f"{a.side.upper()} {a.structure.upper()} — the trader always crosses: "
-          f"short sells the bid and buys the ask, long buys the ask and sells the bid\n")
+    print(f"{a.side.upper()} {a.structure.upper()}   fill={a.fill:+.2f} half-spreads "
+          f"({'cross the whole quote' if a.fill == 1.0 else 'inside the quote' if a.fill < 1.0 else 'worse than the touch'})\n")
 
     print(f"  {'tenor':<9}{'exit':<9}{'n':>5}{'mean/cycle':>12}{'t':>7}"
           f"{'total':>10}{'maxDD':>9}{'win%':>7}{'worst':>9}")
     grid, ledgers = [], []
     for lo, hi, tl in TENORS:
         for ex in EXITS:
-            t = run(chain, spot, a.structure, lo, hi, ex, a.side)
+            t = run(chain, spot, a.structure, lo, hi, ex, a.side, a.fill)
             s = stats(t)
             if s is None:
                 print(f"  {tl:<9}{ex:<9}    no cycles")
@@ -241,10 +300,12 @@ def main():
                   f"{s['win']*100:>6.0f}%{s['worst']*100:>8.1f}%")
     g = pd.DataFrame(grid)
     os.makedirs(a.outdir, exist_ok=True)
-    pd.concat(ledgers).to_csv(
-        os.path.join(a.outdir, f"short_vol_{a.side}_{a.structure}_ledger.csv"), index=False)
-    g.to_csv(os.path.join(a.outdir, f"short_vol_{a.side}_{a.structure}_grid.csv"), index=False)
-    print(f"\n  ledger -> {a.outdir}/short_vol_{a.side}_{a.structure}_ledger.csv")
+    # a non-default fill must not overwrite the published baseline
+    tag = "" if a.fill == 1.0 else f"_k{a.fill:+.2f}"
+    stem = f"short_vol_{a.side}_{a.structure}{tag}"
+    pd.concat(ledgers).to_csv(os.path.join(a.outdir, f"{stem}_ledger.csv"), index=False)
+    g.to_csv(os.path.join(a.outdir, f"{stem}_grid.csv"), index=False)
+    print(f"\n  ledger -> {a.outdir}/{stem}_ledger.csv")
     return g, pd.concat(ledgers), spot
 
 

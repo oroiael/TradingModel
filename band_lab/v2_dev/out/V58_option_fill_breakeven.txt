@@ -1,0 +1,12 @@
+
+RUNGS BETWEEN THE MID AND THE CEILING — both are inside the quote, so
+every one of these requires price improvement THROUGH the mid on every leg.
+
+       k  delivered|  SHORT best      t   pos |   LONG best      t   pos   B1(long)
+   -0.80       161%|       0.49%   1.47   1/9 |      16.16%   2.05   9/9       PASS
+   -0.60       146%|       0.11%   0.32   1/9 |      15.98%   2.03   9/9       PASS
+   -0.50       137%|      -0.09%  -0.28   0/9 |      15.89%   2.02   9/9       PASS
+   -0.40       125%|      -0.32%  -0.98   0/9 |      15.75%   2.00   9/9       PASS
+   -0.30       112%|      -0.56%  -1.75   0/9 |      15.64%   1.99   9/9       fail
+   -0.20       107%|      -0.73%  -2.26   0/9 |      15.57%   1.98   9/9       fail
+   -0.10        96%|      -0.95%  -2.96   0/9 |      15.46%   1.97   9/9       fail

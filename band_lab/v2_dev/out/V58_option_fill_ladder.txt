@@ -1,0 +1,144 @@
+
+loaded 1,336,996 quotes, 1128 dates, 2022-01-03 -> 2026-07-02
+
+WHAT EACH RUNG ACTUALLY BUYS, on the 6,068 straddle legs these structures select
+  (mean half-spread on those legs: 30.6c)
+  rung      k   improvement/leg   of the half-spread
+  A     -1.00            61.19c                 200%
+  B     +0.00            29.89c                  92%
+  C     +0.30            20.07c                  55%
+  D     +0.60            11.00c                  26%
+  E     +1.00             0.00c                   0%
+  F     +1.30           -10.63c                 -47%
+
+==============================================================================
+A  CEILING — every fill at the far touch (impossible)     k = -1.00
+==============================================================================
+  tenor    exit       SHORT straddle   LONG straddle     joint
+  21-30d   expiry            -4.876%          6.533%     1.66%
+  21-30d   tp50              -2.825%          4.436%     1.61%
+  21-30d   roll21             1.073%          2.878%     3.95%
+  31-45d   expiry            -3.464%          6.323%     2.86%
+  31-45d   tp50              -0.427%          3.800%     3.37%
+  31-45d   roll21             0.587%          3.984%     4.57%
+  46-60d   expiry           -14.518%         16.507%     1.99%
+  46-60d   tp50              -4.113%          7.744%     3.63%
+  46-60d   roll21            -4.178%          9.505%     5.33%
+                                          mean joint     3.22%   <- the round trip, both sides
+  credit spreads: 21 of 27 cells positive   best +97.57% t=1.24  (put_cs 31-45d tp50)   B8 breaches 144
+
+==============================================================================
+B  mid on both sides     k = +0.00
+==============================================================================
+  tenor    exit       SHORT straddle   LONG straddle     joint
+  21-30d   expiry            -5.797%          5.611%    -0.19%
+  21-30d   tp50              -2.630%          2.389%    -0.24%
+  21-30d   roll21            -1.087%          0.717%    -0.37%
+  31-45d   expiry            -4.988%          4.799%    -0.19%
+  31-45d   tp50              -4.092%         -0.960%    -5.05%
+  31-45d   roll21            -1.888%          1.509%    -0.38%
+  46-60d   expiry           -15.625%         15.399%    -0.23%
+  46-60d   tp50              -8.722%          3.478%    -5.24%
+  46-60d   roll21            -7.043%          6.640%    -0.40%
+                                          mean joint    -1.37%   <- the round trip, both sides
+  credit spreads: 5 of 27 cells positive   best +6.39% t=1.29  (put_cs 46-60d tp50)   B8 breaches 139
+
+==============================================================================
+C  30% of a half-spread off the mid     k = +0.30
+==============================================================================
+  tenor    exit       SHORT straddle   LONG straddle     joint
+  21-30d   expiry            -6.098%          5.311%    -0.79%
+  21-30d   tp50              -4.321%          2.042%    -2.28%
+  21-30d   roll21            -1.782%          0.022%    -1.76%
+  31-45d   expiry            -5.476%          4.311%    -1.17%
+  31-45d   tp50              -3.857%         -0.052%    -3.91%
+  31-45d   roll21            -2.682%          0.716%    -1.97%
+  46-60d   expiry           -16.004%         15.020%    -0.98%
+  46-60d   tp50              -8.620%          2.169%    -6.45%
+  46-60d   roll21            -7.996%          5.687%    -2.31%
+                                          mean joint    -2.40%   <- the round trip, both sides
+  credit spreads: 3 of 27 cells positive   best +1.99% t=0.37  (put_cs 46-60d tp50)   B8 breaches 147
+
+==============================================================================
+D  20% of the spread inside each touch (the V22 convention)     k = +0.60
+==============================================================================
+  tenor    exit       SHORT straddle   LONG straddle     joint
+  21-30d   expiry            -6.358%          5.051%    -1.31%
+  21-30d   tp50              -3.207%          2.064%    -1.14%
+  21-30d   roll21            -2.412%         -0.608%    -3.02%
+  31-45d   expiry            -5.911%          3.876%    -2.03%
+  31-45d   tp50              -4.206%         -2.410%    -6.62%
+  31-45d   roll21            -3.394%          0.003%    -3.39%
+  46-60d   expiry           -16.323%         14.701%    -1.62%
+  46-60d   tp50              -9.073%          2.641%    -6.43%
+  46-60d   roll21            -8.795%          4.888%    -3.91%
+                                          mean joint    -3.27%   <- the round trip, both sides
+  credit spreads: 1 of 27 cells positive   best +0.16% t=0.04  (put_cs 21-30d tp50)   B8 breaches 146
+
+==============================================================================
+E  PUBLISHED — cross the whole quote (V54/V56/V57)     k = +1.00
+==============================================================================
+  tenor    exit       SHORT straddle   LONG straddle     joint
+  21-30d   expiry            -6.646%          4.763%    -1.88%
+  21-30d   tp50              -3.518%          2.709%    -0.81%
+  21-30d   roll21            -3.102%         -1.298%    -4.40%
+  31-45d   expiry            -6.439%          3.348%    -3.09%
+  31-45d   tp50              -4.433%         -2.723%    -7.16%
+  31-45d   roll21            -4.203%         -0.806%    -5.01%
+  46-60d   expiry           -16.626%         14.399%    -2.23%
+  46-60d   tp50             -10.861%          2.933%    -7.93%
+  46-60d   roll21            -9.717%          3.966%    -5.75%
+                                          mean joint    -4.25%   <- the round trip, both sides
+  credit spreads: 0 of 27 cells positive   best -1.56% t=-0.16  (put_cs 46-60d expiry)   B8 breaches 147
+
+==============================================================================
+F  cross, plus a tick of slippage     k = +1.30
+==============================================================================
+  tenor    exit       SHORT straddle   LONG straddle     joint
+  21-30d   expiry            -6.988%          4.421%    -2.57%
+  21-30d   tp50              -4.715%          1.035%    -3.68%
+  21-30d   roll21            -3.896%         -2.088%    -5.98%
+  31-45d   expiry            -6.930%          2.812%    -4.12%
+  31-45d   tp50              -4.381%         -0.189%    -4.57%
+  31-45d   roll21            -5.106%         -1.708%    -6.81%
+  46-60d   expiry           -17.083%         13.941%    -3.14%
+  46-60d   tp50              -9.726%         -1.070%   -10.80%
+  46-60d   roll21           -10.786%          2.896%    -7.89%
+                                          mean joint    -5.51%   <- the round trip, both sides
+  credit spreads: 0 of 27 cells positive   best -3.18% t=-0.34  (put_cs 46-60d expiry)   B8 breaches 142
+
+
+==============================================================================
+THE LADDER — best cell in each grid, per cycle
+==============================================================================
+
+SHORT STRADDLE   (ceiling +1.07%, published -3.10%)
+  rung      k  best cell      t     pos    median   band   where
+  A     -1.00      1.07%   3.19     2/9    -3.46%   100%   21-30d roll21
+  B     +0.00     -1.09%  -3.38     0/9    -4.99%    48%   21-30d roll21
+  C     +0.30     -1.78%  -5.45     0/9    -5.48%    32%   21-30d roll21
+  D     +0.60     -2.41%  -7.21     0/9    -5.91%    17%   21-30d roll21
+  E     +1.00     -3.10%  -8.84     0/9    -6.44%     0%   21-30d roll21
+  F     +1.30     -3.90% -10.58     0/9    -6.93%   -19%   21-30d roll21
+
+LONG STRADDLE   (ceiling +16.51%, published +14.40%)
+  rung      k  best cell      t     pos    median   band   where
+  A     -1.00     16.51%   2.09     9/9     6.32%   100%   46-60d expiry
+  B     +0.00     15.40%   1.96     8/9     3.48%    47%   46-60d expiry
+  C     +0.30     15.02%   1.92     8/9     2.17%    29%   46-60d expiry
+  D     +0.60     14.70%   1.88     7/9     2.64%    14%   46-60d expiry
+  E     +1.00     14.40%   1.84     6/9     2.93%     0%   46-60d expiry
+  F     +1.30     13.94%   1.79     5/9     1.04%   -22%   46-60d expiry
+
+CREDIT SPREAD   (ceiling +97.57%, published -1.56%)
+  rung      k  best cell      t     pos    median   band   where
+  A     -1.00     97.57%   1.24   21/27     9.78%   100%   put_cs 31-45d tp50
+  B     +0.00      6.39%   1.29    5/27    -3.34%     8%   put_cs 46-60d tp50
+  C     +0.30      1.99%   0.37    3/27    -6.01%     4%   put_cs 46-60d tp50
+  D     +0.60      0.16%   0.04    1/27    -7.41%     2%   put_cs 21-30d tp50
+  E     +1.00     -1.56%  -0.16    0/27    -9.48%     0%   put_cs 46-60d expiry
+  F     +1.30     -3.18%  -0.34    0/27   -11.54%    -2%   put_cs 46-60d expiry
+
+  ladder -> band_lab/v2_dev/out/V58_option_fill_ladder.csv
+  cells  -> band_lab/v2_dev/out/V58_option_fill_cells.csv
+
