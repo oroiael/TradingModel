@@ -142,6 +142,48 @@ def put_expiry(chain, d, dte=PUT_DTE):
     e = ok.assign(_g=(ok.dte - dte).abs()).sort_values(["_g", "expiration"])
     return e.iloc[0]["expiration"]
 
+def next_week_expiry(chain, d):
+    """The listed expiry that settles in the week AFTER d's week."""
+    nxt_mon = d + pd.Timedelta(days=(7 - d.weekday()))
+    nxt_fri = nxt_mon + pd.Timedelta(days=4)
+    ok = chain[(chain.expiration > d) & (chain.expiration <= nxt_fri)]
+    return None if not len(ok) else ok.expiration.max()
+
+
+def pick_call_close(data, chain, d, exp, spot, target_pct=TARGET_PCT,
+                    mode="premium", min_strike=None, min_credit=None,
+                    buyback=0.0):
+    """Pick a call to sell at the CLOSE of day d, marked on the EOD chain.
+
+    min_strike : never re-strike below this (a roll may not lower the cap).
+    min_credit : if set, require premium - buyback >= min_credit, walking the
+                 strike DOWN from the target until the credit is met.
+    """
+    g = chain[(chain.expiration == exp) & (chain.right == "CALL")
+              & (chain.strike >= spot)]
+    if min_strike is not None:
+        g = g[g.strike >= min_strike]
+    if not len(g):
+        return None
+    g = g.sort_values("strike").head(40)
+    T = max((exp - d).days, 0) / 365.0
+    px = np.array([data.eod_value(chain, exp, float(k), "CALL", spot, d)
+                   for k in g.strike.values], dtype=float)
+    model = bs(spot, g.strike.values, T, g.implied_vol.values, "CALL")
+    px = np.where(px > 0, px, model)
+    target = target_pct * spot
+    metric = px if mode == "premium" else px + (g.strike.values - spot)
+    i = int(np.argmin(np.abs(metric - target)))
+    if min_credit is not None:
+        ok = np.where(px - buyback >= min_credit)[0]
+        if len(ok):
+            i = int(ok[np.argmin(np.abs(metric[ok] - target))])
+        else:
+            i = 0                        # lowest strike = richest premium
+    return dict(strike=float(g.iloc[i]["strike"]), expiry=exp, price=float(px[i]),
+                quality="eod_mid", iv=float(g.iloc[i]["implied_vol"]))
+
+
 def iv_at(chain, exp, strike, right, fallback=None):
     g = chain[(chain.expiration == exp) & (chain.right == right)]
     if not len(g):
@@ -206,7 +248,8 @@ class Book:
 
 def run_year(year, data=None, target_pct=TARGET_PCT, start_cash=START_CASH,
              costs=True, verbose=False, use_call=True, use_put=True,
-             target_mode="premium"):
+             target_mode="premium", roll=None, roll_credit=False,
+             roll_up_only=True, reserve_pct=0.0):
     """One calendar year, standalone: $100k in on the first Monday of the year,
     everything liquidated at the close of the last session of the year."""
     d = data or Data()
@@ -218,7 +261,7 @@ def run_year(year, data=None, target_pct=TARGET_PCT, start_cash=START_CASH,
     cash, shares = float(start_cash), 0
     bk = Book()
     pnl = {"shares": 0.0, "calls": 0.0, "puts": 0.0, "fees": 0.0}
-    marks = {"print_1000": 0, "print_near": 0, "model": 0}
+    marks = {"print_1000": 0, "print_near": 0, "model": 0, "eod_mid": 0}
     ledger, events, curve = [], [], []
 
     fee_opt = (lambda n: COMMISSION * n) if costs else (lambda n: 0.0)
@@ -231,18 +274,69 @@ def run_year(year, data=None, target_pct=TARGET_PCT, start_cash=START_CASH,
             c = bk.call; K, n = c["strike"], c["qty"]
             pnl["calls"] += c["open_px"] * n * 100
             if px > K:
-                sold = min(shares, n * 100)
-                cash += sold * K - fee_shr(sold)
-                pnl["shares"] += sold * px
-                pnl["calls"] -= sold * (px - K)
-                pnl["fees"] += fee_shr(sold)
-                shares -= sold
-                events.append(dict(date=s, kind="CALL_ASSIGNED", qty=sold,
-                                   strike=K, spot=px))
+                ch = d.chain(s)
+                intrinsic = px - K
+                # you never buy a call back for less than its intrinsic value
+                bb = max(d.eod_value(ch, c["expiry"], K, "CALL", px, s), intrinsic) \
+                    if roll else intrinsic
+
+                # A classic roll is one combo order, so only the NET debit has to
+                # be funded. Closing to re-write on Monday is two separate trades,
+                # so the whole buyback has to be funded on the day.
+                new_leg = None
+                if roll == "friday" and ch is not None and shares >= 100:
+                    nexp = next_week_expiry(ch, s)
+                    if nexp is not None:
+                        new_leg = pick_call_close(
+                            d, ch, s, nexp, px, target_pct, target_mode,
+                            min_strike=K if roll_up_only else None,
+                            min_credit=0.0 if roll_credit else None,
+                            buyback=bb)
+
+                if not roll:
+                    closable = 0
+                else:
+                    per = bb - (new_leg["price"] if new_leg else 0.0)
+                    unit = 100 * per + (2 * COMMISSION if costs and new_leg
+                                        else (COMMISSION if costs else 0.0))
+                    closable = n if unit <= 0 else min(n, int(cash // unit))
+
+                if closable > 0:
+                    cost = closable * 100 * bb + fee_opt(closable)
+                    cash -= cost
+                    pnl["calls"] -= closable * 100 * bb
+                    pnl["fees"] += fee_opt(closable)
+                    events.append(dict(date=s, kind="CALL_ROLLED_CLOSE",
+                                       qty=closable, strike=K, spot=px, px=bb))
+                left = n - closable
+                if left > 0:                      # could not fund the buyback
+                    sold = min(shares, left * 100)
+                    cash += sold * K - fee_shr(sold)
+                    pnl["shares"] += sold * px
+                    pnl["calls"] -= sold * (px - K)
+                    pnl["fees"] += fee_shr(sold)
+                    shares -= sold
+                    events.append(dict(date=s, kind="CALL_ASSIGNED", qty=sold,
+                                       strike=K, spot=px))
+                bk.call = None
+
+                # classic roll: the far leg of the same combo order
+                if new_leg is not None and closable > 0:
+                    qty = min(closable, shares // 100)
+                    if qty > 0:
+                        cash += qty * 100 * new_leg["price"] - fee_opt(qty)
+                        pnl["fees"] += fee_opt(qty)
+                        marks["eod_mid"] += 1
+                        bk.call = dict(strike=new_leg["strike"],
+                                       expiry=new_leg["expiry"], qty=qty,
+                                       open_px=new_leg["price"])
+                        events.append(dict(date=s, kind="CALL_ROLLED_OPEN",
+                                           qty=qty, strike=new_leg["strike"],
+                                           spot=px, px=new_leg["price"]))
             else:
                 events.append(dict(date=s, kind="CALL_EXPIRED", qty=n,
                                    strike=K, spot=px))
-            bk.call = None
+                bk.call = None
 
         for p in list(bk.puts):
             if s < p["expiry"]:
@@ -303,6 +397,11 @@ def run_year(year, data=None, target_pct=TARGET_PCT, start_cash=START_CASH,
         put_lot   = 100 * put_px + (COMMISSION if costs else 0.0)
         share_lot = 100 * spot + (SHARE_FEE * 100 if costs else 0.0)
 
+        # A rolling rule needs dry powder: a buyback that cannot be funded is an
+        # assignment. reserve_pct holds back that share of equity as cash.
+        equity_now = cash + shares * spot
+        investable = cash - reserve_pct * equity_now
+
         def net_cost(L):
             """Cash needed to end the morning holding L fully-hedged lots.
             Negative means the trade releases cash (we are selling shares)."""
@@ -312,11 +411,11 @@ def run_year(year, data=None, target_pct=TARGET_PCT, start_cash=START_CASH,
         # Largest position we can hold with every lot hedged and cash never short.
         L = held
         if can_size and spot > 0:
-            if net_cost(L) <= cash:
-                while net_cost(L + 1) <= cash and L < 100000:
+            if net_cost(L) <= investable:
+                while net_cost(L + 1) <= investable and L < 100000:
                     L += 1
             else:
-                while L > 0 and net_cost(L) > cash:
+                while L > 0 and net_cost(L) > investable:
                     L -= 1
         else:
             L = held                                     # no put quoted: stand pat

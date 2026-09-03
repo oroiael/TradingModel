@@ -31,7 +31,7 @@ def buy_hold(data, year, start_cash):
     return cash + sh * data.close(last), curve
 
 
-def write(res, data, tag=""):
+def write(res, data, tag="", label=None):
     y = res["year"]
     lg, ev, eq = res["ledger"], res["events"], res["equity"]
     start, final = res["start_cash"], res["final"]
@@ -50,6 +50,14 @@ def write(res, data, tag=""):
     w = lg[lg.get("call_strike").notna()] if "call_strike" in lg else lg.iloc[0:0]
     n_assign = int((ev.kind == "CALL_ASSIGNED").sum()) if len(ev) else 0
     n_expire = int((ev.kind == "CALL_EXPIRED").sum()) if len(ev) else 0
+    n_rollc = int((ev.kind == "CALL_ROLLED_CLOSE").sum()) if len(ev) else 0
+    n_rollo = int((ev.kind == "CALL_ROLLED_OPEN").sum()) if len(ev) else 0
+    roll_cost = float((ev[ev.kind == "CALL_ROLLED_CLOSE"].qty *
+                       100 * ev[ev.kind == "CALL_ROLLED_CLOSE"].px).sum()) \
+        if n_rollc else 0.0
+    roll_cred = float((ev[ev.kind == "CALL_ROLLED_OPEN"].qty *
+                       100 * ev[ev.kind == "CALL_ROLLED_OPEN"].px).sum()) \
+        if n_rollo else 0.0
     n_putex = int((ev.kind == "PUT_EXERCISED").sum()) if len(ev) else 0
     n_putexp = int((ev.kind == "PUT_EXPIRED").sum()) if len(ev) else 0
     prem_tot = float(w.call_premium.sum()) if "call_premium" in w else 0.0
@@ -57,7 +65,8 @@ def write(res, data, tag=""):
 
     L = []
     A = L.append
-    A(f"# SOXL covered call + 90-day protective put — {y}\n")
+    A(f"# SOXL covered call + 90-day protective put — {y}"
+      f"{'' if not label else ' · ' + label}\n")
     A(f"Start ${start:,.0f} on {ses[0].date()} · liquidated {ses[-1].date()} "
       f"· {len(w)} weekly writes\n")
 
@@ -97,8 +106,16 @@ def write(res, data, tag=""):
         A(f"- Total premium collected over the year: **${prem_tot:,.0f}** "
           f"({prem_tot/start*100:.0f}% of starting capital).")
         A(f"- Median implied vol of the written call: {w.call_iv.median()*100:.0f}%.")
-    A(f"- Calls: **{n_assign} assigned**, {n_expire} expired worthless "
-      f"({n_assign/max(n_assign+n_expire,1)*100:.0f}% called away).")
+    if n_rollc:
+        A(f"- Calls: **{n_rollc} rolled** (bought back instead of assigned), "
+          f"{n_expire} expired worthless, **{n_assign} assigned anyway** because "
+          f"the buyback could not be funded from cash.")
+        A(f"- Paid **${roll_cost:,.0f}** to buy the rolled calls back; "
+          f"re-sold the far leg for **${roll_cred:,.0f}** "
+          f"(**${roll_cred-roll_cost:+,.0f}** net on the rolls).")
+    else:
+        A(f"- Calls: **{n_assign} assigned**, {n_expire} expired worthless "
+          f"({n_assign/max(n_assign+n_expire,1)*100:.0f}% called away).")
     A(f"- Puts: {n_putex} exercised, {n_putexp} expired worthless.")
     bp = ev[ev.kind == "BUY_PUT"] if len(ev) else ev
     if len(bp) and "dte" in bp:
@@ -113,6 +130,9 @@ def write(res, data, tag=""):
       f"({mk.get('print_near',0)/mk_tot*100:.0f}%)")
     A(f"- Black-Scholes off that contract's own EOD implied vol, repriced to the "
       f"10:00 spot: {mk.get('model',0)} ({mk.get('model',0)/mk_tot*100:.0f}%)")
+    if mk.get("eod_mid", 0):
+        A(f"- EOD chain mid on the expiry-day roll: {mk['eod_mid']} "
+          f"({mk['eod_mid']/mk_tot*100:.0f}%)")
 
     A("\n## Files\n")
     A(f"- `ledger_{y}{tag}.csv` — one row per Monday: spot, lots, strike chosen, "
@@ -127,6 +147,7 @@ def write(res, data, tag=""):
                 sharpe=st["sharpe"], bh_final=bh_final,
                 bh_ret=(bh_final / start - 1) * 100, bh_maxdd=bh_st["maxdd"],
                 premium=prem_tot, assigned=n_assign, expired=n_expire,
+                rolled=n_rollc, roll_cost=roll_cost, roll_credit=roll_cred,
                 med_prem_pct=float(w.prem_pct.median()) if len(w) else np.nan,
                 med_otm_pct=float(w.otm_pct.median()) if len(w) else np.nan,
                 writes=len(w), pnl_shares=p["shares"], pnl_calls=p["calls"],

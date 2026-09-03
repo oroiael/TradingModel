@@ -5,8 +5,8 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import numpy as np, pandas as pd
 from ccp_lab.engine import Data, run_year
 
-def audit(y, d):
-    r = run_year(y, d)
+def audit(y, d, **kw):
+    r = run_year(y, d, **kw)
     lg, ev = r["ledger"], r["events"]
     fails = []
 
@@ -26,6 +26,13 @@ def audit(y, d):
         fails.append("negative cash (implicit leverage)")
 
     if len(ev):
+        rc = ev[ev.kind == "CALL_ROLLED_CLOSE"]
+        if len(rc):
+            if (rc.px < (rc.spot - rc.strike) - 1e-6).any():
+                fails.append("bought a call back for less than its intrinsic value")
+            ro = ev[ev.kind == "CALL_ROLLED_OPEN"]
+            if len(ro) and (ro.strike < 0).any():
+                fails.append("rolled into a negative strike")
         a = ev[ev.kind == "CALL_ASSIGNED"]
         if len(a) and (a.spot <= a.strike).any():
             fails.append("assigned a call that finished out of the money")
@@ -46,19 +53,25 @@ def audit(y, d):
     mk = r["marks"]; tot = max(sum(mk.values()), 1)
     return r, fails, mk, tot
 
+MODES = [("assign", {}),
+         ("roll (rewrite Monday)", dict(roll="rewrite")),
+         ("roll (combo, Friday)", dict(roll="friday"))]
+
 if __name__ == "__main__":
     d = Data()
     allok = True
-    for y in [2022, 2023, 2024, 2025, 2026]:
-        r, fails, mk, tot = audit(y, d)
-        real = (mk.get("print_1000", 0) + mk.get("print_near", 0)) / tot * 100
-        print(f"{y}: final ${r['final']:>9,.0f}  legs reconcile ✓  "
-              f"real prints {real:5.1f}%  ", end="")
-        if fails:
-            allok = False
-            print("FAIL")
-            for f in fails:
-                print(f"      - {f}")
-        else:
-            print("all invariants hold")
+    for name, kw in MODES:
+        print(f"--- {name} ---")
+        for y in [2022, 2023, 2024, 2025, 2026]:
+            r, fails, mk, tot = audit(y, d, **kw)
+            real = (mk.get("print_1000", 0) + mk.get("print_near", 0)) / tot * 100
+            print(f"  {y}: final ${r['final']:>9,.0f}  legs reconcile ✓  "
+                  f"real prints {real:5.1f}%  ", end="")
+            if fails:
+                allok = False
+                print("FAIL")
+                for f in fails:
+                    print(f"        - {f}")
+            else:
+                print("all invariants hold")
     print("\nAUDIT", "PASSED" if allok else "FAILED")
