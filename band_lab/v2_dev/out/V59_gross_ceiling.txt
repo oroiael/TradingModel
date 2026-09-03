@@ -1,0 +1,47 @@
+==============================================================================
+HALF 1 — THE EQUITY CEILING, no spread and no commission
+==============================================================================
+
+  900 barrier pairs, 44,307 candidate entries each.
+  `ev` is expectation per trade before ANY cost. `edge_ticks` is the
+  same number in cents at the sample's median price.
+
+  cells with a positive gross edge      579 of 900   (64%)
+  best gross EV per trade               +0.0450%  = 1.27 ticks
+     at up 3.0% / down 1.7%, 3.6 SE, 31% of starts unresolved
+  median gross EV per trade             +0.0098%  = 0.28 ticks
+  gross edge larger than ONE tick        55 of 900
+  gross edge larger than HALF a tick    313 of 900
+
+  THE REASON THE CEILING IS NOT A RESULT
+    rank corr of gross EV with the UP-barrier width     +0.937
+    rank corr of gross EV with the DOWN-barrier width   -0.175
+    SOXL rose 540% across the sample. A gross edge that tracks the up
+    barrier this closely is long exposure to that rise, not a harvest.
+
+==============================================================================
+HALF 2 — THE OPTION SPREAD IS MEASURED, NOT ASSUMED
+==============================================================================
+
+  ATM straddle, 35-39 DTE -- the contract-selection rule V32 used, so
+  the rows below are directly comparable to its live IBKR measurement.
+  V52 established these bid/ask columns are END-OF-DAY quotes; the
+  `timestamp` column is a last-TRADE time and belongs to the trade
+  record joined beside them, not to the quote.
+
+  year      n     mean   median      p90   mean $  mean spot
+  2022    250     5.6%     4.8%     8.1%     0.39      23.12
+  2023    249     4.2%     3.4%     6.4%     0.17      19.61
+  2024    251    13.9%     8.8%    31.8%     1.25      39.41
+  2025    248    19.0%    12.2%    42.6%     1.36      27.95
+  2026    122    19.2%    15.7%    38.0%     5.65     114.12
+  ALL    1120    11.6%     5.9%    28.4%     1.32      36.97
+
+  V32's live IBKR ticks, 2026-08-17..08-28: 14.6% of mid.
+  That sits INSIDE the file's own 4.2%-19.2% year range and the two
+  samples do not overlap in time, so it does not establish that the
+  file is too tight. It does establish the spread is regime-dependent
+  by a factor of four, which is why a single flat assumption is wrong.
+
+  spread census -> /home/user/TradingModel/band_lab/v2_dev/out/V59_option_spread_by_year.csv
+
