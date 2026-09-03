@@ -1,0 +1,25 @@
+
+loaded 1,336,996 quotes, 1128 dates, 2022-01-03 -> 2026-07-02
+PMCC — delta-matched, full spread crossed, cash at 4.5%
+
+  BENCHMARK buy-and-hold SOXL: total +152%  CAGR +22.8%  maxDD -90.3%  MAR 0.25
+  benchmark's own largest-quarter share of its P&L: 200%   <- B8 read against this, not against 50% in a vacuum
+
+  config                     total     CAGR    maxDD    MAR   vs BH  yrs>BH   maxQ
+  pmcc L0.70/S0.100           110%    18.0%   -85.3%   0.21      no     1/5   263%
+  pmcc L0.70/S0.175            88%    15.0%   -84.3%   0.18      no     1/5   282%
+  pmcc L0.70/S0.250            31%     6.2%   -85.6%   0.07      no     1/5   539%
+  pmcc L0.75/S0.100            92%    15.6%   -86.0%   0.18      no     0/5   278%
+  pmcc L0.75/S0.175            81%    14.2%   -85.2%   0.17      no     1/5   287%
+  pmcc L0.75/S0.250            59%    10.9%   -83.4%   0.13      no     1/5   335%
+  pmcc L0.80/S0.100           153%    22.9%   -82.9%   0.28     YES     0/5   218%
+  pmcc L0.80/S0.175           126%    19.9%   -82.4%   0.24      no     0/5   228%
+  pmcc L0.80/S0.250            99%    16.6%   -80.7%   0.21      no     1/5   247%
+  long_only L0.70             124%    19.7%   -86.1%   0.23      no     1/5   236%
+  long_only L0.75             114%    18.5%   -86.7%   0.21      no     1/5   240%
+  long_only L0.80             136%    21.1%   -85.9%   0.25      no     1/5   220%
+  covered_call S0.100         123%    19.5%   -85.2%   0.23      no     2/5   216%
+  covered_call S0.175         106%    17.5%   -91.8%   0.19      no     1/5   231%
+  covered_call S0.250          82%    14.3%   -90.7%   0.16      no     1/5   259%
+
+  grid -> band_lab/v2_dev/out/V61_pmcc_grid_cash0.045.csv
