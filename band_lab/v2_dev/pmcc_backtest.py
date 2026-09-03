@@ -38,7 +38,7 @@ import numpy as np
 import pandas as pd
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from short_vol_backtest import COMMISSION, load_chain, soxl_daily  # noqa: E402
+from short_vol_backtest import COMMISSION, load_chain, underlying_daily  # noqa: E402
 
 START = 100_000.0
 LONG_DTE = (120, 180)
@@ -231,6 +231,8 @@ def quarter_share(m):
 def main():
     p = argparse.ArgumentParser(description=__doc__,
                                 formatter_class=argparse.RawDescriptionHelpFormatter)
+    p.add_argument("--symbol", default="SOXL",
+                   help="underlying; needs {SYMBOL}_Options_YYYY.csv to exist")
     p.add_argument("--cash-apy", type=float, default=0.0,
                    help="yield on idle cash; 0.0 is the headline, V60 sensitivity only")
     p.add_argument("--since", default=None,
@@ -239,8 +241,8 @@ def main():
     p.add_argument("--outdir", default="band_lab/v2_dev/out")
     a = p.parse_args()
 
-    chain = load_chain()
-    spot = soxl_daily()
+    chain = load_chain(a.symbol)
+    spot = underlying_daily(a.symbol)
     if a.since:
         chain = chain[chain.trade_date >= pd.Timestamp(a.since)]
     if a.until:
@@ -289,7 +291,8 @@ def main():
     g = pd.DataFrame(rows)
     os.makedirs(a.outdir, exist_ok=True)
     tag = ("" if a.cash_apy == 0 else f"_cash{a.cash_apy:.3f}") + \
-          ("" if not a.since else f"_from{a.since}")
+          ("" if not a.since else f"_from{a.since}") + \
+          ("" if a.symbol == "SOXL" else f"_{a.symbol}")
     g.to_csv(os.path.join(a.outdir, f"V61_pmcc_grid{tag}.csv"), index=False)
     pd.DataFrame({k: v.equity for k, v in curves.items()}).to_csv(
         os.path.join(a.outdir, f"V61_pmcc_curves{tag}.csv"))

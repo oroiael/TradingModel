@@ -144,13 +144,15 @@ def band(v, floor, ceil):
 def main():
     p = argparse.ArgumentParser(description=__doc__,
                                 formatter_class=argparse.RawDescriptionHelpFormatter)
+    p.add_argument("--symbol", default="SOXL",
+                   help="underlying; needs {SYMBOL}_Options_YYYY.csv to exist")
     p.add_argument("--quick", action="store_true",
                    help="straddles only, skip the 27-cell spread grid")
     p.add_argument("--outdir", default="band_lab/v2_dev/out")
     a = p.parse_args()
 
-    chain = sv.load_chain()
-    spot = sv.soxl_daily()
+    chain = sv.load_chain(a.symbol)
+    spot = sv.underlying_daily(a.symbol)
     print(f"\nloaded {len(chain):,} quotes, {chain.trade_date.nunique()} dates, "
           f"{chain.trade_date.min().date()} -> {chain.trade_date.max().date()}")
 
@@ -200,9 +202,10 @@ def main():
             dump.append(sp.assign(k=k, side="short", family="credit_spread"))
 
     L = pd.DataFrame(rows)
+    sfx = "" if a.symbol == "SOXL" else f"_{a.symbol}"
     os.makedirs(a.outdir, exist_ok=True)
-    L.to_csv(os.path.join(a.outdir, "V58_option_fill_ladder.csv"), index=False)
-    pd.concat(dump).to_csv(os.path.join(a.outdir, "V58_option_fill_cells.csv"),
+    L.to_csv(os.path.join(a.outdir, f"V58_option_fill_ladder{sfx}.csv"), index=False)
+    pd.concat(dump).to_csv(os.path.join(a.outdir, f"V58_option_fill_cells{sfx}.csv"),
                            index=False)
 
     print(f"\n\n{'='*78}\nTHE LADDER — best cell in each grid, per cycle\n{'='*78}")
@@ -219,8 +222,8 @@ def main():
                   f"{f'{r.pos}/{r.cells}':>8}{r['median']*100:>9.2f}%"
                   f"{band(r.best, floor_, ceil):>6.0f}%   {r.best_cell}")
 
-    print(f"\n  ladder -> {a.outdir}/V58_option_fill_ladder.csv")
-    print(f"  cells  -> {a.outdir}/V58_option_fill_cells.csv\n")
+    print(f"\n  ladder -> {a.outdir}/V58_option_fill_ladder{sfx}.csv")
+    print(f"  cells  -> {a.outdir}/V58_option_fill_cells{sfx}.csv\n")
 
 
 if __name__ == "__main__":

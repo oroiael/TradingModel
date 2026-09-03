@@ -48,7 +48,7 @@ import pandas as pd
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from short_vol_backtest import (COMMISSION, TENORS, buy_px, load_chain,  # noqa: E402
-                                sell_px, soxl_daily)
+                                sell_px, underlying_daily)
 
 EXITS = ("expiry", "tp50", "roll21")
 SHORT_DELTA, LONG_DELTA = 0.25, 0.10
@@ -191,14 +191,16 @@ def stats(t):
 def main():
     p = argparse.ArgumentParser(description=__doc__,
                                 formatter_class=argparse.RawDescriptionHelpFormatter)
+    p.add_argument("--symbol", default="SOXL",
+                   help="underlying; needs {SYMBOL}_Options_YYYY.csv to exist")
     p.add_argument("--fill", type=float, default=1.0,
                    help="half-spreads given up per fill: 1.0 cross (published), "
                         "0.0 mid, -1.0 the far touch (impossible)")
     p.add_argument("--outdir", default="band_lab/v2_dev/out")
     a = p.parse_args()
 
-    chain = load_chain()
-    spot = soxl_daily()
+    chain = load_chain(a.symbol)
+    spot = underlying_daily(a.symbol)
     print(f"\nloaded {len(chain):,} quotes, {chain.trade_date.nunique()} dates, "
           f"{chain.trade_date.min().date()} -> {chain.trade_date.max().date()}")
     print(f"DEFINED-RISK CREDIT SPREADS  25-delta short / 10-delta long\n")
@@ -221,7 +223,8 @@ def main():
                       f"{s['cw']*100:>7.0f}%{'ok' if s['breaches']==0 else 'X':>5}")
     g = pd.DataFrame(grid)
     os.makedirs(a.outdir, exist_ok=True)
-    tag = "" if a.fill == 1.0 else f"_k{a.fill:+.2f}"
+    tag = ("" if a.fill == 1.0 else f"_k{a.fill:+.2f}") + \
+          ("" if a.symbol == "SOXL" else f"_{a.symbol}")
     pd.concat(led).to_csv(os.path.join(a.outdir, f"credit_spread{tag}_ledger.csv"), index=False)
     g.to_csv(os.path.join(a.outdir, f"credit_spread{tag}_grid.csv"), index=False)
     print(f"\n  cells positive: {(g['mean']>0).sum()} of {len(g)}"

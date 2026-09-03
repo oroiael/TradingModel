@@ -40,13 +40,13 @@ directly comparable to holding the shares, which is what B7 requires.
 from __future__ import annotations
 
 import argparse
+import glob
 import os
 
 import numpy as np
 import pandas as pd
 
 ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-YEARS = ("2022", "2023", "2024", "2025", "2026")
 TENORS = ((21, 30, "21-30d"), (31, 45, "31-45d"), (46, 60, "46-60d"))
 EXITS = ("expiry", "tp50", "roll21")
 COMMISSION = 0.65
@@ -113,14 +113,48 @@ def parse_dates(s, year):
     return pd.to_datetime(txt, format="%Y-%m-%d")
 
 
-def load_chain():
+def chain_files(symbol):
+    """Yearly option files for a symbol, discovered rather than hardcoded.
+
+    Returns (path, year) pairs. An empty list is the caller's signal that the
+    symbol has no option data at all -- which is the situation for every
+    underlying in this repo except SOXL.
+    """
+    out = []
+    for p in sorted(glob.glob(os.path.join(ROOT, f"{symbol}_Options_*.csv"))):
+        y = os.path.basename(p).rsplit("_", 1)[-1].removesuffix(".csv")
+        if y.isdigit() and len(y) == 4:
+            out.append((p, y))
+    return out
+
+
+def price_file(symbol):
+    """The underlying's intraday bar file. Bar size is irrelevant -- the daily
+    close is taken as the last bar of each session -- so a 1-min or 5-min file
+    both work."""
+    for name in (f"{symbol}_1min.csv", f"{symbol}_5min_6Years.csv",
+                 f"{symbol}_5min_5Years.csv", f"{symbol}_5min_3Years.csv"):
+        p = os.path.join(ROOT, name)
+        if os.path.exists(p) and os.path.getsize(p) > 10_000:
+            return p
+    raise FileNotFoundError(
+        f"no intraday price file for {symbol}. Looked for {symbol}_1min.csv and "
+        f"{symbol}_5min_*.csv under {ROOT}. Note many CSVs here are unfetched "
+        f"git-lfs pointers -- `git lfs pull --include=\"{symbol}_*\"` first.")
+
+
+def load_chain(symbol="SOXL"):
     use = ["expiration", "strike", "right", "bid", "ask", "delta",
            "implied_vol", "underlying_price", "trade_date"]
+    files = chain_files(symbol)
+    if not files:
+        raise FileNotFoundError(
+            f"no option chain files for {symbol}: expected "
+            f"{ROOT}/{symbol}_Options_YYYY.csv. Only SOXL has them in this repo. "
+            f"Build them with `python3 fetch_option_chains.py --symbol {symbol}` "
+            f"on a machine running the Theta Terminal, then re-run.")
     parts = []
-    for y in YEARS:
-        p = os.path.join(ROOT, f"SOXL_Options_{y}.csv")
-        if not os.path.exists(p):
-            continue
+    for p, y in files:
         d = pd.read_csv(p, usecols=use, low_memory=False)
         d["trade_date"] = parse_dates(d.trade_date, y)
         d["expiration"] = parse_dates(d.expiration, y)
@@ -138,8 +172,8 @@ def load_chain():
     return d.sort_values("trade_date").reset_index(drop=True)
 
 
-def soxl_daily():
-    df = pd.read_csv(os.path.join(ROOT, "SOXL_1min.csv"))
+def underlying_daily(symbol="SOXL"):
+    df = pd.read_csv(price_file(symbol))
     dt = pd.to_datetime(df["Date"].str.replace(" America/New_York", "", regex=False),
                         format="%Y%m%d %H:%M:%S")
     return df.assign(d=dt.dt.normalize()).groupby("d").Close.last()
@@ -270,14 +304,16 @@ def main():
                                 formatter_class=argparse.RawDescriptionHelpFormatter)
     p.add_argument("--structure", default="straddle", choices=["straddle", "strangle"])
     p.add_argument("--side", default="short", choices=["short", "long"])
+    p.add_argument("--symbol", default="SOXL",
+                   help="underlying; needs {SYMBOL}_Options_YYYY.csv to exist")
     p.add_argument("--fill", type=float, default=1.0,
                    help="half-spreads given up per fill: 1.0 cross (published), "
                         "0.0 mid, -1.0 the far touch (impossible)")
     p.add_argument("--outdir", default="band_lab/v2_dev/out")
     a = p.parse_args()
 
-    chain = load_chain()
-    spot = soxl_daily()
+    chain = load_chain(a.symbol)
+    spot = underlying_daily(a.symbol)
     print(f"\nloaded {len(chain):,} quotes, {chain.trade_date.nunique()} dates, "
           f"{chain.trade_date.min().date()} -> {chain.trade_date.max().date()}")
     print(f"{a.side.upper()} {a.structure.upper()}   fill={a.fill:+.2f} half-spreads "
@@ -301,7 +337,8 @@ def main():
     g = pd.DataFrame(grid)
     os.makedirs(a.outdir, exist_ok=True)
     # a non-default fill must not overwrite the published baseline
-    tag = "" if a.fill == 1.0 else f"_k{a.fill:+.2f}"
+    tag = ("" if a.fill == 1.0 else f"_k{a.fill:+.2f}") + \
+          ("" if a.symbol == "SOXL" else f"_{a.symbol}")
     stem = f"short_vol_{a.side}_{a.structure}{tag}"
     pd.concat(ledgers).to_csv(os.path.join(a.outdir, f"{stem}_ledger.csv"), index=False)
     g.to_csv(os.path.join(a.outdir, f"{stem}_grid.csv"), index=False)
