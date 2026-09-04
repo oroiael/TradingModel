@@ -29,6 +29,7 @@ problems it catches:
 | `FileNotFoundError` on a cache file | cache never built | nothing to do; the runners build it on first use |
 | a CSV parses as one junk row | Git LFS pointer, not data | `git lfs install && git lfs pull` |
 | `UnicodeEncodeError` writing a summary | Windows cp1252 console | already handled — all IO is forced to UTF-8 |
+| `ZoneInfoNotFoundError: America/New_York` | Windows ships no IANA tz database | already handled — the cache builder reads the vendor's ET wall clock straight off the string and never converts a timezone |
 
 `pyarrow` is optional. Without it the cache is written as pickle, which needs no
 extra package; it is larger and slower to load but produces identical results.

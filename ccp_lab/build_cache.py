@@ -93,10 +93,14 @@ def build_prints():
             log(f"   !! {os.path.basename(f)}: {e}"); continue
         if not len(df):
             continue
-        ts = pd.to_datetime(df["timestamp"], format="ISO8601", errors="coerce", utc=True)
-        ts = ts.dt.tz_convert("America/New_York")
-        df["date"] = ts.dt.date
-        df["hm"] = ts.dt.strftime("%H:%M")
+        # The vendor already writes Eastern local time with the offset appended
+        # ("2024-01-02 09:30:00-05:00"), so the ET wall clock IS the string. Slicing
+        # it avoids needing an IANA tz database, which Windows does not ship, and is
+        # far faster than parsing 8M timestamps.
+        ts = df["timestamp"].astype(str)
+        df["date"] = pd.to_datetime(ts.str.slice(0, 10), format="%Y-%m-%d",
+                                    errors="coerce").dt.date
+        df["hm"] = ts.str.slice(11, 16)
         df = df[df["hm"].between("09:30", "10:30")]
         df = df[pd.to_numeric(df["close"], errors="coerce").notna()]
         df = df[pd.to_numeric(df["volume"], errors="coerce").fillna(0) > 0]
