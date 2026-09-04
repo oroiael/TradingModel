@@ -4,11 +4,15 @@ import os, sys
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import pandas as pd
 from ccp_lab.engine import Data, run_year, TARGET_PCT
+from ccp_lab.compat import write_text, safe_stdout, ensure_cache
 from ccp_lab.report import write, OUT
 
 YEARS = [2022, 2023, 2024, 2025, 2026]
 
 if __name__ == "__main__":
+    safe_stdout()
+    if not ensure_cache():
+        raise SystemExit(1)
     data = Data()
     rows = []
     for y in YEARS:
@@ -48,5 +52,5 @@ if __name__ == "__main__":
              f"**${df.final.sum()-100000*len(df):+,.0f}** |")
     L.append("\nEach year starts fresh at $100,000, so the totals are the sum of five "
              "independent $100k experiments, not a compounded track record.\n")
-    open(f"{OUT}/SUMMARY_ALL.md", "w").write("\n".join(L) + "\n")
+    write_text(f"{OUT}/SUMMARY_ALL.md", "\n".join(L) + "\n")
     print("\nwrote", f"{OUT}/SUMMARY_ALL.md")

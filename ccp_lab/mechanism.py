@@ -4,11 +4,15 @@ import os, sys
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import numpy as np, pandas as pd
 from ccp_lab.engine import Data, run_year
+from ccp_lab.compat import write_text, safe_stdout, ensure_cache
 from ccp_lab.report import OUT
 
 YEARS = [2022, 2023, 2024, 2025, 2026]
 
 if __name__ == "__main__":
+    safe_stdout()
+    if not ensure_cache():
+        raise SystemExit(1)
     d = Data()
     calls, puts, whip = [], [], []
     for y in YEARS:
@@ -126,5 +130,5 @@ if __name__ == "__main__":
              "roll costs and clamped losses in the older engines. Inconsistent "
              "answers came from inconsistent questions.")
 
-    open(f"{OUT}/MECHANISM.md", "w").write("\n".join(L) + "\n")
+    write_text(f"{OUT}/MECHANISM.md", "\n".join(L) + "\n")
     print("\n".join(L))

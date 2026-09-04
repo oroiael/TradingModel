@@ -8,24 +8,58 @@ A literal backtest of the rule as stated, on real data, rebuilt from scratch:
 > put — hold it to expiry, exercise if needed, then reload on the same terms.
 > Start with $100,000 and reinvest. Whole shares. Whole or half-dollar strikes only.
 
+## Setup
+
 ```bash
-apt-get install -y git-lfs && git lfs install && git lfs pull   # the data is in LFS
-pip install pandas numpy pyarrow
+pip install -r ccp_lab/requirements.txt
 
-python3 ccp_lab/build_cache.py     # normalise 5 vendor formats -> parquet (~15 min)
-python3 ccp_lab/qa_data.py         # data QA/QC          -> out/QA_DATA.md
-python3 ccp_lab/audit.py           # engine invariants   -> must print AUDIT PASSED
+git lfs install && git lfs pull    # the data is in Git LFS; without this every
+                                   # CSV is a 130-byte pointer file
 
-python3 ccp_lab/run_2022.py        # one year, one script -> out/summary_2022.md
-python3 ccp_lab/run_2023.py
-python3 ccp_lab/run_2024.py
-python3 ccp_lab/run_2025.py
-python3 ccp_lab/run_2026.py        # partial year, data ends 2026-07-02
+python ccp_lab/doctor.py           # preflight: packages, data, cache. Run this
+                                   # first if anything below fails.
+```
 
-python3 ccp_lab/run_all.py         # all five + rollup   -> out/SUMMARY_ALL.md
-python3 ccp_lab/controls.py        # leg-by-leg controls -> out/CONTROLS.md
-python3 ccp_lab/mechanism.py       # why it loses        -> out/MECHANISM.md
-python3 ccp_lab/sweep.py           # premium-target sweep-> out/SWEEP.md
+`doctor.py` prints exactly what is missing and how to fix it. The most common
+problems it catches:
+
+| symptom | cause | fix |
+|---|---|---|
+| `ImportError: Unable to find a usable engine ... pyarrow` | no parquet engine | `pip install pyarrow`, or just re-run — the cache rebuilds as pickle automatically |
+| `FileNotFoundError` on a cache file | cache never built | nothing to do; the runners build it on first use |
+| a CSV parses as one junk row | Git LFS pointer, not data | `git lfs install && git lfs pull` |
+| `UnicodeEncodeError` writing a summary | Windows cp1252 console | already handled — all IO is forced to UTF-8 |
+
+`pyarrow` is optional. Without it the cache is written as pickle, which needs no
+extra package; it is larger and slower to load but produces identical results.
+
+## Running it
+
+The runners build the cache themselves on first use (15–25 minutes, once), so on
+a fresh checkout you can go straight to any year:
+
+```bash
+python ccp_lab/run_2024.py         # one year -> out/summary_2024.md
+
+python ccp_lab/build_cache.py      # (optional) build the cache up front instead
+python ccp_lab/qa_data.py          # data QA/QC          -> out/QA_DATA.md
+python ccp_lab/audit.py            # engine invariants   -> must print AUDIT PASSED
+
+python ccp_lab/run_2022.py         # one script per year -> out/summary_<year>.md
+python ccp_lab/run_2023.py
+python ccp_lab/run_2024.py
+python ccp_lab/run_2025.py
+python ccp_lab/run_2026.py         # partial year, data ends 2026-07-02
+
+python ccp_lab/roll_2022.py       # same year, rolling  -> out/summary_2022_roll.md
+python ccp_lab/roll_2023.py       #   ... and so on through roll_2026.py
+
+python ccp_lab/run_all.py         # all five + rollup   -> out/SUMMARY_ALL.md
+python ccp_lab/roll_all.py        # rolling + baseline  -> out/SUMMARY_ROLL.md
+python ccp_lab/roll_mechanism.py  # what rolling changes-> out/ROLL_MECHANISM.md
+python ccp_lab/controls.py        # leg-by-leg controls -> out/CONTROLS.md
+python ccp_lab/mechanism.py       # why it loses        -> out/MECHANISM.md
+python ccp_lab/sweep.py           # premium-target sweep-> out/SWEEP.md
 ```
 
 Each year is an **independent $100,000 experiment**: capital goes in on the first
@@ -45,6 +79,40 @@ compound into each other, so no year's result is contaminated by another's.
 The rule loses money in all five years, including the two in which SOXL more than
 doubled. It beats buy & hold only in 2022, the −86% year, which is what a hedge is
 supposed to do.
+
+## Rolling the call instead of taking assignment
+
+`roll_<year>.py` runs the identical rule except an in-the-money call is **bought
+back on expiry day** rather than allowed to assign, with the far leg of the same
+combo order selling the following week (strike never below the old one, premium
+targeted at 5% of spot). Where the net debit cannot be funded from cash the
+shares are still assigned, and that is counted rather than wished away.
+
+| variant | 2022 | 2023 | 2024 | 2025 | 2026 |
+|---|---:|---:|---:|---:|---:|
+| take assignment (baseline) | −39.7% | −16.6% | −33.5% | −37.6% | −17.8% |
+| buy back Friday, re-write Monday | −45.5% | −10.3% | −30.1% | +4.0% | +6.9% |
+| **roll as one combo order** | **−37.5%** | **−0.0%** | **−40.7%** | **+0.3%** | **+36.7%** |
+| buy & hold SOXL | −86.2% | +227.1% | −6.5% | +45.4% | +140.8% |
+
+**Rolling is a real improvement and not a fix.** It wins in three of five years,
+by more than 40 points in 2025 and 2026, and it still loses money in 2022 and
+2024 and still trails buy & hold everywhere except the crash.
+
+What it changes: the shares are never sold at the strike and never repurchased at
+Monday's higher open — the +9.4% median whipsaw measured under assignment simply
+stops happening. What it does not change: at the instant of expiry, buying the
+call back for its intrinsic and being assigned at the strike are worth **exactly
+the same**. A roll defers the loss rather than avoiding it. Across 105 rolls the
+strike ratcheted up a median **+11.1%**, but only 30% of rolls were a net credit,
+and rolls chain — up to **5 consecutive weeks** of paying intrinsic to keep a
+position that stays capped.
+
+One practical finding: **rolling needs cash the reinvest-everything rule does not
+leave.** With no reserve, 47 buybacks across five years could not be funded and
+assigned anyway. A 10–20% cash reserve removes almost all of them and barely moves
+the return — the funding constraint was real, but it was never what drove the
+result.
 
 ## Why — three measured mechanisms
 
@@ -120,10 +188,11 @@ next, and Black-Scholes off that contract's own EOD implied vol otherwise.
 - **Assignment is modelled at expiry only.** American calls can be assigned early,
   especially around ex-dividend. Writing at the money makes this a live risk, so the
   real-world result would be *worse*, not better.
-- **No rolling.** The rule as stated holds to expiry. Traders running this in
-  practice almost always roll a threatened call up and out instead of being
-  assigned, which is a materially different strategy — see the note in
-  `out/MECHANISM.md`.
+- **Rolling is modelled at expiry, not before.** The roll happens on expiry day
+  at the EOD chain mid. A trader who rolls on Wednesday, or on a delta trigger,
+  gets a different (usually better) entry than this measures.
+- **The roll buys back at the EOD mid, floored at intrinsic.** That is neutral
+  execution on a two-sided quote; paying the ask on every buyback would be worse.
 - Fills are at trade prints, which is optimistic on size; cash earns 0%; no taxes,
   and 108 assignments in five years is a heavy short-term-gain load.
 - Five years of a 3× ETF spanning one −86% year and one +141% half-year is a small
@@ -136,9 +205,13 @@ next, and Black-Scholes off that contract's own EOD implied vol otherwise.
 | `build_cache.py` | normalises the five vendor CSV dialects into parquet |
 | `engine.py` | pricing, contract selection, and the backtest state machine |
 | `report.py` | per-year summary writer |
-| `run_<year>.py` | one script per year, as requested |
-| `run_all.py` · `controls.py` · `mechanism.py` · `sweep.py` · `audit.py` · `qa_data.py` | rollup, controls, mechanism, target sweep, invariants, data QA |
-| `out/summary_<year>.md` | the per-year summary file |
+| `run_<year>.py` | one script per year, taking assignment |
+| `roll_<year>.py` | one script per year, rolling instead of assigning |
+| `run_all.py` · `roll_all.py` | rollups for the two builds |
+| `controls.py` · `mechanism.py` · `roll_mechanism.py` · `sweep.py` | controls, mechanisms, premium-target sweep |
+| `audit.py` · `qa_data.py` | engine invariants (all three modes), data QA |
+| `doctor.py` · `compat.py` · `requirements.txt` | preflight, cross-platform IO, deps |
+| `out/summary_<year>.md` · `out/summary_<year>_roll.md` | the per-year summary files |
 | `out/ledger_<year>.csv` | one row per Monday: spot, lots, strike, premium, moneyness |
 | `out/events_<year>.csv` | every fill, assignment, exercise, expiry |
 | `out/equity_<year>.csv` | daily marked-to-market equity |
