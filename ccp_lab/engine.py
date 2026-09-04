@@ -11,11 +11,17 @@ Rules implemented (see ccp_lab/README.md for the full statement):
     traded: it is held to expiry and exercised if in the money, then reloaded.
   * $100,000 start, whole shares, reinvested.
 """
-import os, math
+import os, sys, math
 import numpy as np, pandas as pd
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 CACHE = os.path.join(ROOT, "ccp_lab", "cache")
+
+try:
+    from ccp_lab.compat import load_df, cache_path
+except ImportError:                                   # run as a loose script
+    sys.path.insert(0, ROOT)
+    from ccp_lab.compat import load_df, cache_path
 
 TARGET_PCT   = 0.05     # premium target, as a fraction of underlying value
 PUT_DTE      = 90       # protective put tenor
@@ -45,23 +51,30 @@ def bs(S, K, T, vol, right, r=CARRY):
 # ------------------------------------------------------------------ loaders
 class Data:
     def __init__(self):
-        self.ten = pd.read_parquet(f"{CACHE}/underlying_1min_1000.parquet")
+        self.ten = load_df("underlying_1min_1000")
         self.ten["date"] = pd.to_datetime(self.ten["date"])
         self.ten = self.ten.set_index("date").sort_index()
 
-        self.daily = pd.read_parquet(f"{CACHE}/underlying_daily.parquet")
+        self.daily = load_df("underlying_daily")
         self.daily["date"] = pd.to_datetime(self.daily["date"])
         self.daily = self.daily.set_index("date").sort_index()
 
-        ch = pd.read_parquet(f"{CACHE}/chains.parquet")
+        ch = load_df("chains")
         ch = ch[ch.std_strike & ch.implied_vol.notna() & (ch.implied_vol > 0)]
         self.ch = ch.sort_values(["trade_date", "expiration", "strike"])
         self._by_date = {d: g for d, g in self.ch.groupby("trade_date")}
 
-        p = f"{CACHE}/prints_1000.parquet"
+        # The intraday print cache is an enhancement, not a requirement: without
+        # it every option is priced by model instead of by a real 10:00 trade.
+        p = cache_path("prints_1000")
         self.p_exact, self.p_near = {}, {}
-        if os.path.exists(p):
-            pr = pd.read_parquet(p)
+        try:
+            pr = load_df("prints_1000") if p is not None else None
+        except Exception as e:
+            print(f"warning: intraday print cache unusable ({e.__class__.__name__});"
+                  f" pricing every option from the model instead.", file=sys.stderr)
+            pr = None
+        if pr is not None:
             pr["date"] = pd.to_datetime(pr["date"])
             pr["expiration"] = pd.to_datetime(pr["expiration"])
             pr = pr[pr["close"] > 0]

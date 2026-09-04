@@ -4,11 +4,15 @@ import os, sys
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import numpy as np, pandas as pd
 from ccp_lab.engine import Data, run_year
+from ccp_lab.compat import write_text, safe_stdout, ensure_cache
 from ccp_lab.report import OUT
 
 YEARS = [2022, 2023, 2024, 2025, 2026]
 
 if __name__ == "__main__":
+    safe_stdout()
+    if not ensure_cache():
+        raise SystemExit(1)
     d = Data()
     chains, ratchet, whip_a, whip_r, credit = [], [], [], [], []
     for y in YEARS:
@@ -100,5 +104,5 @@ if __name__ == "__main__":
              "not rescue the strategy. It removes the transaction-cost whipsaw but "
              "not the two things that actually cost the money: the cap itself, and "
              "a protective put costing ~17% of spot every ~84 days.\n")
-    open(f"{OUT}/ROLL_MECHANISM.md", "w").write("\n".join(L) + "\n")
+    write_text(f"{OUT}/ROLL_MECHANISM.md", "\n".join(L) + "\n")
     print("\n".join(L))

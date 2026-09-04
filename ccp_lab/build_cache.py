@@ -10,7 +10,9 @@ import os, csv, glob, sys
 import pandas as pd, numpy as np
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-CACHE = os.path.join(ROOT, "ccp_lab", "cache")
+sys.path.insert(0, ROOT)
+from ccp_lab.compat import save_df, CACHE, PARQUET, check_sources, HOWTO, safe_stdout
+
 os.makedirs(CACHE, exist_ok=True)
 
 def log(*a): print(*a, flush=True)
@@ -27,12 +29,12 @@ def build_underlying():
 
     ten = df[df["hm"] == "10:00"][["date", "o", "h", "l", "c", "v"]].copy()
     ten = ten.drop_duplicates("date").reset_index(drop=True)
-    ten.to_parquet(os.path.join(CACHE, "underlying_1min_1000.parquet"), index=False)
+    save_df(ten, "underlying_1min_1000")
     log(f"   10:00 bars: {len(ten)}  {ten.date.min()} -> {ten.date.max()}")
 
     daily = df.groupby("date").agg(o=("o", "first"), h=("h", "max"),
                                    l=("l", "min"), c=("c", "last"), v=("v", "sum")).reset_index()
-    daily.to_parquet(os.path.join(CACHE, "underlying_daily.parquet"), index=False)
+    save_df(daily, "underlying_daily")
     log(f"   sessions:   {len(daily)}")
     return daily
 
@@ -72,7 +74,7 @@ def build_chains():
     ch = pd.concat(out, ignore_index=True)
     ch["dte"] = (ch["expiration"] - ch["trade_date"]).dt.days
     ch["mid"] = np.where((ch.bid > 0) & (ch.ask > 0), (ch.bid + ch.ask) / 2.0, np.nan)
-    ch.to_parquet(os.path.join(CACHE, "chains.parquet"), index=False)
+    save_df(ch, "chains")
     log(f"   total {len(ch)} contract-days")
     return ch
 
@@ -110,12 +112,20 @@ def build_prints():
     for c in ["open", "high", "low", "close", "volume"]:
         pr[c] = pd.to_numeric(pr[c], errors="coerce")
     pr = pr.dropna(subset=["expiration", "strike", "close"])
-    pr.to_parquet(os.path.join(CACHE, "prints_1000.parquet"), index=False)
+    save_df(pr, "prints_1000")
     log(f"   {len(pr)} traded 5-min bars in the morning window")
     log(f"   with a 10:00 bar: {(pr.hm=='10:00').sum()}")
     return pr
 
 if __name__ == "__main__":
+    safe_stdout()
+    problems = check_sources()
+    if problems:
+        for x in problems:
+            log("  - " + x)
+        log(HOWTO)
+        raise SystemExit(1)
+    log(f"cache format: {'parquet' if PARQUET else 'pickle (pyarrow not installed)'}")
     what = sys.argv[1] if len(sys.argv) > 1 else "all"
     if what in ("all", "underlying"): build_underlying()
     if what in ("all", "chains"):     build_chains()

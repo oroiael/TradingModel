@@ -7,12 +7,16 @@ import os, sys
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import numpy as np, pandas as pd
 from ccp_lab.engine import Data, run_year
+from ccp_lab.compat import write_text, safe_stdout, ensure_cache
 from ccp_lab.report import OUT
 
 YEARS = [2022, 2023, 2024, 2025, 2026]
 TARGETS = [0.01, 0.02, 0.03, 0.04, 0.05]
 
 if __name__ == "__main__":
+    safe_stdout()
+    if not ensure_cache():
+        raise SystemExit(1)
     d = Data()
     out = {}
     for t in TARGETS:
@@ -44,5 +48,5 @@ if __name__ == "__main__":
     L.append("\nThe 5% target is the most expensive setting tested in most years: "
              "it pins the strike closest to the money, which maximises both the "
              "premium and the frequency with which the stock is called away.\n")
-    open(f"{OUT}/SWEEP.md", "w").write("\n".join(L) + "\n")
+    write_text(f"{OUT}/SWEEP.md", "\n".join(L) + "\n")
     print("\nwrote", f"{OUT}/SWEEP.md")

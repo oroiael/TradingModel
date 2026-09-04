@@ -1,0 +1,7 @@
+# Minimum to run the lab. pandas and numpy are required.
+pandas>=2.0
+numpy>=1.24
+
+# Optional but recommended: without one of these the cache falls back to pickle,
+# which works fine but is larger and slower to load.
+pyarrow>=14.0

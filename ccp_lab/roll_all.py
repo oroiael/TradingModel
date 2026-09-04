@@ -7,6 +7,7 @@ import os, sys
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import numpy as np, pandas as pd
 from ccp_lab.engine import Data, run_year
+from ccp_lab.compat import write_text, safe_stdout, ensure_cache
 from ccp_lab.report import write, buy_hold, OUT
 
 YEARS = [2022, 2023, 2024, 2025, 2026]
@@ -16,6 +17,9 @@ MODES = [("take assignment (baseline)", {}),
 RESERVES = [0.0, 0.05, 0.10, 0.20]
 
 if __name__ == "__main__":
+    safe_stdout()
+    if not ensure_cache():
+        raise SystemExit(1)
     d = Data()
     grid, detail = {}, []
     for name, kw in MODES:
@@ -94,5 +98,5 @@ if __name__ == "__main__":
     L.append("\nThe reserve reliably removes the forced assignments, and barely "
              "moves the return. The funding constraint was real but it was never "
              "the thing driving the result.\n")
-    open(f"{OUT}/SUMMARY_ROLL.md", "w").write("\n".join(L) + "\n")
+    write_text(f"{OUT}/SUMMARY_ROLL.md", "\n".join(L) + "\n")
     print("\nwrote", f"{OUT}/SUMMARY_ROLL.md")

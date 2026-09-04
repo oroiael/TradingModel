@@ -8,29 +8,58 @@ A literal backtest of the rule as stated, on real data, rebuilt from scratch:
 > put — hold it to expiry, exercise if needed, then reload on the same terms.
 > Start with $100,000 and reinvest. Whole shares. Whole or half-dollar strikes only.
 
+## Setup
+
 ```bash
-apt-get install -y git-lfs && git lfs install && git lfs pull   # the data is in LFS
-pip install pandas numpy pyarrow
+pip install -r ccp_lab/requirements.txt
 
-python3 ccp_lab/build_cache.py     # normalise 5 vendor formats -> parquet (~15 min)
-python3 ccp_lab/qa_data.py         # data QA/QC          -> out/QA_DATA.md
-python3 ccp_lab/audit.py           # engine invariants   -> must print AUDIT PASSED
+git lfs install && git lfs pull    # the data is in Git LFS; without this every
+                                   # CSV is a 130-byte pointer file
 
-python3 ccp_lab/run_2022.py        # one year, one script -> out/summary_2022.md
-python3 ccp_lab/run_2023.py
-python3 ccp_lab/run_2024.py
-python3 ccp_lab/run_2025.py
-python3 ccp_lab/run_2026.py        # partial year, data ends 2026-07-02
+python ccp_lab/doctor.py           # preflight: packages, data, cache. Run this
+                                   # first if anything below fails.
+```
 
-python3 ccp_lab/roll_2022.py       # same year, rolling  -> out/summary_2022_roll.md
-python3 ccp_lab/roll_2023.py       #   ... and so on through roll_2026.py
+`doctor.py` prints exactly what is missing and how to fix it. The most common
+problems it catches:
 
-python3 ccp_lab/run_all.py         # all five + rollup   -> out/SUMMARY_ALL.md
-python3 ccp_lab/roll_all.py        # rolling + baseline  -> out/SUMMARY_ROLL.md
-python3 ccp_lab/roll_mechanism.py  # what rolling changes-> out/ROLL_MECHANISM.md
-python3 ccp_lab/controls.py        # leg-by-leg controls -> out/CONTROLS.md
-python3 ccp_lab/mechanism.py       # why it loses        -> out/MECHANISM.md
-python3 ccp_lab/sweep.py           # premium-target sweep-> out/SWEEP.md
+| symptom | cause | fix |
+|---|---|---|
+| `ImportError: Unable to find a usable engine ... pyarrow` | no parquet engine | `pip install pyarrow`, or just re-run — the cache rebuilds as pickle automatically |
+| `FileNotFoundError` on a cache file | cache never built | nothing to do; the runners build it on first use |
+| a CSV parses as one junk row | Git LFS pointer, not data | `git lfs install && git lfs pull` |
+| `UnicodeEncodeError` writing a summary | Windows cp1252 console | already handled — all IO is forced to UTF-8 |
+
+`pyarrow` is optional. Without it the cache is written as pickle, which needs no
+extra package; it is larger and slower to load but produces identical results.
+
+## Running it
+
+The runners build the cache themselves on first use (15–25 minutes, once), so on
+a fresh checkout you can go straight to any year:
+
+```bash
+python ccp_lab/run_2024.py         # one year -> out/summary_2024.md
+
+python ccp_lab/build_cache.py      # (optional) build the cache up front instead
+python ccp_lab/qa_data.py          # data QA/QC          -> out/QA_DATA.md
+python ccp_lab/audit.py            # engine invariants   -> must print AUDIT PASSED
+
+python ccp_lab/run_2022.py         # one script per year -> out/summary_<year>.md
+python ccp_lab/run_2023.py
+python ccp_lab/run_2024.py
+python ccp_lab/run_2025.py
+python ccp_lab/run_2026.py         # partial year, data ends 2026-07-02
+
+python ccp_lab/roll_2022.py       # same year, rolling  -> out/summary_2022_roll.md
+python ccp_lab/roll_2023.py       #   ... and so on through roll_2026.py
+
+python ccp_lab/run_all.py         # all five + rollup   -> out/SUMMARY_ALL.md
+python ccp_lab/roll_all.py        # rolling + baseline  -> out/SUMMARY_ROLL.md
+python ccp_lab/roll_mechanism.py  # what rolling changes-> out/ROLL_MECHANISM.md
+python ccp_lab/controls.py        # leg-by-leg controls -> out/CONTROLS.md
+python ccp_lab/mechanism.py       # why it loses        -> out/MECHANISM.md
+python ccp_lab/sweep.py           # premium-target sweep-> out/SWEEP.md
 ```
 
 Each year is an **independent $100,000 experiment**: capital goes in on the first
@@ -181,6 +210,7 @@ next, and Black-Scholes off that contract's own EOD implied vol otherwise.
 | `run_all.py` · `roll_all.py` | rollups for the two builds |
 | `controls.py` · `mechanism.py` · `roll_mechanism.py` · `sweep.py` | controls, mechanisms, premium-target sweep |
 | `audit.py` · `qa_data.py` | engine invariants (all three modes), data QA |
+| `doctor.py` · `compat.py` · `requirements.txt` | preflight, cross-platform IO, deps |
 | `out/summary_<year>.md` · `out/summary_<year>_roll.md` | the per-year summary files |
 | `out/ledger_<year>.csv` | one row per Monday: spot, lots, strike, premium, moneyness |
 | `out/events_<year>.csv` | every fill, assignment, exercise, expiry |

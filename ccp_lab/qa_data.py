@@ -6,10 +6,14 @@ Everything here is measured from the files. Writes ccp_lab/out/QA_DATA.md.
 import os, sys, glob
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import numpy as np, pandas as pd
+from ccp_lab.compat import write_text, safe_stdout
 from ccp_lab.engine import Data, mondays, CACHE, ROOT
 
 OUT = os.path.join(ROOT, "ccp_lab", "out")
 os.makedirs(OUT, exist_ok=True)
+safe_stdout()
+if not ensure_cache():
+    raise SystemExit(1)
 L = []
 A = L.append
 
@@ -173,5 +177,5 @@ A("| Biggest data limitation | Option chains are **EOD snapshots**; the 10:00 ma
 A("| Biggest strategy limitation | 2022–2026 is one −87% year and one +330% half-year. Five years of a 3× ETF is a small sample of regimes. |")
 
 txt = "\n".join(L) + "\n"
-open(os.path.join(OUT, "QA_DATA.md"), "w").write(txt)
+write_text(os.path.join(OUT, "QA_DATA.md"), txt)
 print(txt)

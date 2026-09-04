@@ -3,6 +3,7 @@
 import os, sys
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import numpy as np, pandas as pd
+from ccp_lab.compat import safe_stdout, ensure_cache
 from ccp_lab.engine import Data, run_year
 
 def audit(y, d, **kw):
@@ -58,6 +59,9 @@ MODES = [("assign", {}),
          ("roll (combo, Friday)", dict(roll="friday"))]
 
 if __name__ == "__main__":
+    safe_stdout()
+    if not ensure_cache():
+        raise SystemExit(1)
     d = Data()
     allok = True
     for name, kw in MODES:

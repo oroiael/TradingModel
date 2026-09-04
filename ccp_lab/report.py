@@ -1,6 +1,7 @@
 """Per-year summary writer for the CC+LP backtest."""
 import os
 import numpy as np, pandas as pd
+from ccp_lab.compat import write_text
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 OUT = os.path.join(ROOT, "ccp_lab", "out")
@@ -141,8 +142,7 @@ def write(res, data, tag="", label=None):
     A(f"- `equity_{y}{tag}.csv` — daily marked-to-market equity")
 
     txt = "\n".join(L) + "\n"
-    with open(f"{OUT}/summary_{y}{tag}.md", "w") as f:
-        f.write(txt)
+    write_text(f"{OUT}/summary_{y}{tag}.md", txt)
     return dict(year=y, final=final, ret=ret * 100, maxdd=st["maxdd"],
                 sharpe=st["sharpe"], bh_final=bh_final,
                 bh_ret=(bh_final / start - 1) * 100, bh_maxdd=bh_st["maxdd"],
