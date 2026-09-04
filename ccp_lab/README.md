@@ -62,6 +62,7 @@ python ccp_lab/controls.py        # leg-by-leg controls -> out/CONTROLS.md
 python ccp_lab/mechanism.py       # why it loses        -> out/MECHANISM.md
 python ccp_lab/cashflow.py        # pure cash ledger    -> out/CASHFLOW.md
 python ccp_lab/sticky.py          # sticky vs re-strike -> out/STICKY.md
+python ccp_lab/put_policy.py      # when the put pays   -> out/PUT_POLICY.md
 python ccp_lab/sweep.py           # premium-target sweep-> out/SWEEP.md
 ```
 
@@ -142,6 +143,30 @@ about two thirds and the 2025 share leg goes from **−$16,940 to +$25,931**.
 The stranded strike is not an income rule. It is a *stop-capping-after-a-decline*
 rule that happens to be spelled like one — and **it is no longer the strategy as
 specified**: it does not pay 5% a week, or anything like it.
+
+## The put: worth enough, collected too late
+
+The put is already worth enough at the moment the re-strike loss happens — the
+rule just realises it at the wrong time. On 2025-04-25 the shares were called
+away at $9.00 for a **−$42,252** loss on that lot; at that instant the puts held
+were worth **$35,209** of intrinsic, **83% of the loss**. By their 2025-05-16
+expiry SOXL had rebounded to $18.39 and they settled for $18,081. Across 2025 the
+puts returned **45%** of the loss they sat against, not the 83% they were worth on
+the day of impact.
+
+That is a clock mismatch, not a hedging failure: the call resolves **weekly** and
+books the share loss at Friday's price; the put resolves **quarterly**.
+
+Selling the put once the shares are gone (it protects nothing at that point):
+
+| variant | 2022 | 2023 | 2024 | 2025 | 2026 |
+|---|---:|---:|---:|---:|---:|
+| hold the put to expiry (the rule) | −39.7% | −16.6% | −33.5% | −37.6% | −17.8% |
+| **sell the put once the shares are gone** | **−31.4%** | −21.8% | **−25.3%** | **+8.5%** | **+4.0%** |
+
+Recovers ~$23,000 a year of hedge value in 2025 and 2026. It does not address the
+cost of the insurance itself, and it does not stop the re-strike selling the
+recovery — that is `STICKY.md`.
 
 ## Why — three measured mechanisms
 
@@ -240,6 +265,7 @@ next, and Black-Scholes off that contract's own EOD implied vol otherwise.
 | `controls.py` · `mechanism.py` · `roll_mechanism.py` · `sweep.py` | controls, mechanisms, premium-target sweep |
 | `cashflow.py` | brokerage-statement view: every dollar in and out, no attribution |
 | `sticky.py` | keeping the old strike vs re-striking down every Monday |
+| `put_policy.py` | what the put was worth when it mattered, vs what we collected |
 | `audit.py` · `qa_data.py` | engine invariants (all three modes), data QA |
 | `doctor.py` · `compat.py` · `requirements.txt` | preflight, cross-platform IO, deps |
 | `out/summary_<year>.md` · `out/summary_<year>_roll.md` | the per-year summary files |

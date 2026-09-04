@@ -283,7 +283,8 @@ class Book:
 def run_year(year, data=None, target_pct=TARGET_PCT, start_cash=START_CASH,
              costs=True, verbose=False, use_call=True, use_put=True,
              target_mode="premium", roll=None, roll_credit=False,
-             roll_up_only=True, reserve_pct=0.0, sticky=False):
+             roll_up_only=True, reserve_pct=0.0, sticky=False,
+             put_policy="hold"):
     """One calendar year, standalone: $100k in on the first Monday of the year,
     everything liquidated at the close of the last session of the year."""
     d = data or Data()
@@ -404,6 +405,23 @@ def run_year(year, data=None, target_pct=TARGET_PCT, start_cash=START_CASH,
         # picks a fresh strike.
         if shares == 0:
             sticky_strike = None
+
+        # A protective put exists to protect shares. Once the shares have been
+        # called away it is an unhedged long option nobody asked for, so this
+        # policy sells it at market instead of riding it to expiry through
+        # whatever the stock does next.
+        if put_policy == "sell_when_flat" and shares == 0 and bk.puts:
+            ch = d.chain(s)
+            for p in list(bk.puts):
+                v = d.eod_value(ch, p["expiry"], p["strike"], "PUT", px, s)
+                v = max(v, max(p["strike"] - px, 0.0))     # never below intrinsic
+                proceeds = p["qty"] * 100 * v - fee_opt(p["qty"])
+                cash += proceeds
+                pnl["puts"] += p["qty"] * 100 * v - p["open_px"] * p["qty"] * 100
+                pnl["fees"] += fee_opt(p["qty"])
+                events.append(dict(date=s, kind="PUT_SOLD_FLAT", qty=p["qty"],
+                                   strike=p["strike"], spot=px, px=v))
+                bk.puts.remove(p)
 
     def mtm(s, px):
         """Equity marked at the EOD chain mid where quoted, intrinsic otherwise."""
