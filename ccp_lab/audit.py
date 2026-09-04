@@ -56,7 +56,9 @@ def audit(y, d, **kw):
 
 MODES = [("assign", {}),
          ("roll (rewrite Monday)", dict(roll="rewrite")),
-         ("roll (combo, Friday)", dict(roll="friday"))]
+         ("roll (combo, Friday)", dict(roll="friday")),
+         ("sticky strike", dict(sticky=True)),
+         ("sticky + combo roll", dict(sticky=True, roll="friday"))]
 
 if __name__ == "__main__":
     safe_stdout()

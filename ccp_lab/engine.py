@@ -228,6 +228,27 @@ def pick_call(data, chain, d, exp, spot, target_pct=TARGET_PCT, mode="premium"):
     return dict(strike=K, expiry=exp, price=mk, quality=q, iv=iv,
                 model_px=float(px[i]), target=target)
 
+def call_at_strike(data, chain, d, exp, want, spot):
+    """Re-write at a strike already chosen in an earlier week (the sticky rule).
+
+    If that exact strike is not listed for this expiry, take the nearest listed
+    strike at or above it — a sticky rule may never quietly lower the cap.
+    """
+    g = chain[(chain.expiration == exp) & (chain.right == "CALL")]
+    if not len(g):
+        return None
+    at = g[np.isclose(g.strike, want)]
+    if not len(at):
+        up = g[g.strike >= want].sort_values("strike")
+        if not len(up):
+            return None
+        at = up.head(1)
+    K = float(at.iloc[0]["strike"]); iv = float(at.iloc[0]["implied_vol"])
+    mk, q = data.mark(d, exp, K, "CALL", spot, iv)
+    return dict(strike=K, expiry=exp, price=mk, quality=q, iv=iv,
+                target=TARGET_PCT * spot)
+
+
 def pick_put(data, chain, d, exp, spot):
     """Highest valid strike strictly below spot — 'just out of the money'."""
     g = chain[(chain.expiration == exp) & (chain.right == "PUT") & (chain.strike < spot)]
@@ -262,7 +283,7 @@ class Book:
 def run_year(year, data=None, target_pct=TARGET_PCT, start_cash=START_CASH,
              costs=True, verbose=False, use_call=True, use_put=True,
              target_mode="premium", roll=None, roll_credit=False,
-             roll_up_only=True, reserve_pct=0.0):
+             roll_up_only=True, reserve_pct=0.0, sticky=False):
     """One calendar year, standalone: $100k in on the first Monday of the year,
     everything liquidated at the close of the last session of the year."""
     d = data or Data()
@@ -273,6 +294,7 @@ def run_year(year, data=None, target_pct=TARGET_PCT, start_cash=START_CASH,
 
     cash, shares = float(start_cash), 0
     bk = Book()
+    sticky_strike = None      # survives while the share position survives
     pnl = {"shares": 0.0, "calls": 0.0, "puts": 0.0, "fees": 0.0}
     marks = {"print_1000": 0, "print_near": 0, "model": 0, "eod_mid": 0}
     ledger, events, curve = [], [], []
@@ -282,7 +304,7 @@ def run_year(year, data=None, target_pct=TARGET_PCT, start_cash=START_CASH,
 
     def settle(s, px):
         """Expire/assign/exercise everything dated on or before session `s`."""
-        nonlocal cash, shares
+        nonlocal cash, shares, sticky_strike
         if bk.call is not None and s >= bk.call["expiry"]:
             c = bk.call; K, n = c["strike"], c["qty"]
             pnl["calls"] += c["open_px"] * n * 100
@@ -376,6 +398,12 @@ def run_year(year, data=None, target_pct=TARGET_PCT, start_cash=START_CASH,
                 events.append(dict(date=s, kind="PUT_EXPIRED", qty=n,
                                    strike=K, spot=px))
             bk.puts.remove(p)
+
+        # The sticky strike belongs to the share position. Once the shares are
+        # gone -- called away, or put to the counterparty -- the next position
+        # picks a fresh strike.
+        if shares == 0:
+            sticky_strike = None
 
     def mtm(s, px):
         """Equity marked at the EOD chain mid where quoted, intrinsic otherwise."""
@@ -476,8 +504,19 @@ def run_year(year, data=None, target_pct=TARGET_PCT, start_cash=START_CASH,
                    shares=shares)
         cexp = week_expiry(chain, mon)
         if use_call and cexp is not None and bk.call is None:
-            leg = pick_call(d, chain, mon, cexp, spot, target_pct, target_mode)
+            if sticky and sticky_strike is not None and sticky_strike >= spot:
+                # Hold the old cap while the stock is still below it: that is the
+                # whole point, the rebound up to the strike belongs to us.
+                leg = call_at_strike(d, chain, mon, cexp, sticky_strike, spot)
+                if leg is None:          # strike not listed at all this week
+                    leg = pick_call(d, chain, mon, cexp, spot, target_pct, target_mode)
+            else:
+                # Either a fresh position, or the stock has climbed back through
+                # the old strike -- the rebound has been collected in full, so
+                # re-strike upward rather than write in the money.
+                leg = pick_call(d, chain, mon, cexp, spot, target_pct, target_mode)
             if leg:
+                sticky_strike = leg["strike"]
                 n = lots
                 prem = n * 100 * leg["price"]
                 cash += prem - fee_opt(n)

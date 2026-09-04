@@ -61,6 +61,7 @@ python ccp_lab/roll_mechanism.py  # what rolling changes-> out/ROLL_MECHANISM.md
 python ccp_lab/controls.py        # leg-by-leg controls -> out/CONTROLS.md
 python ccp_lab/mechanism.py       # why it loses        -> out/MECHANISM.md
 python ccp_lab/cashflow.py        # pure cash ledger    -> out/CASHFLOW.md
+python ccp_lab/sticky.py          # sticky vs re-strike -> out/STICKY.md
 python ccp_lab/sweep.py           # premium-target sweep-> out/SWEEP.md
 ```
 
@@ -115,6 +116,32 @@ leave.** With no reserve, 47 buybacks across five years could not be funded and
 assigned anyway. A 10–20% cash reserve removes almost all of them and barely moves
 the return — the funding constraint was real, but it was never what drove the
 result.
+
+## Sticky strike — not re-striking down after a decline
+
+The rule as written picks a new strike every Monday at the 5%-premium target, so
+after a decline it re-caps at the new lower price and the recovery is sold at the
+bottom. `sticky.py` keeps the old strike while the shares are held.
+
+| variant | 2022 | 2023 | 2024 | 2025 | 2026 |
+|---|---:|---:|---:|---:|---:|
+| re-strike every Monday (the rule) | −39.7% | −16.6% | −33.5% | −37.6% | −17.8% |
+| **sticky strike** | −50.5% | **+38.1%** | **−23.1%** | **+5.6%** | **+6.8%** |
+| sticky + combo roll | −52.9% | +0.3% | −26.2% | +9.3% | +25.1% |
+| buy & hold SOXL | −86.2% | +227.1% | −6.5% | +45.4% | +140.8% |
+
+Wins in four years of five, loses badly in the fifth — 2022, the −86% year that
+never recovered inside the window. Sticky is a bet that a decline mean-reverts.
+
+**The cost is the income itself.** In 2025 the median weekly premium falls from
+**3.91% to 0.33%** and annual premium roughly halves. Once the stock has fallen
+away from the stranded strike the call is nearly worthless, so nothing is
+collected — but the whole rebound up to that strike is kept. Assignments drop by
+about two thirds and the 2025 share leg goes from **−$16,940 to +$25,931**.
+
+The stranded strike is not an income rule. It is a *stop-capping-after-a-decline*
+rule that happens to be spelled like one — and **it is no longer the strategy as
+specified**: it does not pay 5% a week, or anything like it.
 
 ## Why — three measured mechanisms
 
@@ -212,6 +239,7 @@ next, and Black-Scholes off that contract's own EOD implied vol otherwise.
 | `run_all.py` · `roll_all.py` | rollups for the two builds |
 | `controls.py` · `mechanism.py` · `roll_mechanism.py` · `sweep.py` | controls, mechanisms, premium-target sweep |
 | `cashflow.py` | brokerage-statement view: every dollar in and out, no attribution |
+| `sticky.py` | keeping the old strike vs re-striking down every Monday |
 | `audit.py` · `qa_data.py` | engine invariants (all three modes), data QA |
 | `doctor.py` · `compat.py` · `requirements.txt` | preflight, cross-platform IO, deps |
 | `out/summary_<year>.md` · `out/summary_<year>_roll.md` | the per-year summary files |
