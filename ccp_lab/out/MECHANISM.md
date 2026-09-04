@@ -64,6 +64,18 @@ Selling at a fixed strike on Friday and rebuying at the market on Monday is a se
 The rule asks for 5%. Outside the highest-volatility stretches the market does not offer it at any strike at or above spot, so the engine writes the closest it can find — which is essentially at the money, and that is what drives the assignment rate.
 
 
+## 4b. The rule keeps the losers and sells the winners, by construction
+
+Shares only ever carry from one week into the next when the call was **not** exercised. Assignment leaves the account flat every time. So the option, not the trader, decides which weeks are held:
+
+| | weeks | median move in SOXL that week | share of down weeks |
+|---|---:|---:|---:|
+| called out — position closed | 110 | +9.3% | 0% |
+| not called out — position held | 126 | -7.5% | 87% |
+
+**The rule is systematically flat after the up weeks and long through the down weeks.** That is not a defect in the implementation, it is what a covered call is: the call is exercised exactly when holding would have paid. The upside weeks are truncated at the strike and closed out; the downside weeks are kept in full, cushioned only by the premium. Holding the underlying is therefore something that only happens when it is going against you.
+
+
 ## 5. Why a live trader may report something very different
 
 Nothing here says the traders are wrong. It says the rule *as written* is not the rule they are running. The measured gaps, in order of size:

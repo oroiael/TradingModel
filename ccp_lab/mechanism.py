@@ -106,6 +106,35 @@ if __name__ == "__main__":
              "writes the closest it can find — which is essentially at the money, and "
              "that is what drives the assignment rate.\n")
 
+    L.append("\n## 4b. The rule keeps the losers and sells the winners, by construction\n")
+    sel=[]
+    for y in YEARS:
+        rr = run_year(y, d)
+        lgy = rr["ledger"].dropna(subset=["call_strike"])
+        for _, x in lgy.iterrows():
+            fri=[s for s in d.sessions if s > x.monday and (s - x.monday).days <= 6]
+            if not fri: continue
+            end=d.close(fri[-1])
+            sel.append(dict(year=y, ret=(end/x.spot_1000_high-1)*100,
+                            called=end > x.call_strike))
+    S=pd.DataFrame(sel)
+    L.append("Shares only ever carry from one week into the next when the call was "
+             "**not** exercised. Assignment leaves the account flat every time. So "
+             "the option, not the trader, decides which weeks are held:\n")
+    L.append("| | weeks | median move in SOXL that week | share of down weeks |")
+    L.append("|---|---:|---:|---:|")
+    for lab, g in [("called out — position closed", S[S.called]),
+                   ("not called out — position held", S[~S.called])]:
+        L.append(f"| {lab} | {len(g)} | {g.ret.median():+.1f}% | "
+                 f"{(g.ret<0).mean()*100:.0f}% |")
+    L.append("\n**The rule is systematically flat after the up weeks and long "
+             "through the down weeks.** That is not a defect in the "
+             "implementation, it is what a covered call is: the call is exercised "
+             "exactly when holding would have paid. The upside weeks are truncated "
+             "at the strike and closed out; the downside weeks are kept in full, "
+             "cushioned only by the premium. Holding the underlying is therefore "
+             "something that only happens when it is going against you.\n")
+
     L.append("\n## 5. Why a live trader may report something very different\n")
     L.append("Nothing here says the traders are wrong. It says the rule *as written* "
              "is not the rule they are running. The measured gaps, in order of size:\n")
