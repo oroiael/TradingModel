@@ -60,6 +60,7 @@ python ccp_lab/roll_all.py        # rolling + baseline  -> out/SUMMARY_ROLL.md
 python ccp_lab/roll_mechanism.py  # what rolling changes-> out/ROLL_MECHANISM.md
 python ccp_lab/controls.py        # leg-by-leg controls -> out/CONTROLS.md
 python ccp_lab/mechanism.py       # why it loses        -> out/MECHANISM.md
+python ccp_lab/cashflow.py        # pure cash ledger    -> out/CASHFLOW.md
 python ccp_lab/sweep.py           # premium-target sweep-> out/SWEEP.md
 ```
 
@@ -210,9 +211,11 @@ next, and Black-Scholes off that contract's own EOD implied vol otherwise.
 | `roll_<year>.py` | one script per year, rolling instead of assigning |
 | `run_all.py` · `roll_all.py` | rollups for the two builds |
 | `controls.py` · `mechanism.py` · `roll_mechanism.py` · `sweep.py` | controls, mechanisms, premium-target sweep |
+| `cashflow.py` | brokerage-statement view: every dollar in and out, no attribution |
 | `audit.py` · `qa_data.py` | engine invariants (all three modes), data QA |
 | `doctor.py` · `compat.py` · `requirements.txt` | preflight, cross-platform IO, deps |
 | `out/summary_<year>.md` · `out/summary_<year>_roll.md` | the per-year summary files |
 | `out/ledger_<year>.csv` | one row per Monday: spot, lots, strike, premium, moneyness |
 | `out/events_<year>.csv` | every fill, assignment, exercise, expiry |
 | `out/equity_<year>.csv` | daily marked-to-market equity |
+| `out/CASHFLOW.md` | every year as cash in / cash out, reconciled to the cent |

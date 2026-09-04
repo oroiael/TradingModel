@@ -43,8 +43,13 @@ if __name__ == "__main__":
     C, P, W = pd.DataFrame(calls), pd.DataFrame(puts), pd.DataFrame(whip)
 
     L = ["# Why the rule loses — the mechanisms, measured\n"]
-    L.append("\n## 1. The short call: premium collected vs intrinsic surrendered\n")
-    L.append("| year | writes | premium collected | assigned | intrinsic paid on assignment | net call P&L |")
+    L.append("\n## 1. The short call: premium collected vs upside given up\n")
+    L.append("The 'upside given up' column is **not a cash outflow**. Assignment "
+             "delivers the shares at the strike — cash comes in, never out. It is "
+             "the difference between the strike and where the stock actually "
+             "finished, i.e. the gain the cap prevented. See `CASHFLOW.md` for the "
+             "same year with no attribution at all, only cash that moved.\n")
+    L.append("| year | writes | premium collected | assigned | upside given up at the strike | net call P&L |")
     L.append("|---|---:|---:|---:|---:|---:|")
     for _, r in C.iterrows():
         L.append(f"| {int(r.year)} | {int(r.n_writes)} | ${r.premium:,.0f} | "
@@ -55,6 +60,12 @@ if __name__ == "__main__":
     L.append("\nThe premium is enormous — and it is not enough. Writing at or barely "
              "above the money means roughly half of all weeks finish in the money, "
              "and the weeks that do finish far in the money.\n")
+    L.append("\nIn pure cash terms the call leg only ever takes money **in**. The "
+             "loss shows up on the **stock**: the strike is set above *that "
+             "Monday's* spot, not above what the shares cost, so after a decline "
+             "you are called away at a strike far below your basis. In 2025 the "
+             "share leg realised **-$124,424** that way while the calls brought in "
+             "**+$116,971**.\n")
 
     L.append("\n## 2. The protective put: what the insurance costs\n")
     L.append("| year | puts bought | premium paid | median cost, % of spot | median DTE | net put P&L |")

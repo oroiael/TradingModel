@@ -520,16 +520,22 @@ def run_year(year, data=None, target_pct=TARGET_PCT, start_cash=START_CASH,
         v = c["qty"] * 100 * max(px - c["strike"], 0)
         cash -= v
         pnl["calls"] += c["open_px"] * c["qty"] * 100 - v
+        events.append(dict(date=last, kind="EOY_CLOSE_CALL", qty=c["qty"],
+                           strike=c["strike"], spot=px, px=v / (c["qty"] * 100)))
         bk.call = None
     for p in list(bk.puts):
         v = p["qty"] * 100 * max(p["strike"] - px, 0)
         cash += v
         pnl["puts"] += v - p["open_px"] * p["qty"] * 100
+        events.append(dict(date=last, kind="EOY_SELL_PUT", qty=p["qty"],
+                           strike=p["strike"], spot=px, px=v / (p["qty"] * 100)))
         bk.puts.remove(p)
     if shares:
         cash += shares * px - fee_shr(shares)
         pnl["shares"] += shares * px
         pnl["fees"] += fee_shr(shares)
+        events.append(dict(date=last, kind="EOY_SELL_SHARES", qty=shares,
+                           strike=np.nan, spot=px))
         shares = 0
     curve.append((last, cash))
 

@@ -1,9 +1,11 @@
 # Why the rule loses — the mechanisms, measured
 
 
-## 1. The short call: premium collected vs intrinsic surrendered
+## 1. The short call: premium collected vs upside given up
 
-| year | writes | premium collected | assigned | intrinsic paid on assignment | net call P&L |
+The 'upside given up' column is **not a cash outflow**. Assignment delivers the shares at the strike — cash comes in, never out. It is the difference between the strike and where the stock actually finished, i.e. the gain the cap prevented. See `CASHFLOW.md` for the same year with no attribution at all, only cash that moved.
+
+| year | writes | premium collected | assigned | upside given up at the strike | net call P&L |
 |---|---:|---:|---:|---:|---:|
 | 2022 | 52 | $142,660 | 20 | $133,577 | $+9,083 |
 | 2023 | 52 | $171,750 | 23 | $234,420 | $-62,670 |
@@ -13,6 +15,9 @@
 | **all** | 236 | **$698,027** | 108 | **$820,158** | **$-122,131** |
 
 The premium is enormous — and it is not enough. Writing at or barely above the money means roughly half of all weeks finish in the money, and the weeks that do finish far in the money.
+
+
+In pure cash terms the call leg only ever takes money **in**. The loss shows up on the **stock**: the strike is set above *that Monday's* spot, not above what the shares cost, so after a decline you are called away at a strike far below your basis. In 2025 the share leg realised **-$124,424** that way while the calls brought in **+$116,971**.
 
 
 ## 2. The protective put: what the insurance costs

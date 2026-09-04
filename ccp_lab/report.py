@@ -111,7 +111,7 @@ def write(res, data, tag="", label=None):
         A(f"- Calls: **{n_rollc} rolled** (bought back instead of assigned), "
           f"{n_expire} expired worthless, **{n_assign} assigned anyway** because "
           f"the buyback could not be funded from cash.")
-        A(f"- Paid **${roll_cost:,.0f}** to buy the rolled calls back; "
+        A(f"- Paid **${roll_cost:,.0f}** in real cash to buy the rolled calls back; "
           f"re-sold the far leg for **${roll_cred:,.0f}** "
           f"(**${roll_cred-roll_cost:+,.0f}** net on the rolls).")
     else:
