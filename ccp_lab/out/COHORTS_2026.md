@@ -16,6 +16,8 @@ Each cell is an independent $100,000 account opened on the first trading Monday 
 | sell put when flat | -13% | -12% | -21% | -13% | -6% | -6% | **-12%** | -21% | -6% | **15 pts** |
 | sticky + sell put when flat | +15% | +5% | -0% | -6% | -0% | -9% | **-0%** | -9% | +15% | **24 pts** |
 | sticky + sell put + 30% roll-down | +26% | +17% | -0% | -6% | -0% | -9% | **-0%** | -9% | +26% | **35 pts** |
+| weekly flat, no put | +54% | +20% | +4% | +24% | -1% | -16% | **+12%** | -16% | +54% | **70 pts** |
+| carry, no put (call only) | +52% | +16% | +2% | +23% | -1% | -15% | **+9%** | -15% | +52% | **67 pts** |
 | buy & hold SOXL | +279% | +187% | +199% | +247% | +40% | -15% | **+193%** | -15% | +279% | **294 pts** |
 
 ## What this says
@@ -35,6 +37,8 @@ Each cell is an independent $100,000 account opened on the first trading Monday 
 | sticky + sell put + 30% roll-down | 1 of 6 |
 | the rule as written | 0 of 6 |
 | sticky strike | 0 of 6 |
+| weekly flat, no put | 0 of 6 |
+| carry, no put (call only) | 0 of 6 |
 
 Note how badly a single annual figure represents this. A rule can be the best choice in most months and still look ordinary in a calendar-year backtest, because the calendar year is just the January cohort.
 

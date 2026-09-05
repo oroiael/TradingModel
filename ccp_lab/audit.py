@@ -69,7 +69,8 @@ MODES = [("assign", {}),
                put_exit="worst")),
          ("+ roll-down 30%, call rolled",
           dict(sticky=True, put_policy="sell_when_flat", put_roll_pct=0.30,
-               roll="friday"))]
+               roll="friday")),
+         ("weekly flat, no put", dict(weekly_flat=True, use_put=False))]
 
 if __name__ == "__main__":
     safe_stdout()

@@ -322,7 +322,7 @@ def run_year(year, data=None, target_pct=TARGET_PCT, start_cash=START_CASH,
              target_mode="premium", roll=None, roll_credit=False,
              roll_up_only=True, reserve_pct=0.0, sticky=False,
              put_policy="hold", put_roll_pct=None, put_exit="central",
-             start_date=None, end_date=None):
+             start_date=None, end_date=None, weekly_flat=False):
     """One calendar year, standalone: $100k in on the first Monday of the year,
     everything liquidated at the close of the last session of the year."""
     d = data or Data()
@@ -430,6 +430,15 @@ def run_year(year, data=None, target_pct=TARGET_PCT, start_cash=START_CASH,
                 events.append(dict(date=s, kind="CALL_EXPIRED", qty=n,
                                    strike=K, spot=px))
                 bk.call = None
+                # Never carry the underlying over the weekend: if the call did
+                # not take the shares, sell them at the close of expiry day.
+                if weekly_flat and shares > 0:
+                    cash += shares * px - fee_shr(shares)
+                    pnl["shares"] += shares * px
+                    pnl["fees"] += fee_shr(shares)
+                    events.append(dict(date=s, kind="SELL_SHARES", qty=shares,
+                                       strike=np.nan, spot=px))
+                    shares = 0
 
         for p in list(bk.puts):
             if s < p["expiry"]:

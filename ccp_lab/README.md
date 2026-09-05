@@ -67,6 +67,7 @@ python ccp_lab/combo.py           # both fixes together -> out/COMBO.md
 python ccp_lab/put_trigger.py     # what should trigger the put sale -> out/PUT_TRIGGER.md
 python ccp_lab/exit_range.py      # the same, priced three ways -> out/EXIT_RANGE.md
 python ccp_lab/cohorts.py 2026    # a cohort per start month -> out/COHORTS_2026.md
+python ccp_lab/weekly_flat.py     # no put, no carry -> out/WEEKLY_FLAT.md
 python ccp_lab/sweep.py           # premium-target sweep-> out/SWEEP.md
 ```
 
@@ -199,6 +200,51 @@ call worth selling**, because the stranded strike is bid at zero. Those weeks th
 shares run uncapped. It still loses to buy & hold on average, 2022 is still bad,
 and it is emphatically **not a 5%-a-week strategy**.
 
+## The result that explains all the others
+
+`weekly_flat.py` strips the structure back: buy Monday, write the call, be flat by
+Friday's close, **no put and nothing carried over a weekend**.
+
+| variant | 2022 | 2023 | 2024 | 2025 | 2026 | mean |
+|---|---:|---:|---:|---:|---:|---:|
+| the rule as written (put + carry) | −39.7% | −16.6% | −33.5% | −37.6% | −11.4% | −27.8% |
+| carry, no put (call only) | −71.4% | +63.4% | −16.3% | −13.2% | +51.8% | **+2.8%** |
+| weekly flat, no put | −64.6% | +30.2% | −34.2% | −32.9% | +53.8% | −9.5% |
+| weekly flat, no put, **no call** (control) | −85.4% | +226.6% | −6.5% | +47.3% | +280.2% | +92.4% |
+| buy & hold SOXL | −86.2% | +227.1% | −6.5% | +45.4% | +278.8% | +91.7% |
+
+**Dropping the put is the biggest single lever in the lab** — a 30-point swing,
+larger than anything else tested. **Being flat over the weekend is nearly free**:
+the no-call control does 236 round trips and lands within 1 point of buy & hold,
+so friction and weekend gaps roughly cancel.
+
+### Why 65% winning weeks still loses money
+
+Across 236 weekly round trips the **median week makes +3.67%** and the **mean
+week makes +0.48%**. That gap is a long left tail — the worst week is **−37.2%**
+and the worst quartile compounds to **−100%** on its own.
+
+| | per week | annualised |
+|---|---:|---:|
+| arithmetic mean | +0.475% | +28% |
+| **geometric mean** | **+0.017%** | **+1%** |
+| variance drag | 0.458% | |
+| σ²/2 | 0.430% | |
+
+The drag and σ²/2 agree, and both are the same size as the edge. **Writing weekly
+calls on a 3× ETF earns approximately what the volatility of a 3× ETF costs you to
+compound.**
+
+### And the edge is not measurable
+
+t = **0.79**. The 95% interval on the weekly mean annualises to **−31% to +136%**.
+Reaching t = 2 at this mean and volatility would take **29 years**.
+
+That is the real answer to a live account disagreeing with a backtest: the true
+expectation cannot be pinned down from five years of a 3× ETF. Two accounts on
+identical rules will land in different places and neither is evidence about the
+rule — **including every single number in this lab**.
+
 ## Start-date cohorts — the number moves more than the rule does
 
 `cohorts.py` opens an independent $100,000 account on the first Monday of each
@@ -325,6 +371,7 @@ next, and Black-Scholes off that contract's own EOD implied vol otherwise.
 | `put_trigger.py` | position-state vs deep-ITM roll-down triggers, and exit-spread realism |
 | `exit_range.py` | roll-down under generous / central / worst-case put exits |
 | `cohorts.py` | one account per start month, run in parallel — start-date sensitivity |
+| `weekly_flat.py` | no put, nothing carried over a weekend; the variance-drag result |
 | `audit.py` · `qa_data.py` | engine invariants (all three modes), data QA |
 | `doctor.py` · `compat.py` · `requirements.txt` | preflight, cross-platform IO, deps |
 | `out/summary_<year>.md` · `out/summary_<year>_roll.md` | the per-year summary files |

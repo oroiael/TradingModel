@@ -25,6 +25,8 @@ PERMS = [
     ("sticky + sell put when flat",      dict(sticky=True, put_policy="sell_when_flat")),
     ("sticky + sell put + 30% roll-down",
      dict(sticky=True, put_policy="sell_when_flat", put_roll_pct=0.30)),
+    ("weekly flat, no put",              dict(weekly_flat=True, use_put=False)),
+    ("carry, no put (call only)",        dict(use_put=False)),
 ]
 
 
