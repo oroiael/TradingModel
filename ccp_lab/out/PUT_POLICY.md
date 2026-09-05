@@ -27,9 +27,9 @@ Once the shares are called away the put is an unhedged long option protecting no
 
 | variant | 2022 | 2023 | 2024 | 2025 | 2026 |
 |---|---:|---:|---:|---:|---:|
-| hold the put to expiry (the rule) | -39.7% | -16.6% | -33.5% | -37.6% | -17.8% |
-| sell the put once the shares are gone | -35.1% | -24.3% | -31.5% | -8.3% | -12.9% |
-| buy & hold SOXL | -86.2% | +227.1% | -6.5% | +45.4% | +140.8% |
+| hold the put to expiry (the rule) | -39.7% | -16.6% | -33.5% | -37.6% | -11.4% |
+| sell the put once the shares are gone | -35.1% | -24.3% | -31.5% | -8.6% | -12.9% |
+| buy & hold SOXL | -86.2% | +227.1% | -6.5% | +45.4% | +278.8% |
 
 And on the put leg alone:
 
@@ -38,8 +38,8 @@ And on the put leg alone:
 | 2022 | $+41,973 | $+41,715 | **$-258** |
 | 2023 | $-64,495 | $-68,985 | **$-4,490** |
 | 2024 | $-26,197 | $-26,589 | **$-392** |
-| 2025 | $-28,750 | $-20,213 | **$+8,537** |
-| 2026 | $-34,970 | $-29,829 | **$+5,141** |
+| 2025 | $-28,750 | $-20,184 | **$+8,566** |
+| 2026 | $-54,935 | $-49,617 | **$+5,318** |
 
 In 2025 and 2026 this recovers roughly $23,000 a year of hedge value that the hold-to-expiry rule was throwing away. 2023 is slightly worse — in a straight-up year the puts you sell early were going to expire worthless anyway, and you pay the spread to find that out.
 

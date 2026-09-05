@@ -66,11 +66,16 @@ python ccp_lab/put_policy.py      # when the put pays   -> out/PUT_POLICY.md
 python ccp_lab/combo.py           # both fixes together -> out/COMBO.md
 python ccp_lab/put_trigger.py     # what should trigger the put sale -> out/PUT_TRIGGER.md
 python ccp_lab/exit_range.py      # the same, priced three ways -> out/EXIT_RANGE.md
+python ccp_lab/cohorts.py 2026    # a cohort per start month -> out/COHORTS_2026.md
 python ccp_lab/sweep.py           # premium-target sweep-> out/SWEEP.md
 ```
 
 Each year is an **independent $100,000 experiment**: capital goes in on the first
-Monday of the year and everything is liquidated at the last close. Years do not
+Monday of the year and everything is liquidated at the last close **for which an
+option chain exists**. That last clause matters: the 2026 price tape runs to
+07-30 but the chains stop at 07-02, and running past them leaves the position
+unwritten and unhedged through a −36.4% tail. Every 2026 figure produced before
+that cap was added — benchmark included — was wrong. Years do not
 compound into each other, so no year's result is contaminated by another's.
 
 ## Results
@@ -81,7 +86,7 @@ compound into each other, so no year's result is contaminated by another's.
 | 2023 | $83,432 | **−16.6%** | +227.1% | 3.27% | 23 / 52 |
 | 2024 | $66,472 | **−33.5%** | −6.5% | 3.87% | 25 / 53 |
 | 2025 | $62,382 | **−37.6%** | +45.4% | 3.91% | 25 / 53 |
-| 2026 | $82,213 | **−17.8%** | +140.8% | 5.01% | 15 / 26 |
+| 2026 | $88,632 | **−11.4%** | +278.8% | 5.01% | 15 / 26 |
 
 The rule loses money in all five years, including the two in which SOXL more than
 doubled. It beats buy & hold only in 2022, the −86% year, which is what a hedge is
@@ -194,6 +199,30 @@ call worth selling**, because the stranded strike is bid at zero. Those weeks th
 shares run uncapped. It still loses to buy & hold on average, 2022 is still bad,
 and it is emphatically **not a 5%-a-week strategy**.
 
+## Start-date cohorts — the number moves more than the rule does
+
+`cohorts.py` opens an independent $100,000 account on the first Monday of each
+month and runs them all in parallel to the end of the data. 2026:
+
+| strategy | Jan | Feb | Mar | Apr | May | Jun | spread |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| the rule as written | −11% | −23% | −32% | +1% | −12% | −19% | 32 pts |
+| **roll the call** | **+58%** | **+42%** | **+20%** | **+40%** | −8% | −9% | 66 pts |
+| sticky strike | +18% | +6% | −3% | +6% | −11% | −23% | 41 pts |
+| sell put when flat | −13% | −12% | −21% | −13% | −6% | −6% | 15 pts |
+| sticky + sell put when flat | +15% | +5% | −0% | −6% | −0% | −9% | 24 pts |
+| sticky + sell put + 30% roll-down | +26% | +17% | −0% | −6% | −0% | −9% | 35 pts |
+| buy & hold SOXL | +279% | +188% | +199% | +247% | +40% | −15% | 304 pts |
+
+**The start month is worth more than the rule.** The rule as written spans 32
+points on start date alone; the gap between permutations at a fixed start is
+often smaller than that. Two live accounts running identical rules from March and
+May will not agree, and neither is evidence about the rule.
+
+It also overturns a conclusion: **rolling the call is the best permutation in 4 of
+6 start months in 2026**, which the calendar-year number hid — a calendar year is
+just the January cohort.
+
 ## Why — three measured mechanisms
 
 **1. A 5% weekly premium mostly does not exist.** An at-the-money weekly call is
@@ -295,6 +324,7 @@ next, and Black-Scholes off that contract's own EOD implied vol otherwise.
 | `combo.py` | sticky strike and the put policy applied together |
 | `put_trigger.py` | position-state vs deep-ITM roll-down triggers, and exit-spread realism |
 | `exit_range.py` | roll-down under generous / central / worst-case put exits |
+| `cohorts.py` | one account per start month, run in parallel — start-date sensitivity |
 | `audit.py` · `qa_data.py` | engine invariants (all three modes), data QA |
 | `doctor.py` · `compat.py` · `requirements.txt` | preflight, cross-platform IO, deps |
 | `out/summary_<year>.md` · `out/summary_<year>_roll.md` | the per-year summary files |

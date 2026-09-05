@@ -7,11 +7,11 @@ Start $100,000 on 2026-01-02 · liquidated 2026-07-30 · 26 weekly writes
 
 | | strategy | buy & hold SOXL |
 |---|---:|---:|
-| final equity | **$82,213** | $240,771 |
-| return | **-17.8%** | +140.8% |
-| max drawdown | -37.9% | -69.4% |
-| annualised vol | 68.8% | 153.6% |
-| Sharpe | -0.48 | 1.81 |
+| final equity | **$88,632** | $378,759 |
+| return | **-11.4%** | +278.8% |
+| max drawdown | -33.0% | -43.4% |
+| annualised vol | 64.4% | 148.0% |
+| Sharpe | -0.27 | 2.61 |
 
 SOXL 47.78 → 115.07 (+140.8%) over the same window.
 
@@ -20,11 +20,11 @@ SOXL 47.78 → 115.07 (+140.8%) over the same window.
 
 | leg | P&L |
 |---|---:|
-| shares | $+79,773 |
+| shares | $+106,157 |
 | short calls | $-62,172 |
-| long puts | $-34,970 |
+| long puts | $-54,935 |
 | commissions & fees | $-418 |
-| **total** | **$-17,787** |
+| **total** | **$-11,368** |
 
 Legs reconcile to the final equity exactly.
 

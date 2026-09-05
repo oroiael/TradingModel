@@ -12,12 +12,12 @@ A put far in the money is nearly all intrinsic. There is no optionality left to 
 
 | trigger | 2022 | 2023 | 2024 | 2025 | 2026 | mean |
 |---|---:|---:|---:|---:|---:|---:|
-| none (position-state only) | -45.0% | +20.3% | -9.8% | +55.5% | +15.1% | **+7.2%** |
+| none (position-state only) | -45.0% | +20.3% | -9.9% | +55.5% | +15.1% | **+7.2%** |
 | put 10% in the money | -61.5% | +65.8% | -11.6% | +85.9% | +9.5% | **+17.6%** |
-| put 20% in the money | -55.9% | +42.8% | +1.6% | +97.9% | +8.8% | **+19.0%** |
-| put 30% in the money | -41.9% | +51.1% | +2.2% | +111.5% | +26.1% | **+29.8%** |
-| put 40% in the money | -30.9% | +63.2% | -5.2% | +133.8% | +15.1% | **+35.2%** |
-| put 50% in the money | -41.8% | +20.3% | -5.2% | +64.5% | +15.1% | **+10.6%** |
+| put 20% in the money | -56.3% | +42.8% | +1.5% | +98.2% | +8.8% | **+19.0%** |
+| put 30% in the money | -42.0% | +50.4% | +2.1% | +111.9% | +26.1% | **+29.7%** |
+| put 40% in the money | -31.9% | +63.1% | -5.2% | +133.8% | +15.1% | **+35.0%** |
+| put 50% in the money | -41.8% | +20.3% | -5.0% | +65.0% | +15.1% | **+10.7%** |
 
 **Yes, it makes a major difference — and no, you cannot use this table to pick a threshold.** Two things have to be said before anyone acts on it.
 
@@ -33,8 +33,8 @@ Every put exit in this lab now sells at the **bid**, floored at intrinsic (exerc
 
 | trigger | 2022 | 2023 | 2024 | 2025 | 2026 | events |
 |---|---:|---:|---:|---:|---:|---:|
-| put 10% in the money | 15 | 7 | 11 | 8 | 3 | **44** |
-| put 20% in the money | 15 | 4 | 8 | 8 | 2 | **37** |
+| put 10% in the money | 15 | 7 | 11 | 7 | 3 | **43** |
+| put 20% in the money | 15 | 4 | 8 | 7 | 2 | **36** |
 | put 30% in the money | 9 | 2 | 6 | 5 | 1 | **23** |
 | put 40% in the money | 7 | 2 | 2 | 5 | 0 | **16** |
 | put 50% in the money | 3 | 0 | 1 | 3 | 0 | **7** |

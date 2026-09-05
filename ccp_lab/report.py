@@ -21,8 +21,18 @@ def _stats(eq):
     return dict(maxdd=dd * 100, sharpe=sharpe, vol=vol * 100)
 
 
-def buy_hold(data, year, start_cash):
-    ses = [s for s in data.sessions if s.year == year]
+def buy_hold(data, year, start_cash, start=None, end=None):
+    """Benchmark over exactly the window the strategy trades.
+
+    Capped at the last option-chain date so the comparison is like for like --
+    the 2026 price tape runs a month past the chains.
+    """
+    chain_end = data.ch.trade_date.max()
+    ses = [s for s in data.sessions if s.year == year and s <= chain_end]
+    if start is not None:
+        ses = [s for s in ses if s >= pd.Timestamp(start)]
+    if end is not None:
+        ses = [s for s in ses if s <= pd.Timestamp(end)]
     first, last = ses[0], ses[-1]
     entry = data.ten_high(first)
     sh = int(start_cash // entry)

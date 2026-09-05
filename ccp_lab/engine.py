@@ -321,14 +321,34 @@ def run_year(year, data=None, target_pct=TARGET_PCT, start_cash=START_CASH,
              costs=True, verbose=False, use_call=True, use_put=True,
              target_mode="premium", roll=None, roll_credit=False,
              roll_up_only=True, reserve_pct=0.0, sticky=False,
-             put_policy="hold", put_roll_pct=None, put_exit="central"):
+             put_policy="hold", put_roll_pct=None, put_exit="central",
+             start_date=None, end_date=None):
     """One calendar year, standalone: $100k in on the first Monday of the year,
     everything liquidated at the close of the last session of the year."""
     d = data or Data()
     weeks = mondays(d.sessions, year)
+
+    # Never run past the last day we have an option chain for. The price tape
+    # extends a month beyond the 2026 chains, and without this the position sits
+    # unwritten and unhedged through that tail and is liquidated at the end of it
+    # -- which is not the strategy, and in 2026 that tail is -36%.
+    chain_end = d.ch.trade_date.max()
+    in_year = [s for s in d.sessions if s.year == year and s <= chain_end]
+    if not in_year:
+        raise SystemExit(f"no tradeable sessions in {year}")
+    last = in_year[-1]
+
+    if start_date is not None:
+        start_date = pd.Timestamp(start_date)
+        weeks = [w for w in weeks if w >= start_date]
+    if end_date is not None:
+        end_date = pd.Timestamp(end_date)
+        cand = [s for s in in_year if s <= end_date]
+        if cand:
+            last = cand[-1]
+    weeks = [w for w in weeks if w <= last]
     if not weeks:
-        raise SystemExit(f"no sessions in {year}")
-    last = [s for s in d.sessions if s.year == year][-1]
+        raise SystemExit(f"no sessions in {year} for the requested window")
 
     cash, shares = float(start_cash), 0
     bk = Book()

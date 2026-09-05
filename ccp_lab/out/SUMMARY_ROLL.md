@@ -7,10 +7,10 @@ Same rule, same data, same put. The only change: on expiry day an in-the-money c
 
 | variant | 2022 | 2023 | 2024 | 2025 | 2026 |
 |---|---:|---:|---:|---:|---:|
-| take assignment (baseline) | -39.7% | -16.6% | -33.5% | -37.6% | -17.8% |
-| buy back Friday, re-write Monday | -45.5% | -10.3% | -30.1% | +4.0% | +6.9% |
-| roll as one combo order | -37.5% | -0.0% | -40.7% | +0.3% | +36.7% |
-| buy & hold SOXL | -86.2% | +227.1% | -6.5% | +45.4% | +140.8% |
+| take assignment (baseline) | -39.7% | -16.6% | -33.5% | -37.6% | -11.4% |
+| buy back Friday, re-write Monday | -45.5% | -10.3% | -30.1% | +4.0% | +19.9% |
+| roll as one combo order | -37.5% | -0.0% | -40.7% | +0.3% | +57.5% |
+| buy & hold SOXL | -86.2% | +227.1% | -6.5% | +45.4% | +278.8% |
 
 Rolling is a real improvement in three of the five years — 2025 and 2026 swing by more than 40 points — and it is not a fix. The rule still loses money in 2022 and 2024, and still trails buy & hold in every year except the crash.
 
@@ -35,10 +35,10 @@ A buyback that cannot be funded is still an assignment, and the reinvest-everyth
 
 | cash reserve | 2022 | 2023 | 2024 | 2025 | 2026 |
 |---|---:|---:|---:|---:|---:|
-| 0% | -37.5% (8 forced) | -0.0% (13 forced) | -40.7% (10 forced) | +0.3% (11 forced) | +36.7% (5 forced) |
-| 5% | -41.3% (4 forced) | -1.0% (6 forced) | -27.1% (6 forced) | -7.5% (7 forced) | +33.4% (3 forced) |
-| 10% | -41.1% (3 forced) | -11.0% (5 forced) | -23.4% (3 forced) | -7.7% (2 forced) | +20.5% (2 forced) |
-| 20% | -37.4% (1 forced) | -11.4% (2 forced) | -18.2% (0 forced) | -7.7% (1 forced) | +2.8% (1 forced) |
+| 0% | -37.5% (8 forced) | -0.0% (13 forced) | -40.7% (10 forced) | +0.3% (11 forced) | +57.5% (5 forced) |
+| 5% | -41.3% (4 forced) | -1.0% (6 forced) | -27.1% (6 forced) | -7.5% (7 forced) | +51.6% (3 forced) |
+| 10% | -41.1% (3 forced) | -11.0% (5 forced) | -23.4% (3 forced) | -7.7% (2 forced) | +29.5% (2 forced) |
+| 20% | -37.4% (1 forced) | -11.4% (2 forced) | -18.2% (0 forced) | -7.7% (1 forced) | +13.2% (1 forced) |
 
 The reserve reliably removes the forced assignments, and barely moves the return. The funding constraint was real but it was never the thing driving the result.
 

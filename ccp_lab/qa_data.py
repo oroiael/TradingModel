@@ -6,7 +6,7 @@ Everything here is measured from the files. Writes ccp_lab/out/QA_DATA.md.
 import os, sys, glob
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import numpy as np, pandas as pd
-from ccp_lab.compat import write_text, safe_stdout
+from ccp_lab.compat import write_text, safe_stdout, ensure_cache
 from ccp_lab.engine import Data, mondays, CACHE, ROOT
 
 OUT = os.path.join(ROOT, "ccp_lab", "out")

@@ -7,11 +7,11 @@ Start $100,000 on 2026-01-02 · liquidated 2026-07-30 · 11 weekly writes
 
 | | strategy | buy & hold SOXL |
 |---|---:|---:|
-| final equity | **$136,655** | $240,771 |
-| return | **+36.7%** | +140.8% |
-| max drawdown | -39.5% | -69.4% |
-| annualised vol | 83.7% | 153.6% |
-| Sharpe | 1.31 | 1.81 |
+| final equity | **$157,479** | $378,759 |
+| return | **+57.5%** | +278.8% |
+| max drawdown | -30.3% | -43.4% |
+| annualised vol | 76.2% | 148.0% |
+| Sharpe | 1.82 | 2.61 |
 
 SOXL 47.78 → 115.07 (+140.8%) over the same window.
 
@@ -20,11 +20,11 @@ SOXL 47.78 → 115.07 (+140.8%) over the same window.
 
 | leg | P&L |
 |---|---:|
-| shares | $+129,496 |
+| shares | $+182,264 |
 | short calls | $-57,724 |
-| long puts | $-34,753 |
+| long puts | $-66,697 |
 | commissions & fees | $-364 |
-| **total** | **$+36,655** |
+| **total** | **$+57,479** |
 
 Legs reconcile to the final equity exactly.
 
@@ -38,7 +38,7 @@ Legs reconcile to the final equity exactly.
 - Total premium collected over the year: **$67,201** (67% of starting capital).
 - Median implied vol of the written call: 132%.
 - Calls: **15 rolled** (bought back instead of assigned), 11 expired worthless, **5 assigned anyway** because the buyback could not be funded from cash.
-- Paid **$111,538** to buy the rolled calls back; re-sold the far leg for **$67,020** (**$-44,517** net on the rolls).
+- Paid **$111,538** in real cash to buy the rolled calls back; re-sold the far leg for **$67,020** (**$-44,517** net on the rolls).
 - Puts: 0 exercised, 5 expired worthless.
 - Protective puts bought: 6, at a median **74 DTE** (target 90; the listed ladder is monthly so an exact 90 rarely exists), struck a median -1.3% out of the money.
 

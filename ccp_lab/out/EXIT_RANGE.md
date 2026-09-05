@@ -21,10 +21,10 @@ The central model is the one to reason from. The other two bound it.
 | take assignment / **generous** | -40.9% | +53.3% | +9.1% | +126.9% | +43.4% | **+38.3%** |
 | take assignment / **central** | -42.0% | +50.4% | +2.1% | +111.9% | +26.1% | **+29.7%** |
 | take assignment / **worst** | -46.9% | +46.1% | -3.3% | +105.7% | +16.5% | **+23.6%** |
-| roll the call (combo) / **generous** | -45.4% | +0.3% | -32.2% | +77.7% | +61.4% | **+12.4%** |
-| roll the call (combo) / **central** | -46.3% | +0.3% | -33.5% | +64.3% | +58.1% | **+8.6%** |
-| roll the call (combo) / **worst** | -50.6% | +0.3% | -34.8% | +63.7% | +71.2% | **+9.9%** |
-| buy & hold SOXL | -86.2% | +227.1% | -6.5% | +45.4% | +140.8% | +64.1% |
+| roll the call (combo) / **generous** | -45.4% | +0.3% | -32.2% | +77.7% | +80.8% | **+16.2%** |
+| roll the call (combo) / **central** | -46.3% | +0.3% | -33.5% | +64.3% | +77.5% | **+12.5%** |
+| roll the call (combo) / **worst** | -50.6% | +0.3% | -34.8% | +63.7% | +90.6% | **+13.8%** |
+| buy & hold SOXL | -86.2% | +227.1% | -6.5% | +45.4% | +278.8% | +91.7% |
 
 **The exit assumption is worth about 15 points of mean return** — from +38.3% on generous fills to +23.6% on worst-case fills. That band is the honest uncertainty on this idea. Even at the worst end it beats the rule as written (−29.0%) by a wide margin, so the direction survives; the magnitude is not knowable to better than ~15 points.
 
@@ -43,7 +43,7 @@ The mechanism is a coupling nobody designed. `sell the put when flat` is **trigg
 
 ## What still has to be said
 
-- Every configuration still loses to buy & hold (+64.1%). None of this makes the structure competitive with owning the shares.
+- Every configuration still loses to buy & hold (+91.7%). None of this makes the structure competitive with owning the shares.
 - 2022 is negative in all six configurations. Nothing tested rescues a sustained 86% decline.
 - The 30% trigger fires 23 times in five years. That is a small sample and the threshold is not identifiable from it — see `PUT_TRIGGER.md`.
 - None of this is the strategy as specified: no 5% weekly premium, and the put is traded, which the original rule forbids.

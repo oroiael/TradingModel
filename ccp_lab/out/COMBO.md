@@ -7,11 +7,11 @@ Both fixes attack the same event — being called away at a strike the stock has
 
 | variant | 2022 | 2023 | 2024 | 2025 | 2026 | mean |
 |---|---:|---:|---:|---:|---:|---:|
-| base — re-strike weekly, hold the put (the rule) | -39.7% | -16.6% | -33.5% | -37.6% | -17.8% | **-29.0%** |
-| sticky strike only | -50.8% | +38.3% | -23.1% | +5.7% | +6.8% | **-4.6%** |
-| sell the put when flat only | -35.1% | -24.3% | -31.5% | -8.3% | -12.9% | **-22.4%** |
-| sticky + sell the put when flat | -45.0% | +20.3% | -9.8% | +55.5% | +15.1% | **+7.2%** |
-| buy & hold SOXL | -86.2% | +227.1% | -6.5% | +45.4% | +140.8% | **+64.1%** |
+| base — re-strike weekly, hold the put (the rule) | -39.7% | -16.6% | -33.5% | -37.6% | -11.4% | **-27.8%** |
+| sticky strike only | -50.8% | +38.3% | -23.1% | +5.7% | +18.4% | **-2.3%** |
+| sell the put when flat only | -35.1% | -24.3% | -31.5% | -8.6% | -12.9% | **-22.5%** |
+| sticky + sell the put when flat | -45.0% | +20.3% | -9.9% | +55.5% | +15.1% | **+7.2%** |
+| buy & hold SOXL | -86.2% | +227.1% | -6.5% | +45.4% | +278.8% | **+91.7%** |
 
 The combination is the best of the four, and **2025 is the first time any variant beats buy & hold in an up year** (+55.6% against +45.4%). The mean across the five years goes from **−29.0% to +10.2%**.
 
@@ -20,11 +20,11 @@ The combination is the best of the four, and **2025 is the first time any varian
 
 | | 2022 | 2023 | 2024 | 2025 | 2026 | mean |
 |---|---:|---:|---:|---:|---:|---:|
-| sticky alone adds | -11.1 | +54.8 | +10.5 | +43.4 | +24.6 | +24.4 |
-| selling the put alone adds | +4.6 | -7.8 | +2.0 | +29.3 | +4.9 | +6.6 |
-| sum of the two | -6.5 | +47.1 | +12.5 | +72.7 | +29.5 | +31.0 |
-| **actually delivered** | -5.3 | +36.9 | +23.7 | +93.1 | +32.9 | +36.3 |
-| overlap | +1.2 | -10.2 | +11.2 | +20.4 | +3.5 | +5.2 |
+| sticky alone adds | -11.1 | +54.8 | +10.5 | +43.4 | +29.8 | +25.5 |
+| selling the put alone adds | +4.6 | -7.8 | +2.0 | +29.1 | -1.6 | +5.3 |
+| sum of the two | -6.5 | +47.1 | +12.5 | +72.4 | +28.2 | +30.7 |
+| **actually delivered** | -5.3 | +36.9 | +23.7 | +93.1 | +26.5 | +35.0 |
+| overlap | +1.2 | -10.2 | +11.2 | +20.7 | -1.8 | +4.2 |
 
 Sub-additive on average: both rules are triggered by the same assignments, so fixing one reduces how much damage is left for the other to fix. 2024 is the exception, where they reinforce.
 
@@ -33,7 +33,7 @@ Sub-additive on average: both rules are triggered by the same assignments, so fi
 
 | year | premium, base | premium, combo | median weekly %, base | median weekly %, combo | Mondays with nothing sellable |
 |---|---:|---:|---:|---:|---:|
-| 2022 | $142,660 | $27,381 | 4.75% | **0.19%** | 13 of 52 |
+| 2022 | $142,660 | $27,380 | 4.75% | **0.19%** | 13 of 52 |
 | 2023 | $171,750 | $75,308 | 3.27% | **1.45%** | 11 of 52 |
 | 2024 | $145,637 | $67,005 | 3.87% | **1.19%** | 2 of 53 |
 | 2025 | $116,971 | $36,644 | 3.91% | **0.11%** | 12 of 53 |

@@ -4,11 +4,11 @@ Same rule, same data, same put. Only the premium the weekly call is written for 
 
 | premium target | 2022 | 2023 | 2024 | 2025 | 2026 |
 |---|---:|---:|---:|---:|---:|
-| 1% of underlying | -50.4% | +5.4% | -1.0% | -15.9% | +30.3% |
-| 2% of underlying | -44.6% | -9.5% | -29.5% | -15.2% | +2.6% |
-| 3% of underlying | -42.9% | -2.9% | -32.1% | -33.9% | -11.6% |
-| 4% of underlying | -43.4% | -12.8% | -32.9% | -39.5% | -14.0% |
-| 5% of underlying | -39.7% | -16.6% | -33.5% | -37.6% | -17.8% |
+| 1% of underlying | -50.4% | +5.4% | -1.0% | -15.9% | +48.5% |
+| 2% of underlying | -44.6% | -9.5% | -29.5% | -15.2% | +18.2% |
+| 3% of underlying | -42.9% | -2.9% | -32.1% | -33.9% | +1.4% |
+| 4% of underlying | -43.4% | -12.8% | -32.9% | -39.5% | -7.6% |
+| 5% of underlying | -39.7% | -16.6% | -33.5% | -37.6% | -11.4% |
 
 Median strike distance the target forces, by year:
 

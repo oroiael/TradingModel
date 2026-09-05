@@ -81,10 +81,9 @@ Reconciles to the engine's final equity ($62,382) to 0.00 of a dollar.
 | Shares called away, at the strike | +1,402,800 |
 | Call premium received | +121,009 |
 | Put premium paid | -54,935 |
-| Year-end: shares sold | +46,028 |
-| Year-end: open put sold | +19,965 |
+| Year-end: shares sold | +72,412 |
 | Commissions and fees | -418 |
-| **Closing equity** | **+82,213** |
+| **Closing equity** | **+88,632** |
 
-Reconciles to the engine's final equity ($82,213) to 0.00 of a dollar.
+Reconciles to the engine's final equity ($88,632) to 0.00 of a dollar.
 

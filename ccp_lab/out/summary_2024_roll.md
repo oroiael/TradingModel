@@ -38,7 +38,7 @@ Legs reconcile to the final equity exactly.
 - Total premium collected over the year: **$79,860** (80% of starting capital).
 - Median implied vol of the written call: 98%.
 - Calls: **23 rolled** (bought back instead of assigned), 29 expired worthless, **10 assigned anyway** because the buyback could not be funded from cash.
-- Paid **$83,871** to buy the rolled calls back; re-sold the far leg for **$46,810** (**$-37,062** net on the rolls).
+- Paid **$83,871** in real cash to buy the rolled calls back; re-sold the far leg for **$46,810** (**$-37,062** net on the rolls).
 - Puts: 2 exercised, 4 expired worthless.
 - Protective puts bought: 10, at a median **88 DTE** (target 90; the listed ladder is monthly so an exact 90 rarely exists), struck a median -1.1% out of the money.
 

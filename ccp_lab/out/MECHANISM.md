@@ -28,8 +28,8 @@ In pure cash terms the call leg only ever takes money **in**. The loss shows up 
 | 2023 | 18 | $64,495 | 15.0% | 88 | $-64,495 |
 | 2024 | 11 | $55,093 | 16.8% | 87 | $-26,197 |
 | 2025 | 16 | $47,936 | 15.7% | 80 | $-28,750 |
-| 2026 | 5 | $54,935 | 22.2% | 81 | $-34,970 |
-| **all** | 76 | **$293,234** | 16.8% | 84 | **$-112,439** |
+| 2026 | 5 | $54,935 | 22.2% | 81 | $-54,935 |
+| **all** | 76 | **$293,234** | 16.8% | 84 | **$-132,404** |
 
 A just-out-of-the-money put on a 3× semiconductor ETF costs a median **16.8% of spot per ~84 days**. Reloaded roughly four times a year, that is on the order of **50-60% of the position's value per year** in insurance premium alone.
 
