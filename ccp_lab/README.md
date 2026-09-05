@@ -63,6 +63,7 @@ python ccp_lab/mechanism.py       # why it loses        -> out/MECHANISM.md
 python ccp_lab/cashflow.py        # pure cash ledger    -> out/CASHFLOW.md
 python ccp_lab/sticky.py          # sticky vs re-strike -> out/STICKY.md
 python ccp_lab/put_policy.py      # when the put pays   -> out/PUT_POLICY.md
+python ccp_lab/combo.py           # both fixes together -> out/COMBO.md
 python ccp_lab/sweep.py           # premium-target sweep-> out/SWEEP.md
 ```
 
@@ -168,6 +169,26 @@ Recovers ~$23,000 a year of hedge value in 2025 and 2026. It does not address th
 cost of the insurance itself, and it does not stop the re-strike selling the
 recovery — that is `STICKY.md`.
 
+## Both fixes together
+
+| variant | 2022 | 2023 | 2024 | 2025 | 2026 | mean |
+|---|---:|---:|---:|---:|---:|---:|
+| base — the rule as written | −39.7% | −16.6% | −33.5% | −37.6% | −17.8% | −29.0% |
+| sticky only | −50.8% | +38.3% | −23.1% | +5.7% | +6.8% | −4.6% |
+| sell the put when flat only | −31.4% | −21.8% | −25.3% | +8.5% | +4.0% | −13.2% |
+| **sticky + sell the put when flat** | −44.8% | +22.9% | **−7.0%** | **+55.6%** | +24.3% | **+10.2%** |
+| buy & hold SOXL | −86.2% | +227.1% | −6.5% | +45.4% | +140.8% | +64.1% |
+
+Mean goes from −29.0% to +10.2%, and 2025 is the first time any variant beats
+buy & hold in an up year. The two are **sub-additive** (−7.5pp of overlap on
+average): both are triggered by the same assignments, so fixing one leaves less
+for the other.
+
+A large part of the gain is not income at all — **38 of 237 Mondays (16%) have no
+call worth selling**, because the stranded strike is bid at zero. Those weeks the
+shares run uncapped. It still loses to buy & hold on average, 2022 is still bad,
+and it is emphatically **not a 5%-a-week strategy**.
+
 ## Why — three measured mechanisms
 
 **1. A 5% weekly premium mostly does not exist.** An at-the-money weekly call is
@@ -266,6 +287,7 @@ next, and Black-Scholes off that contract's own EOD implied vol otherwise.
 | `cashflow.py` | brokerage-statement view: every dollar in and out, no attribution |
 | `sticky.py` | keeping the old strike vs re-striking down every Monday |
 | `put_policy.py` | what the put was worth when it mattered, vs what we collected |
+| `combo.py` | sticky strike and the put policy applied together |
 | `audit.py` · `qa_data.py` | engine invariants (all three modes), data QA |
 | `doctor.py` · `compat.py` · `requirements.txt` | preflight, cross-platform IO, deps |
 | `out/summary_<year>.md` · `out/summary_<year>_roll.md` | the per-year summary files |

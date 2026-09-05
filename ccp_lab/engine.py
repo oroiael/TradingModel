@@ -29,6 +29,7 @@ START_CASH   = 100_000.0
 CARRY        = 0.04     # r - q, validated against the vendor's own EOD mids
 COMMISSION   = 0.65     # $/contract
 SHARE_FEE    = 0.005    # $/share
+MIN_TICK     = 0.01     # an option cannot trade below a penny
 
 # ------------------------------------------------------------ Black-Scholes
 def _ncdf(x):
@@ -533,6 +534,15 @@ def run_year(year, data=None, target_pct=TARGET_PCT, start_cash=START_CASH,
                 # the old strike -- the rebound has been collected in full, so
                 # re-strike upward rather than write in the money.
                 leg = pick_call(d, chain, mon, cexp, spot, target_pct, target_mode)
+            # A stranded strike can model out at a fraction of a cent. No such
+            # trade exists: the bid is 0.00 and there is nothing to sell. Writing
+            # it anyway would also pay commission to collect nothing, which is the
+            # one thing a real trader would certainly not do.
+            if leg and (leg["price"] < MIN_TICK
+                        or lots * 100 * leg["price"] <= fee_opt(lots)):
+                row["no_write_reason"] = ("below a tick" if leg["price"] < MIN_TICK
+                                          else "premium under commission")
+                leg = None
             if leg:
                 sticky_strike = leg["strike"]
                 n = lots

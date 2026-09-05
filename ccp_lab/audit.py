@@ -59,7 +59,9 @@ MODES = [("assign", {}),
          ("roll (combo, Friday)", dict(roll="friday")),
          ("sticky strike", dict(sticky=True)),
          ("sticky + combo roll", dict(sticky=True, roll="friday")),
-         ("sell put when flat", dict(put_policy="sell_when_flat"))]
+         ("sell put when flat", dict(put_policy="sell_when_flat")),
+         ("sticky + sell put when flat",
+          dict(sticky=True, put_policy="sell_when_flat"))]
 
 if __name__ == "__main__":
     safe_stdout()
