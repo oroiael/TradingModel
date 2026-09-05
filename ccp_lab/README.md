@@ -68,6 +68,7 @@ python ccp_lab/put_trigger.py     # what should trigger the put sale -> out/PUT_
 python ccp_lab/exit_range.py      # the same, priced three ways -> out/EXIT_RANGE.md
 python ccp_lab/cohorts.py 2026    # a cohort per start month -> out/COHORTS_2026.md
 python ccp_lab/weekly_flat.py     # no put, no carry -> out/WEEKLY_FLAT.md
+python ccp_lab/moneyness.py       # ITM vs OTM strikes -> out/MONEYNESS.md
 python ccp_lab/sweep.py           # premium-target sweep-> out/SWEEP.md
 ```
 
@@ -199,6 +200,32 @@ A large part of the gain is not income at all — **38 of 237 Mondays (16%) have
 call worth selling**, because the stranded strike is bid at zero. Those weeks the
 shares run uncapped. It still loses to buy & hold on average, 2022 is still bad,
 and it is emphatically **not a 5%-a-week strategy**.
+
+## Writing the call in the money
+
+A covered call is synthetically a short put at the same strike, so writing deep
+ITM means being called away almost every week for only the time value.
+
+**The risk control works exactly as advertised.** At 30% ITM the assignment rate
+is 97%, weekly volatility falls from 9.4% to 1.1%, and the worst single week
+improves from −38.5% to −8.1%.
+
+**Then you cross the spread and the ranking inverts:**
+
+| strike | on my marks | less measured half-spread | at the bid |
+|---|---:|---:|---:|
+| −30% (deep ITM) | **+18.0%** | **−29.7%** | −25.7% |
+| −10% | −8.3% | −25.2% | −12.8% |
+| 0% (ATM) | −12.1% | −19.3% | −10.3% |
+| +5% (OTM) | −10.9% | **−15.9%** | **−9.1%** |
+
+Deep ITM goes from best to worst. The arithmetic: a 30%-ITM weekly call carries a
+median time value of **0.13% of spot** while those contracts quote a **5.1%
+median spread (12.3% at the 75th percentile)**, and **the bid is below intrinsic
+in 53% of weeks**. You pay a 5–12% transaction cost to collect 0.13%.
+
+Being called out every week does manage variance — but note that a crash is
+precisely the case where you are *not* called away.
 
 ## The result that explains all the others
 
@@ -371,7 +398,8 @@ next, and Black-Scholes off that contract's own EOD implied vol otherwise.
 | `put_trigger.py` | position-state vs deep-ITM roll-down triggers, and exit-spread realism |
 | `exit_range.py` | roll-down under generous / central / worst-case put exits |
 | `cohorts.py` | one account per start month, run in parallel — start-date sensitivity |
-| `weekly_flat.py` | no put, nothing carried over a weekend; the variance-drag result |
+| `weekly_flat.py` | no put, nothing carried over a weekend |
+| `moneyness.py` | writing the call in the money, and what the spread does to it |
 | `audit.py` · `qa_data.py` | engine invariants (all three modes), data QA |
 | `doctor.py` · `compat.py` · `requirements.txt` | preflight, cross-platform IO, deps |
 | `out/summary_<year>.md` · `out/summary_<year>_roll.md` | the per-year summary files |

@@ -26,36 +26,36 @@ Three things fall out of that table.
 
 | | |
 |---|---:|
-| weeks traded | 236 |
-| called away | 97 (41%) |
-| winning weeks | 65% |
-| **median** week | **+3.67%** |
-| **mean** week | **+0.48%** |
-| weekly standard deviation | 9.30% |
-| skew | -0.81 |
-| best week | +27.5% |
+| weeks traded | 233 |
+| called away | 107 (46%) |
+| winning weeks | 64% |
+| **median** week | **+3.49%** |
+| **mean** week | **-0.12%** |
+| weekly standard deviation | 8.51% |
+| skew | -1.33 |
+| best week | +18.5% |
 | worst week | **-37.2%** |
 
-The median week makes **+3.67%** and the mean week makes **+0.48%**. That gap is the entire story: a long left tail. The five worst weeks compound to **-80%**; the worst quartile on its own compounds to **−100%**.
+The median week makes **+3.49%** and the mean week makes **-0.12%**. That gap is the entire story: a long left tail. The five worst weeks compound to **-80%**; the worst quartile on its own compounds to **−100%**.
 
 
 ## The edge is exactly the size of the variance drag
 
 | | per week | annualised |
 |---|---:|---:|
-| arithmetic mean | +0.475% | +28% |
-| **geometric mean** | **+0.017%** | **+1%** |
-| variance drag | 0.458% | |
-| σ²/2 | 0.432% | |
+| arithmetic mean | -0.119% | -6% |
+| **geometric mean** | **-0.514%** | **-23%** |
+| variance drag | 0.395% | |
+| σ²/2 | 0.362% | |
 
-The drag (0.458%) and σ²/2 (0.432%) agree, and both are the same size as the arithmetic edge (0.475%). **Writing weekly calls on a 3x ETF earns roughly what the volatility of a 3x ETF costs you to compound.** The premium is real and the drag eats it.
+The drag (0.395%) and σ²/2 (0.362%) agree, and both are the same size as the arithmetic edge (-0.119%). **Writing weekly calls on a 3x ETF earns roughly what the volatility of a 3x ETF costs you to compound.** The premium is real and the drag eats it.
 
 
 ## And the edge is not measurable anyway
 
-- t-statistic on the weekly mean: **0.79** (about 2.0 is the usual bar).
-- 95% confidence interval on the weekly mean: **-0.711% to +1.661%** — annualised, **-31% to +136%**.
-- Weeks needed to reach t = 2 at this mean and volatility: **1531**, about **29 years**.
+- t-statistic on the weekly mean: **-0.21** (about 2.0 is the usual bar).
+- 95% confidence interval on the weekly mean: **-1.211% to +0.973%** — annualised, **-47% to +65%**.
+- Weeks needed to reach t = 2 at this mean and volatility: **20520**, about **395 years**.
 
 This is the answer to a live account disagreeing with a backtest. The true expectation of this rule cannot be pinned down from five years of data — the honest interval spans everything from ruinous to excellent. Two accounts running identical rules will land in different places, and neither result is evidence about the rule. Any backtest of this structure that quotes a single number, including every number in this lab, is quoting one draw from a distribution that wide.
 

@@ -13,7 +13,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import numpy as np, pandas as pd
 from ccp_lab.compat import safe_stdout, ensure_cache, write_text
 from ccp_lab.engine import Data, run_year
-from ccp_lab.report import buy_hold, OUT
+from ccp_lab.report import buy_hold, weekly_trips, OUT
 
 YEARS = [2022, 2023, 2024, 2025, 2026]
 VARIANTS = [
@@ -27,22 +27,7 @@ FLAT = dict(weekly_flat=True, use_put=False)
 
 
 def weekly_returns(d):
-    out = []
-    for y in YEARS:
-        r = run_year(y, d, **FLAT)
-        lg, ev = r["ledger"], r["events"]
-        asg = set(pd.to_datetime(ev[ev.kind == "CALL_ASSIGNED"].date).dt.date)
-        for _, x in lg.dropna(subset=["call_strike"]).iterrows():
-            fri = [s for s in d.sessions if s > x.monday and (s - x.monday).days <= 6]
-            if not fri:
-                continue
-            end = d.close(fri[-1])
-            called = fri[-1].date() in asg
-            ex = x.call_strike if called else end
-            out.append(dict(year=y, called=called,
-                            r=(ex - x.spot_1000_high + x.call_px) / x.spot_1000_high,
-                            stock=end / x.spot_1000_high - 1))
-    return pd.DataFrame(out)
+    return weekly_trips(d, YEARS, **FLAT)
 
 
 if __name__ == "__main__":
@@ -97,7 +82,8 @@ if __name__ == "__main__":
     L.append(f"| | |")
     L.append(f"|---|---:|")
     L.append(f"| weeks traded | {n} |")
-    L.append(f"| called away | {int(W.called.sum())} ({W.called.mean()*100:.0f}%) |")
+    L.append(f"| called away | {int((W.kind=='CALL_ASSIGNED').sum())} "
+             f"({(W.kind=='CALL_ASSIGNED').mean()*100:.0f}%) |")
     L.append(f"| winning weeks | {(g>0).mean()*100:.0f}% |")
     L.append(f"| **median** week | **{np.median(g)*100:+.2f}%** |")
     L.append(f"| **mean** week | **{am*100:+.2f}%** |")

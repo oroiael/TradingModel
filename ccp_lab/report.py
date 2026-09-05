@@ -162,3 +162,38 @@ def write(res, data, tag="", label=None):
                 med_otm_pct=float(w.otm_pct.median()) if len(w) else np.nan,
                 writes=len(w), pnl_shares=p["shares"], pnl_calls=p["calls"],
                 pnl_puts=p["puts"], fees=p["fees"], text=txt)
+
+
+def weekly_trips(data, years, **kw):
+    """Per-week realised return, paired off the event log.
+
+    Do NOT reconstruct the exit date from the calendar: a week that starts on a
+    holiday Tuesday has its "monday + 6 days" window run into the FOLLOWING
+    Monday, which silently reads the wrong exit price. Pair BUY_SHARES with the
+    next exit event instead. Year-end liquidations are excluded (the open call is
+    closed separately there, so the pair would double-count the premium), as are
+    weeks where no call was written.
+    """
+    from ccp_lab.engine import run_year
+    out = []
+    for y in years:
+        r = run_year(y, data, **kw)
+        ev = r["events"].sort_values("date")
+        lg = r["ledger"].dropna(subset=["call_strike"])
+        prem = {x.monday.date(): (x.call_px, x.call_strike) for _, x in lg.iterrows()}
+        entry = None
+        for _, e in ev.iterrows():
+            if e.kind == "BUY_SHARES":
+                entry = (e.date.date(), float(e.spot))
+            elif e.kind in ("CALL_ASSIGNED", "SELL_SHARES") and entry is not None:
+                ed, S = entry
+                if ed in prem:
+                    p, K = prem[ed]
+                    px = float(e.strike) if e.kind == "CALL_ASSIGNED" else float(e.spot)
+                    out.append(dict(year=y, entry=ed, exit=e.date.date(), kind=e.kind,
+                                    S=S, exit_px=px, prem=p, K=K,
+                                    r=(px - S + p) / S))
+                entry = None
+            elif e.kind in ("EOY_SELL_SHARES", "PUT_EXERCISED"):
+                entry = None
+    return pd.DataFrame(out)

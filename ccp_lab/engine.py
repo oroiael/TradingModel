@@ -117,6 +117,28 @@ class Data:
             return v, "print_near"
         return None, None
 
+    def sale_price(self, chain, exp, strike, right, spot, mark, mode="mark"):
+        """What you receive WRITING an option, net of crossing the spread.
+
+        "mark"       the 10:00 print or model, unadjusted (optimistic).
+        "halfspread" that mark less the contract's own measured half-spread.
+        "bid"        the end-of-day bid outright.
+        Deep in-the-money contracts are quoted wide and their bid frequently sits
+        below intrinsic, so this choice decides the whole result for ITM strikes.
+        """
+        if mode == "mark" or chain is None or not len(chain):
+            return mark
+        g = chain[(chain.expiration == exp) & (chain.right == right)
+                  & np.isclose(chain.strike, strike)]
+        if not len(g):
+            return mark
+        b, a = g.iloc[0]["bid"], g.iloc[0]["ask"]
+        if not (pd.notna(b) and pd.notna(a) and b > 0 and a >= b):
+            return mark
+        if mode == "bid":
+            return float(b)
+        return max(mark - (float(a) - float(b)) / 2.0, 0.0)
+
     def exit_bid(self, chain, exp, strike, right, spot, mode="central"):
         """What you would actually receive SELLING this option today.
 
@@ -244,6 +266,20 @@ def iv_at(chain, exp, strike, right, fallback=None):
     j = (g.strike - strike).abs().idxmin()          # nearest-strike IV
     return float(g.loc[j, "implied_vol"])
 
+def call_at_moneyness(data, chain, d, exp, spot, pct):
+    """Strike nearest spot*(1+pct). Negative pct writes in the money."""
+    g = chain[(chain.expiration == exp) & (chain.right == "CALL")]
+    if not len(g):
+        return None
+    want = spot * (1.0 + pct)
+    r = g.iloc[(g.strike - want).abs().argsort().iloc[0]]
+    K = float(r["strike"]); iv = float(r["implied_vol"])
+    mk, q = data.mark(d, exp, K, "CALL", spot, iv)
+    mk = max(mk, max(spot - K, 0.0))            # never below intrinsic
+    return dict(strike=K, expiry=exp, price=mk, quality=q, iv=iv,
+                target=TARGET_PCT * spot)
+
+
 def pick_call(data, chain, d, exp, spot, target_pct=TARGET_PCT, mode="premium"):
     """Pick the weekly call strike.
 
@@ -322,7 +358,8 @@ def run_year(year, data=None, target_pct=TARGET_PCT, start_cash=START_CASH,
              target_mode="premium", roll=None, roll_credit=False,
              roll_up_only=True, reserve_pct=0.0, sticky=False,
              put_policy="hold", put_roll_pct=None, put_exit="central",
-             start_date=None, end_date=None, weekly_flat=False):
+             start_date=None, end_date=None, weekly_flat=False,
+             strike_pct=None, call_sale="mark"):
     """One calendar year, standalone: $100k in on the first Monday of the year,
     everything liquidated at the close of the last session of the year."""
     d = data or Data()
@@ -606,7 +643,9 @@ def run_year(year, data=None, target_pct=TARGET_PCT, start_cash=START_CASH,
                    shares=shares)
         cexp = week_expiry(chain, mon)
         if use_call and cexp is not None and bk.call is None:
-            if sticky and sticky_strike is not None and sticky_strike >= spot:
+            if strike_pct is not None:
+                leg = call_at_moneyness(d, chain, mon, cexp, spot, strike_pct)
+            elif sticky and sticky_strike is not None and sticky_strike >= spot:
                 # Hold the old cap while the stock is still below it: that is the
                 # whole point, the rebound up to the strike belongs to us.
                 leg = call_at_strike(d, chain, mon, cexp, sticky_strike, spot)
@@ -621,6 +660,10 @@ def run_year(year, data=None, target_pct=TARGET_PCT, start_cash=START_CASH,
             # trade exists: the bid is 0.00 and there is nothing to sell. Writing
             # it anyway would also pay commission to collect nothing, which is the
             # one thing a real trader would certainly not do.
+            if leg is not None and call_sale != "mark":
+                leg = dict(leg, price=d.sale_price(chain, leg["expiry"],
+                                                   leg["strike"], "CALL", spot,
+                                                   leg["price"], call_sale))
             if leg and (leg["price"] < MIN_TICK
                         or lots * 100 * leg["price"] <= fee_opt(lots)):
                 row["no_write_reason"] = ("below a tick" if leg["price"] < MIN_TICK
