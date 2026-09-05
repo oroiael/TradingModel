@@ -30,6 +30,7 @@ CARRY        = 0.04     # r - q, validated against the vendor's own EOD mids
 COMMISSION   = 0.65     # $/contract
 SHARE_FEE    = 0.005    # $/share
 MIN_TICK     = 0.01     # an option cannot trade below a penny
+SHARE_RT     = 0.02     # $/share round trip: 2x commission + ~1c of stock spread
 
 # ------------------------------------------------------------ Black-Scholes
 def _ncdf(x):
@@ -116,23 +117,40 @@ class Data:
             return v, "print_near"
         return None, None
 
-    def exit_bid(self, chain, exp, strike, right, spot):
+    def exit_bid(self, chain, exp, strike, right, spot, mode="central"):
         """What you would actually receive SELLING this option today.
 
         Deep in-the-money options on a 3x ETF are illiquid and quoted very wide,
-        so a mid or model mark badly overstates the exit. This hits the bid, and
-        floors at intrinsic because exercising is always available instead.
+        so the exit assumption dominates any result that relies on monetising
+        them. Three models, so the answer can be stated as a range:
+
+        generous : the mid. Assumes a limit order fills at the midpoint of a
+                   10-20% spread. Optimistic, especially in size.
+        central  : the better of hitting the bid, or exercising and re-buying the
+                   shares. The second route captures intrinsic less a stock round
+                   trip (SHARE_RT), and the stock is liquid where the option is
+                   not. Never more than arbitrage allows, never less than a
+                   rational holder would accept.
+        worst    : the bid, with no floor -- even where the bid sits below
+                   intrinsic and a rational holder would exercise instead.
         """
         intrinsic = max(spot - strike, 0.0) if right == "CALL" else max(strike - spot, 0.0)
         if chain is None or not len(chain):
             return intrinsic
         g = chain[(chain.expiration == exp) & (chain.right == right)
                   & np.isclose(chain.strike, strike)]
-        if len(g):
-            b = g.iloc[0]["bid"]
-            if pd.notna(b) and b > 0:
-                return max(float(b), intrinsic)
-        return intrinsic
+        if not len(g):
+            return intrinsic
+        b, a = g.iloc[0]["bid"], g.iloc[0]["ask"]
+        has_b = pd.notna(b) and b > 0
+        if mode == "generous":
+            if has_b and pd.notna(a) and a > 0:
+                return max((float(a) + float(b)) / 2.0, intrinsic)
+            return intrinsic
+        if mode == "worst":
+            return float(b) if has_b else intrinsic
+        exercise = max(intrinsic - SHARE_RT, 0.0)       # exercise and re-buy
+        return max(float(b), exercise) if has_b else exercise
 
     def eod_value(self, chain, exp, strike, right, spot, d):
         """Mark an open leg at the EOD chain mid; fall back to model, then intrinsic."""
@@ -303,7 +321,7 @@ def run_year(year, data=None, target_pct=TARGET_PCT, start_cash=START_CASH,
              costs=True, verbose=False, use_call=True, use_put=True,
              target_mode="premium", roll=None, roll_credit=False,
              roll_up_only=True, reserve_pct=0.0, sticky=False,
-             put_policy="hold", put_roll_pct=None):
+             put_policy="hold", put_roll_pct=None, put_exit="central"):
     """One calendar year, standalone: $100k in on the first Monday of the year,
     everything liquidated at the close of the last session of the year."""
     d = data or Data()
@@ -432,7 +450,7 @@ def run_year(year, data=None, target_pct=TARGET_PCT, start_cash=START_CASH,
         if put_policy == "sell_when_flat" and shares == 0 and bk.puts:
             ch = d.chain(s)
             for p in list(bk.puts):
-                v = d.exit_bid(ch, p["expiry"], p["strike"], "PUT", px)
+                v = d.exit_bid(ch, p["expiry"], p["strike"], "PUT", px, put_exit)
                 proceeds = p["qty"] * 100 * v - fee_opt(p["qty"])
                 cash += proceeds
                 pnl["puts"] += p["qty"] * 100 * v - p["open_px"] * p["qty"] * 100
@@ -480,7 +498,7 @@ def run_year(year, data=None, target_pct=TARGET_PCT, start_cash=START_CASH,
             for pp in list(bk.puts):
                 if spot >= pp["strike"] * (1.0 - put_roll_pct):
                     continue
-                v = d.exit_bid(chain, pp["expiry"], pp["strike"], "PUT", spot)
+                v = d.exit_bid(chain, pp["expiry"], pp["strike"], "PUT", spot, put_exit)
                 cash += pp["qty"] * 100 * v - fee_opt(pp["qty"])
                 pnl["puts"] += pp["qty"] * 100 * v - pp["open_px"] * pp["qty"] * 100
                 pnl["fees"] += fee_opt(pp["qty"])

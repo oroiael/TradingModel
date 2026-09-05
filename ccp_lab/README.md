@@ -65,6 +65,7 @@ python ccp_lab/sticky.py          # sticky vs re-strike -> out/STICKY.md
 python ccp_lab/put_policy.py      # when the put pays   -> out/PUT_POLICY.md
 python ccp_lab/combo.py           # both fixes together -> out/COMBO.md
 python ccp_lab/put_trigger.py     # what should trigger the put sale -> out/PUT_TRIGGER.md
+python ccp_lab/exit_range.py      # the same, priced three ways -> out/EXIT_RANGE.md
 python ccp_lab/sweep.py           # premium-target sweep-> out/SWEEP.md
 ```
 
@@ -293,6 +294,7 @@ next, and Black-Scholes off that contract's own EOD implied vol otherwise.
 | `put_policy.py` | what the put was worth when it mattered, vs what we collected |
 | `combo.py` | sticky strike and the put policy applied together |
 | `put_trigger.py` | position-state vs deep-ITM roll-down triggers, and exit-spread realism |
+| `exit_range.py` | roll-down under generous / central / worst-case put exits |
 | `audit.py` · `qa_data.py` | engine invariants (all three modes), data QA |
 | `doctor.py` · `compat.py` · `requirements.txt` | preflight, cross-platform IO, deps |
 | `out/summary_<year>.md` · `out/summary_<year>_roll.md` | the per-year summary files |
