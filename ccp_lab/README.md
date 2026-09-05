@@ -64,6 +64,7 @@ python ccp_lab/cashflow.py        # pure cash ledger    -> out/CASHFLOW.md
 python ccp_lab/sticky.py          # sticky vs re-strike -> out/STICKY.md
 python ccp_lab/put_policy.py      # when the put pays   -> out/PUT_POLICY.md
 python ccp_lab/combo.py           # both fixes together -> out/COMBO.md
+python ccp_lab/put_trigger.py     # what should trigger the put sale -> out/PUT_TRIGGER.md
 python ccp_lab/sweep.py           # premium-target sweep-> out/SWEEP.md
 ```
 
@@ -163,11 +164,13 @@ Selling the put once the shares are gone (it protects nothing at that point):
 | variant | 2022 | 2023 | 2024 | 2025 | 2026 |
 |---|---:|---:|---:|---:|---:|
 | hold the put to expiry (the rule) | −39.7% | −16.6% | −33.5% | −37.6% | −17.8% |
-| **sell the put once the shares are gone** | **−31.4%** | −21.8% | **−25.3%** | **+8.5%** | **+4.0%** |
+| **sell the put once the shares are gone** | **−35.1%** | −24.3% | **−31.5%** | **−8.3%** | **−12.9%** |
 
-Recovers ~$23,000 a year of hedge value in 2025 and 2026. It does not address the
-cost of the insurance itself, and it does not stop the re-strike selling the
-recovery — that is `STICKY.md`.
+Better in three years of five and still losing in all five. These numbers are
+**with the exit sold at the bid** — an earlier version of this lab priced put
+exits at the model mark, which on deep in-the-money contracts sat a median +11.8%
+above the bid against a 10% quoted spread, and overstated this variant by roughly
+9 points of mean return. See `PUT_TRIGGER.md`.
 
 ## Both fixes together
 
@@ -175,14 +178,15 @@ recovery — that is `STICKY.md`.
 |---|---:|---:|---:|---:|---:|---:|
 | base — the rule as written | −39.7% | −16.6% | −33.5% | −37.6% | −17.8% | −29.0% |
 | sticky only | −50.8% | +38.3% | −23.1% | +5.7% | +6.8% | −4.6% |
-| sell the put when flat only | −31.4% | −21.8% | −25.3% | +8.5% | +4.0% | −13.2% |
-| **sticky + sell the put when flat** | −44.8% | +22.9% | **−7.0%** | **+55.6%** | +24.3% | **+10.2%** |
+| sell the put when flat only | −35.1% | −24.3% | −31.5% | −8.3% | −12.9% | −22.4% |
+| **sticky + sell the put when flat** | −45.0% | +20.3% | **−9.8%** | **+55.5%** | +15.1% | **+7.2%** |
 | buy & hold SOXL | −86.2% | +227.1% | −6.5% | +45.4% | +140.8% | +64.1% |
 
-Mean goes from −29.0% to +10.2%, and 2025 is the first time any variant beats
-buy & hold in an up year. The two are **sub-additive** (−7.5pp of overlap on
-average): both are triggered by the same assignments, so fixing one leaves less
-for the other.
+Mean goes from −29.0% to +7.2%, and 2025 is the first time any variant beats
+buy & hold in an up year. The two are **sub-additive**: both are triggered by the
+same assignments, so fixing one leaves less for the other. Put exits are sold at
+the **bid** throughout — see `PUT_TRIGGER.md` for why that matters more than any
+other assumption here.
 
 A large part of the gain is not income at all — **38 of 237 Mondays (16%) have no
 call worth selling**, because the stranded strike is bid at zero. Those weeks the
@@ -288,6 +292,7 @@ next, and Black-Scholes off that contract's own EOD implied vol otherwise.
 | `sticky.py` | keeping the old strike vs re-striking down every Monday |
 | `put_policy.py` | what the put was worth when it mattered, vs what we collected |
 | `combo.py` | sticky strike and the put policy applied together |
+| `put_trigger.py` | position-state vs deep-ITM roll-down triggers, and exit-spread realism |
 | `audit.py` · `qa_data.py` | engine invariants (all three modes), data QA |
 | `doctor.py` · `compat.py` · `requirements.txt` | preflight, cross-platform IO, deps |
 | `out/summary_<year>.md` · `out/summary_<year>_roll.md` | the per-year summary files |

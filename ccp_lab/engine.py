@@ -116,6 +116,24 @@ class Data:
             return v, "print_near"
         return None, None
 
+    def exit_bid(self, chain, exp, strike, right, spot):
+        """What you would actually receive SELLING this option today.
+
+        Deep in-the-money options on a 3x ETF are illiquid and quoted very wide,
+        so a mid or model mark badly overstates the exit. This hits the bid, and
+        floors at intrinsic because exercising is always available instead.
+        """
+        intrinsic = max(spot - strike, 0.0) if right == "CALL" else max(strike - spot, 0.0)
+        if chain is None or not len(chain):
+            return intrinsic
+        g = chain[(chain.expiration == exp) & (chain.right == right)
+                  & np.isclose(chain.strike, strike)]
+        if len(g):
+            b = g.iloc[0]["bid"]
+            if pd.notna(b) and b > 0:
+                return max(float(b), intrinsic)
+        return intrinsic
+
     def eod_value(self, chain, exp, strike, right, spot, d):
         """Mark an open leg at the EOD chain mid; fall back to model, then intrinsic."""
         intrinsic = max(spot - strike, 0.0) if right == "CALL" else max(strike - spot, 0.0)
@@ -285,7 +303,7 @@ def run_year(year, data=None, target_pct=TARGET_PCT, start_cash=START_CASH,
              costs=True, verbose=False, use_call=True, use_put=True,
              target_mode="premium", roll=None, roll_credit=False,
              roll_up_only=True, reserve_pct=0.0, sticky=False,
-             put_policy="hold"):
+             put_policy="hold", put_roll_pct=None):
     """One calendar year, standalone: $100k in on the first Monday of the year,
     everything liquidated at the close of the last session of the year."""
     d = data or Data()
@@ -414,8 +432,7 @@ def run_year(year, data=None, target_pct=TARGET_PCT, start_cash=START_CASH,
         if put_policy == "sell_when_flat" and shares == 0 and bk.puts:
             ch = d.chain(s)
             for p in list(bk.puts):
-                v = d.eod_value(ch, p["expiry"], p["strike"], "PUT", px, s)
-                v = max(v, max(p["strike"] - px, 0.0))     # never below intrinsic
+                v = d.exit_bid(ch, p["expiry"], p["strike"], "PUT", px)
                 proceeds = p["qty"] * 100 * v - fee_opt(p["qty"])
                 cash += proceeds
                 pnl["puts"] += p["qty"] * 100 * v - p["open_px"] * p["qty"] * 100
@@ -451,6 +468,25 @@ def run_year(year, data=None, target_pct=TARGET_PCT, start_cash=START_CASH,
                      if (use_put and pexp is not None) else None)
         put_px = put_probe["price"] if put_probe else 0.0
         can_size = put_probe is not None or not use_put
+
+        # ---- roll the put down -------------------------------------------
+        # A put this far in the money is almost all intrinsic: there is no
+        # optionality left to wait for, only a rebound that can take it away.
+        # Sell it here and the hedge top-up below re-establishes protection at
+        # the current, lower strike -- harvesting the gain and resetting the
+        # insurance in one move. The trigger is measured on the day, never
+        # against a future price.
+        if put_roll_pct is not None and bk.puts:
+            for pp in list(bk.puts):
+                if spot >= pp["strike"] * (1.0 - put_roll_pct):
+                    continue
+                v = d.exit_bid(chain, pp["expiry"], pp["strike"], "PUT", spot)
+                cash += pp["qty"] * 100 * v - fee_opt(pp["qty"])
+                pnl["puts"] += pp["qty"] * 100 * v - pp["open_px"] * pp["qty"] * 100
+                pnl["fees"] += fee_opt(pp["qty"])
+                events.append(dict(date=mon, kind="PUT_ROLLED_DOWN", qty=pp["qty"],
+                                   strike=pp["strike"], spot=spot, px=v))
+                bk.puts.remove(pp)
 
         covered = bk.put_qty                            # lots already carrying a put
         held = shares // 100
