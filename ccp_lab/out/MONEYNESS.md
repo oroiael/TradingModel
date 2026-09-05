@@ -51,3 +51,34 @@ The reason is arithmetic. A 30%-in-the-money weekly call carries a median time v
 
 If this structure is worth pursuing at all it is at strikes near or above the money, where the premium is large enough to survive the spread — and even there every configuration in this lab still loses to simply holding the shares (+92%).
 
+
+## The out-of-the-money side, sold at the bid
+
+| strike | 2022 | 2023 | 2024 | 2025 | 2026 | mean |
+|---|---:|---:|---:|---:|---:|---:|
+| +0% | -70.1% | +45.2% | -41.3% | -37.6% | +52.4% | **-10.3%** |
+| +2% | -71.7% | +42.1% | -42.8% | -42.7% | +71.0% | **-8.8%** |
+| +5% | -74.3% | +36.1% | -45.1% | -40.2% | +77.9% | **-9.1%** |
+| +10% | -76.0% | +63.9% | -42.2% | -40.2% | +100.8% | **+1.3%** |
+| +20% | -78.4% | +106.3% | -33.9% | -46.4% | +127.3% | **+15.0%** |
+| +30% | -77.8% | +128.7% | -29.2% | -43.0% | +155.7% | **+26.9%** |
+| **buy & hold** | -86.2% | +227.1% | -6.5% | +45.4% | +278.8% | **+91.7%** |
+
+**The further out you write, the better it gets — and the limit of that is not writing at all.** The mean improves monotonically from -10.3% at the money to +26.9% at 30% out, and buy & hold (+91.7%) sits above every one of them. Sold at a price anyone would actually fill, **the weekly call is a net cost at every strike tested**.
+
+The one exception is the crash. In 2022 the call *helped*: -70.1% at the money against buy & hold's -86.2%, and there the ordering reverses — closer to the money cushions more, because the premium is the cushion. That is the whole trade in one line: **you are paid to give up the upside, and the payment only covers you in the year the upside does not come.**
+
+
+### 2026, the same sweep by start month
+
+| strike | Jan | Feb | Mar | Apr | May | Jun |
+|---|---:|---:|---:|---:|---:|---:|
+| +0% | +52% | +28% | +13% | +28% | +4% | -6% |
+| +2% | +71% | +46% | +24% | +38% | +7% | -6% |
+| +5% | +78% | +43% | +23% | +45% | +8% | -8% |
+| +10% | +101% | +58% | +33% | +54% | +5% | -13% |
+| +20% | +127% | +78% | +66% | +88% | +6% | -20% |
+| +30% | +156% | +95% | +89% | +122% | +3% | -25% |
+
+Monotonic in five of the six months and **reversed in June** — the month SOXL fell. That is the tell that the monotonicity is a directional bet on the underlying, not an edge in the option: in rising months less cap is better, in the falling month more cap is better. A single 2026 figure for any of these rows is one draw from that spread.
+

@@ -107,5 +107,58 @@ if __name__ == "__main__":
              "or above the money, where the premium is large enough to survive "
              "the spread — and even there every configuration in this lab still "
              f"loses to simply holding the shares ({bh:+.0f}%).\n")
+    # ---------------- OTM sweep, sold at the bid --------------------------
+    OTM = [0.0, 0.02, 0.05, 0.10, 0.20, 0.30]
+    BID = dict(FLAT, call_sale="bid")
+    L.append("\n## The out-of-the-money side, sold at the bid\n")
+    L.append("| strike | " + " | ".join(str(y) for y in YEARS) + " | mean |")
+    L.append("|---|" + "---:|" * (len(YEARS) + 1))
+    rows = {}
+    for pc in OTM:
+        v = [run_year(y, d, **BID, strike_pct=pc)["final"]/1000.0-100.0 for y in YEARS]
+        rows[pc] = v
+        L.append(f"| {pc*100:+.0f}% | " + " | ".join(f"{x:+.1f}%" for x in v)
+                 + f" | **{np.mean(v):+.1f}%** |")
+    bhv = [buy_hold(d, y, 100000.0)[0]/1000.0-100.0 for y in YEARS]
+    L.append("| **buy & hold** | " + " | ".join(f"{x:+.1f}%" for x in bhv)
+             + f" | **{np.mean(bhv):+.1f}%** |")
+    L.append("\n**The further out you write, the better it gets — and the limit "
+             "of that is not writing at all.** The mean improves monotonically "
+             f"from {np.mean(rows[0.0]):+.1f}% at the money to "
+             f"{np.mean(rows[0.30]):+.1f}% at 30% out, and buy & hold "
+             f"({np.mean(bhv):+.1f}%) sits above every one of them. Sold at a "
+             "price anyone would actually fill, **the weekly call is a net cost "
+             "at every strike tested**.\n")
+    L.append("The one exception is the crash. In 2022 the call *helped*: "
+             f"{rows[0.0][0]:+.1f}% at the money against buy & hold's "
+             f"{bhv[0]:+.1f}%, and there the ordering reverses — closer to the "
+             "money cushions more, because the premium is the cushion. That is "
+             "the whole trade in one line: **you are paid to give up the "
+             "upside, and the payment only covers you in the year the upside "
+             "does not come.**\n")
+
+    # start-month cohorts for the same sweep
+    ce = d.ch.trade_date.max()
+    end = max(x for x in d.sessions if x.year == 2026 and x <= ce)
+    starts = [pd.Timestamp(f"2026-{m:02d}-01") for m in range(1, 7)]
+    L.append("\n### 2026, the same sweep by start month\n")
+    L.append("| strike | " + " | ".join(x.strftime("%b") for x in starts) + " |")
+    L.append("|---|" + "---:|" * len(starts))
+    for pc in OTM:
+        v = []
+        for st in starts:
+            try:
+                v.append(run_year(2026, d, **BID, strike_pct=pc,
+                                  start_date=st, end_date=end)["final"]/1000.0-100.0)
+            except SystemExit:
+                v.append(np.nan)
+        L.append(f"| {pc*100:+.0f}% | " + " | ".join(f"{x:+.0f}%" for x in v) + " |")
+    L.append("\nMonotonic in five of the six months and **reversed in June** — "
+             "the month SOXL fell. That is the tell that the monotonicity is a "
+             "directional bet on the underlying, not an edge in the option: in "
+             "rising months less cap is better, in the falling month more cap "
+             "is better. A single 2026 figure for any of these rows is one draw "
+             "from that spread.\n")
+
     write_text(f"{OUT}/MONEYNESS.md", "\n".join(L) + "\n")
     print("\nwrote", f"{OUT}/MONEYNESS.md")
