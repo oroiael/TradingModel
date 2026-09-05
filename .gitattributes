@@ -27,3 +27,6 @@ band_lab/v2_dev/out/reparam/*.csv -filter -diff -merge text
 band_lab/v2_dev/out/v23/paths.csv -filter -diff -merge text
 band_lab/v2_dev/data/*.csv -filter -diff -merge text
 ccp_lab/out/*.csv -filter -diff -merge text
+calendar_ledger.csv -filter -diff -merge text
+calendar_grid.csv -filter -diff -merge text
+harvest_blueprint/out/*.csv -filter -diff -merge text

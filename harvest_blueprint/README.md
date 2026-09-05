@@ -264,7 +264,10 @@ The blueprint's machinery — automated entries, regime gating, hard risk limits
 volatility-scaled sizing, a circuit breaker — is all worth building. Point it the
 other way.
 
-**Own the vol; sell only the one tenor that is not cheap.**
+**Own the vol.** The original version of this line also said “and sell the one
+tenor that is not cheap”; that half has since been measured and withdrawn
+(`CALENDAR.md`). On this data there is no short-premium structure on SOXL that
+pays — not naked, not defined-risk, not calendarized, not gated, not stopped.
 
 | | blueprint | SOXL version | why |
 |---|---|---|---|
@@ -291,11 +294,14 @@ Two structures worth pairing with it:
 - **`bull_call` debit spreads** — the most *robust* winner in the repo, positive
   in **every year 2022–2026** including the −87% bear, because defined risk caps
   the frequent misses while still catching the up-tail.
-- **Calendars / diagonals — the one defensible way to be short premium here.**
-  The 7-day tenor is the only one whose VRP is not negative (+0.7 pts), and the
-  curve is inverted 67–68% of days. *Sell the front week, own the back.* That
-  collects the one genuine standing disparity on this surface. It is a spread,
-  never a naked short, and it is the honest home for the blueprint's instinct.
+- ~~**Calendars / diagonals — the one defensible way to be short premium
+  here.**~~ **Withdrawn — tested and refuted; see `CALENDAR.md`.** The
+  disparity is real (the 7-day tenor is the only one whose VRP is not negative,
+  and the curve is inverted 67–68% of days), but it does not survive being
+  traded. `calendar_backtest.py` runs 47 configurations and the short overlay
+  loses in **all 40** that carry one — on both rights, and in a sizing-free
+  test that holds the long book identical. The front week is richer because it
+  delivers, not because it is overpriced.
 
 **Where the automation actually earns its keep:** the harvest trigger is a
 per-leg "+50% from cost" rule evaluated continuously across two legs and multiple
@@ -341,6 +347,7 @@ Supporting evidence, already in the repo:
 
 | claim | source |
 |---|---|
+| calendars/diagonals fail too (40/40 short legs negative) | `harvest_blueprint/CALENDAR.md`, `calendar_backtest.py`, `qa/calendar_report.txt` |
 | condor grid, 37 configs, stops | `qa/r3_condor_report.txt`, `r3_iron_condor_backtest.py` |
 | VRP by tenor, term structure, skew, spreads, wings, put bleed | `qa/pricing_lab_report.txt`, `volatility_pricing_lab.py` |
 | VRP reproduced on a second window and on TQQQ | `vol_anatomy/harvestability.py` |
