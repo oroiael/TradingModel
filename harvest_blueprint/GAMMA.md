@@ -53,6 +53,12 @@ That is the sentence this whole investigation has been missing. In the condor,
 calendar and weekly-premium engines, the thing the thesis said should drive P&L
 had no relationship to it. Here it does.
 
+> **Correction, from the strand sweep in §3:** +10.4% per cycle is the *best*
+> entry timing, not the typical one. Run the identical trade from 12 different
+> start dates and the mean is **+6.5% per cycle**, with a range of +2.4% to
+> +11.1%. All 12 are positive — the sign is robust — but the headline above is
+> entry-timing luck and the honest central estimate is **~6.5%**.
+
 **It is not one lucky cycle, one tenor, or one structure:**
 
 | variant (all hedged daily) | cycles | net | mean %prem | t | ex-best |
@@ -104,7 +110,7 @@ exactly backwards on this instrument. **Hedge as rarely as the mandate allows.**
 
 ---
 
-## 3. This does not contradict `band_lab` — it complements it
+## 4. This does not contradict `band_lab` — it complements it
 
 `band_lab` earns ~40 bp/ON-day trading SOXL's *intraday reversals* in shares.
 This engine finds that the *intraday* scale is the worst place to harvest gamma.
@@ -119,7 +125,7 @@ that makes one work is the measurement that makes the other fail.
 
 ---
 
-## 4. What it is worth, honestly
+## 4b. What it is worth, honestly
 
 The "+10.4% of premium per cycle" figure flatters the trade, because premium is
 not the only capital committed. The share hedge reached a **mean peak notional
@@ -130,6 +136,89 @@ work** — the result is:
 > **+64% total over 2.5 years, or about +22%/yr.**
 
 Real, but a long way from the headline. Quote the second number.
+
+---
+
+## 3. Overlapping ladders — what they actually bought
+
+Running the same trade from 12 staggered start dates (each strand internally
+non-overlapping, `start_offset` in the engine):
+
+| | strands |
+|---|---|
+| positive | **12 of 12** |
+| P&L range | **+$4,925 → +$21,771** |
+| mean per cycle | **+6.5% of premium** (range +2.4% to +11.1%) |
+| win rate range | 36% – 67% |
+| positive excluding own best cycle | 11 of 12 |
+
+**The sign is robust to entry timing; the magnitude is not.** A 4.4× spread on
+start date alone is the single most important calibration in this document.
+
+`gamma_ladder_backtest.py` then runs it as a real portfolio — a new straddle
+every 10 trade days, ~3.2 alive at once, one delta book netted across all of
+them, rehedged daily on real EOD deltas. 8 runs, 0 QA failures (the last equity
+row and the cash left after closing the book agree to the cent).
+
+| | base ladder | SOXL buy-and-hold, same window |
+|---|---:|---:|
+| CAGR | **+13.2%** | +111.7% |
+| max drawdown | **−19.5%** | −88.0% |
+| Sharpe | **0.66** | 1.23 |
+| annualized vol | **22.5%** | 120.2% |
+| **beta to SOXL** | **−0.053** | 1.00 |
+
+| variant | rungs | P&L | CAGR | max DD | Sharpe | mean premium at risk |
+|---|---:|---:|---:|---:|---:|---:|
+| every 5 days | 94 | +$76,353 | +18.0% | −30.6% | 0.61 | $82,261 |
+| **every 10 days (base)** | 53 | **+$54,140** | +13.2% | −19.5% | **0.66** | $45,591 |
+| every 20 days | 28 | +$41,013 | +10.2% | −14.6% | **0.79** | $23,946 |
+| every 41 days (≈ sequential) | 15 | +$17,791 | +4.6% | −7.4% | 0.57 | $13,811 |
+| 30-DTE rungs | 62 | +$50,958 | +12.5% | −22.1% | 0.63 | $29,166 |
+| 90-DTE rungs | 42 | +$66,663 | +15.9% | −16.1% | 0.74 | $57,506 |
+
+**By year, all three positive** — 2024 +$21,556, 2025 +$3,623, 2026 +$24,408.
+Laddering repaired the flat 2025 of the single-position engine, which is exactly
+the entry-timing diversification working.
+
+### Three things this settles
+
+**Denser laddering is leverage, not edge.** Going from every-20-days to
+every-5-days nearly doubles P&L and nearly doubles premium at risk, while
+Sharpe *falls* (0.79 → 0.61) and drawdown doubles. The 20-day rung is the best
+risk-adjusted point tested.
+
+**Netting the hedge book barely matters.** It was one of the stated reasons for
+building this, and it is worth **$743** — 15% of the $4,911 friction bill, 1.4%
+of P&L. Spread cost scales with shares traded, not with order count, so netting
+only saves the per-order minimums. That rationale was wrong.
+
+**The delta hedge genuinely works.** Beta to SOXL is **−0.053** and the ladder's
+own vol is **22.5%** against the underlying's 120.2%. This is a real
+uncorrelated return stream, not a disguised long position — which is precisely
+what every other long-premium structure in this repo failed to be.
+
+### And one thing it does not settle
+
+I said building this would move t = 1.62 toward significance. **That was wrong,
+and it is worth being explicit about why.** Overlapping rungs are not
+independent draws — they sample the same 2.5 years of one instrument, so a
+t-statistic computed across them is inflated by construction. A ladder removes
+entry-timing luck and smooths the equity curve; it cannot manufacture
+information about the true expectancy. The honest sample is still one path,
+2024-01 → 2026-06, and only out-of-sample time or another instrument can change
+that.
+
+### How to read the benchmark
+
+Buy-and-hold beat the ladder on Sharpe over this window (1.23 vs 0.66), and
+that comparison should not be waved away — but it is not apples to apples. The
+window contains the 2026 melt-up, which is close to the best conceivable tape
+for owning a 3× fund, and it carried an **−88% drawdown** to get there. The
+ladder earned less at a fifth of the volatility and essentially zero beta. As a
+standalone bet it lost this window; as a diversifier against the very drawdown
+that makes SOXL unholdable, it is doing something buy-and-hold structurally
+cannot.
 
 ---
 
@@ -158,8 +247,10 @@ Real, but a long way from the headline. Quote the second number.
 * **Execution.** Hedges price at the **bar close**, never the bar high or low.
   `call_spread_lab/FINDINGS_6` is the cautionary tale: an intraday result there
   reversed sign entirely once fills stopped assuming foresight.
-* **Sequential cycles only.** One position at a time, no overlapping ladder, so
-  the cycle count is low by construction and capital sits idle between rolls.
+* **Entry timing moves the answer a lot.** 12 staggered strands span +$4,925 to
+  +$21,771. All positive, but quote **+6.5% per cycle**, not +10.4%.
+* **The ladder adds robustness, not statistical power.** Overlapping rungs are
+  not independent observations; the sample is still one path over 2.5 years.
 * **Not modelled:** early exercise (both legs are long, so this is an option we
   hold rather than a liability), borrow cost or dividends on the short share
   leg, and any intraday re-strike of the straddle as spot drifts.

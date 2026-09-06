@@ -116,6 +116,9 @@ class Config:
     premium_budget: float = 15_000.0
     costs: bool = True              # False = gross, isolates the friction
     exit_dte: int = 0               # 0 = hold to expiry
+    start_offset: int = 0           # start the sequence N trade dates in, so a
+                                    # set of offsets gives staggered strands
+                                    # that each stay internally non-overlapping
     start_capital: float = 150_000.0
 
     def label(self):
@@ -126,6 +129,8 @@ class Config:
             p.append("GROSS")
         if self.exit_dte:
             p.append(f"x{self.exit_dte}")
+        if self.start_offset:
+            p.append(f"o{self.start_offset}")
         return "_".join(p)
 
 
@@ -382,7 +387,7 @@ class GammaScalp:
 
     def run(self):
         cfg = self.cfg
-        i = 0
+        i = cfg.start_offset
         while i < len(self.dates):
             td = self.dates[i]
             c = self.run_cycle(td)

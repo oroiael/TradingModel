@@ -32,3 +32,5 @@ calendar_grid.csv -filter -diff -merge text
 harvest_blueprint/out/*.csv -filter -diff -merge text
 gamma_scalp_cycles.csv -filter -diff -merge text
 gamma_scalp_grid.csv -filter -diff -merge text
+gamma_ladder_equity.csv -filter -diff -merge text
+gamma_ladder_grid.csv -filter -diff -merge text
