@@ -374,6 +374,78 @@ an effect (−31.2 bp vs +12.8 bp, t −3.01) and it does survive a split sample
 with no monotone pattern across thresholds and one hit in five tests it should be
 read as multiple comparisons, not a finding.
 
+## Selling that premium instead
+
+`premium_selling.py` takes the other side: sell the put at 15:55, buy it back at
+the next 09:30. Same 37,586 paired trades. The seller's P&L is the buyer's cost
+with the sign flipped, but the two sides are **not** mirror images, because the
+spread is paid by whoever crosses and the tail sits entirely on the seller.
+
+### The seller wins most nights and still loses
+
+| tenor / strike | premium | mean | median | win rate | p1 | worst | worst ÷ mean |
+|---|---|---|---|---|---|---|---|
+| 3–7 DTE, ATM ±1% | 446 bp | **+14.0 bp** | +39.2 | 58.7% | −801 | **−1,497 bp** | 107× |
+| 3–7 DTE, 3–7% OTM | 238 bp | **+3.6 bp** | +23.6 | 57.9% | −656 | −1,249 bp | 346× |
+| 1–2 DTE, ATM ±1% | 278 bp | **−1.7 bp** | +52.2 | 61.5% | −884 | −1,243 bp | mean ≤ 0 |
+| 1–2 DTE, 1–3% OTM | 190 bp | **−16.1 bp** | +36.6 | 59.7% | −838 | −1,086 bp | mean ≤ 0 |
+
+Win rates of 57–63% with a mean near zero or negative is the short-vol signature.
+Note the **1–2 DTE rows are already negative before any costs** — the tenor where
+theta looks richest is the one where an overnight gap most outruns the premium.
+
+### The equity curve says it plainly
+
+One sale per night, the 3–7 DTE contract nearest 3% OTM, 717 nights 2021-03 → 2026-07:
+
+| round-trip spread | mean/night | total | max drawdown | Sharpe (ann) |
+|---|---|---|---|---|
+| 0% (prints) | +5.8 bp | +4,172 bp | −3,592 bp | 0.51 |
+| **2%** | **−1.2 bp** | −830 bp | −7,049 bp | −0.10 |
+| 5% | −11.6 bp | −8,331 bp | −12,236 bp | −1.03 |
+| 10% | −29.1 bp | −20,834 bp | −21,283 bp | −2.56 |
+
+**Break-even round-trip spread: 1.8% of premium.** SOXL weeklies realistically run
+5–15%, so the seller loses at any spread you can actually trade. And even at a
+fictional zero spread the max drawdown is 86% of the entire profit.
+
+The five worst nights are all overnight gaps the study already flagged:
+
+| night | spot | gap | premium | P&L |
+|---|---|---|---|---|
+| 2026-06-22 | 300.89 | **−21.6%** | 785 bp | **−1,212 bp** |
+| 2025-01-24 | 32.73 | −15.5% | 278 bp | −1,057 bp |
+| 2024-08-02 | 29.32 | −19.8% | 716 bp | −989 bp |
+
+**One worst night = 208 nights of average income** — and that income is already
+negative once you pay the spread. By year the mean is negative in 2021, 2022 and
+2024 and positive in 2023, 2025, 2026; the two best years (+24, +30 bp) carry the
+two worst tails (−1,057, −1,212 bp).
+
+Conditioning on the retreat study does not rescue it: selling only on nights with no
+open episode gives t between 0.00 and 0.46 at four of five thresholds. Only 2%/0.5%
+separates (quiet +13.1 bp vs episode-open −36.2 bp, t 1.99) — the same lone threshold
+that keeps surfacing across every test here, still short of significance, still one
+hit in five.
+
+### Both sides lose to the spread — which is the real finding
+
+| | buyer | seller |
+|---|---|---|
+| at zero spread | −6.6 bp/night | +5.8 bp/night |
+| at 5% spread | −23.0 bp/night | −11.6 bp/night |
+| at 10% spread | −39.3 bp/night | −29.1 bp/night |
+
+The mid-market edge either way is ~6 bp; crossing costs 16–33 bp. **The spread is
+larger than the entire directional edge**, which is what a well-functioning options
+market looks like — the market maker holds the edge, and neither side of this trade
+is a strategy.
+
+The asymmetry that remains is one of *purpose*, not expectancy. The buyer is
+purchasing insurance: the mean is not the point, the truncation of a 31.5% tail is,
+and paying a fair-to-slightly-rich price for that can still be rational. The seller
+has no such defence — they take a fat tail for a mean that is negative after costs.
+
 ## Limitations
 
 * **Regular hours only.** The file is 09:30–15:59; there is no pre/post-market data.
@@ -426,8 +498,8 @@ Files are tagged `up<bps>_dn<bps>` — `up500_dn200` is 5%/2%, `up400_dn150` is 
 | `out/retreat_episodes_1min_<tag>.csv` | every episode: anchor/trigger/peak/retreat stamps and prices, both leg durations on both clocks, run-up, span label, gap flag |
 | `out/retreat_episodes_1min_intrabar_<tag>.csv` | same for the intrabar variant |
 
-`independence_check.py`, `tradeability.py`, `edge_test.py` and `protection_cost.py`
-print to stdout and write nothing. `protection_cost.py` needs the option files
+`independence_check.py`, `tradeability.py`, `edge_test.py`, `protection_cost.py` and
+`premium_selling.py` print to stdout and write nothing. `protection_cost.py` needs the option files
 (`git lfs pull --include="raw_data/SOXL_intraday_5m_exp_*.csv"`, ~4 GB) and a cached
 extract of put prints at the 15:55 / 09:30 stamps. `independence_check.py` takes an optional lookback in bars; `tradeability.py`
 takes an optional per-side cost in bps (`python3 retreat_lab/tradeability.py 5`).
