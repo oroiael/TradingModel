@@ -446,6 +446,62 @@ purchasing insurance: the mean is not the point, the truncation of a 31.5% tail 
 and paying a fair-to-slightly-rich price for that can still be rational. The seller
 has no such defence — they take a fat tail for a mean that is negative after costs.
 
+## Selling the spread instead of the naked put
+
+`put_spread.py` replaces the naked short put with a vertical: sell a put ~3% OTM,
+buy one below it, same expiration, both legs at the 15:55 print and out at the next
+09:30. A naked round trip crosses the market twice; a vertical crosses **four**
+times, and the cost knob charges each leg's own premium on every crossing.
+
+### The tail cap works. The economics get worse.
+
+Short leg 3% OTM, 3–7 DTE, width 5% of spot — 654 nights, 2021-03 → 2026-07,
+median credit 146 bp of spot against a median max loss of 352 bp:
+
+| per-leg spread | mean/night | total | max DD | win | Sharpe | worst night |
+|---|---|---|---|---|---|---|
+| 0% (prints) | +2.2 bp | +1,424 bp | −1,871 bp | 54.1% | 0.52 | −336 bp |
+| **2%** | **−19.6 bp** | −12,821 bp | −12,907 bp | 44.2% | −4.65 | −401 bp |
+| 5% | −52.3 bp | −34,190 bp | −34,190 bp | 23.2% | −11.71 | −499 bp |
+| 10% | −106.7 bp | −69,803 bp | −69,803 bp | 6.9% | −20.03 | −661 bp |
+
+**Break-even per-leg spread: 0.2% of premium**, against 1.8% for the naked put.
+
+So the vertical does exactly what it is supposed to do on the tail — worst night
+**−336 bp against −1,212 bp naked, a 3.6× reduction**, and the cap binds: on
+2026-06-25 (−10.8% gap) the loss stopped at −336 bp against a −336 bp maximum. Two
+of the five worst nights finished *inside* the cap because the long leg went ITM too.
+
+But it pays for that with a **9× harder cost hurdle**. The credit is roughly half the
+naked premium while the crossings double, so the same real-world spread that merely
+erases the naked seller's edge buries the vertical. At a realistic 5% per-leg spread
+the naked seller loses 11.6 bp/night and the vertical loses 52.3.
+
+### Width is a dial between the two, not an escape
+
+| width | credit / max loss | mean @ 0 spread | worst night |
+|---|---|---|---|
+| 2% of spot | 52% | +0.3 bp | −234 bp |
+| 5% of spot | 43% | +2.2 bp | −336 bp |
+| 10% of spot | 31% | +3.4 bp | −571 bp |
+
+Mean rises and the tail widens monotonically as the long leg moves away — the
+structure walks continuously from vertical toward naked, and the expectancy you gain
+is exactly the tail you take back on. There is no width at which it becomes a trade.
+
+### Where this leaves all four structures
+
+| structure | mean @ 0 spread | break-even spread | worst night |
+|---|---|---|---|
+| long put (protection) | −6.6 bp | n/a — it is insurance | +payoff |
+| naked short put | +5.8 bp | 1.8% | **−1,212 bp** |
+| short 5%-wide vertical | +2.2 bp | **0.2%** | −336 bp |
+
+Every structure here is priced through the spread. The mid-market edge is a few bp in
+either direction; crossing costs 16–33 bp naked and roughly double that for a
+vertical. Defining the risk does not create edge — it buys a smaller tail at a
+strictly worse expectancy, and in this market that trade is not close.
+
 ## Limitations
 
 * **Regular hours only.** The file is 09:30–15:59; there is no pre/post-market data.
@@ -499,7 +555,7 @@ Files are tagged `up<bps>_dn<bps>` — `up500_dn200` is 5%/2%, `up400_dn150` is 
 | `out/retreat_episodes_1min_intrabar_<tag>.csv` | same for the intrabar variant |
 
 `independence_check.py`, `tradeability.py`, `edge_test.py`, `protection_cost.py` and
-`premium_selling.py` print to stdout and write nothing. `protection_cost.py` needs the option files
+`premium_selling.py` and `put_spread.py` print to stdout and write nothing. `protection_cost.py` needs the option files
 (`git lfs pull --include="raw_data/SOXL_intraday_5m_exp_*.csv"`, ~4 GB) and a cached
 extract of put prints at the 15:55 / 09:30 stamps. `independence_check.py` takes an optional lookback in bars; `tradeability.py`
 takes an optional per-side cost in bps (`python3 retreat_lab/tradeability.py 5`).
