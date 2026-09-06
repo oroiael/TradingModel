@@ -26,6 +26,83 @@ Time is reported two ways because the file is regular-hours only: **market minut
 (tradeable bars elapsed) and **wall-clock minutes** (calendar time, including closed
 hours). For an intraday episode they are identical; they diverge only across a close.
 
+### Scope: any minute, not the day's open — and one episode at a time
+
+**The series is one continuous stream, never reset at the open.** The anchor is the
+running trough carried forward across days; the calendar is used only to *label*
+whether an episode spanned a close. So a trigger can fire on any of the 390 minutes of
+a session, measured against a low that may sit hours or days earlier:
+
+| | 2%/0.5% | 5%/2% |
+|---|---|---|
+| anchor on a *different day* from the trigger | 10.3% | 36.4% |
+| anchor age: same day / 1–3 days / 4–7 days | 6,290 / 704 / 20 | 965 / 524 / 29 |
+| oldest anchor | 4 calendar days | 6 calendar days |
+| anchor is a 09:30 bar (uniform would be 0.3%) | 2.0% | 3.6% |
+
+Anchors and triggers spread across every hour of the session; the mild clustering at
+09:30 is just the open often being the day's extreme, not a rule.
+
+**Episodes are sequential and non-overlapping.** The engine holds one anchor and is
+either *seeking* (hunting the next upswing) or *armed* (inside an episode, watching for
+the retreat). While armed it does not start a new episode, and after a retreat the
+anchor restarts at the retreat bar. So the episode count is **"how many fit end to
+end", not "how many upswings occurred"** — and the wider the pair, the more of the tape
+is locked inside an open episode:
+
+| | 1%/0.25% | 2%/0.5% | 3%/1% | 4%/1.5% | 5%/2% |
+|---|---|---|---|---|---|
+| bars inside an open episode | 15.7% | 12.2% | 16.9% | 19.8% | **22.5%** |
+
+`independence_check.py` tests whether those two rules drive the answer, by re-measuring
+with an anchor that has no episode memory (trailing minimum over a fixed lookback) and,
+separately, with overlaps allowed:
+
+| pair | primary (event anchor, no overlap) | V2 (rolling anchor, no overlap) | V1 (rolling anchor, **overlap allowed**) |
+|---|---|---|---|
+| 5%/2% | n 1,518 · med **41** | n 1,789 · med **48** | n 5,054 · med **76** |
+| 4%/1.5% | 2,197 · **26** | 2,517 · **29** | 5,924 · **44** |
+| 3%/1% | 3,575 · **13** | 3,635 · **16** | 6,902 · **22** |
+| 2%/0.5% | 7,014 · **6** | 5,554 · **7** | 7,795 · **8** |
+| 1%/0.25% | 18,166 · **4** | 7,128 · **4** | 8,167 · **4** |
+
+**The anchor rule is not what produces the answer** (primary vs V2 moves the median by
+one to seven minutes, and V2 lands within a couple of minutes of primary at every
+lookback tried — 78, 390 and 1,950 bars).
+
+**The overlap rule looks like it matters, but the difference is double-counting.**
+When overlaps are allowed, one rally spawns many triggers that all terminate at the
+*same* retreat bar. At 5%/2%, **60% of V1's episodes are re-counts of a terminal event
+already counted** — a single retreat at 2022-12-27 09:30 ends 23 of them, with start
+points spread over the previous session and durations from 6 to 305 minutes for what is
+one event. The inflation's size also swings with the arbitrary lookback (median 16 / 22
+/ 17 at L = 78 / 390 / 1,950), which is what an artifact looks like.
+
+So the non-overlapping count is the right one for *"if I traded this rule, re-arming
+after each exit, how long would each round trip last?"* — the question these numbers
+answer. It is **not** the answer to *"SOXL is 5% off its low right now, how long have
+I got?"*, which conditions on a moment rather than on a completed prior episode; V1's
+column is the loose upper bound for that reading, inflated by the re-counting above.
+
+### Start time matters a great deal
+
+The engine treats every minute identically, but the *outcome* depends strongly on when
+the episode starts — median market minutes to the retreat, by trigger clock time:
+
+| trigger window | 1%/0.25% | 2%/0.5% | 3%/1% | 4%/1.5% | 5%/2% |
+|---|---|---|---|---|---|
+| 09:30–10:00 | 3 | 4 | 8 | 16 | **29** |
+| 11:00–12:00 | 4 | 8 | 19 | 43 | **76** |
+| 13:00–14:00 | 5 | 10 | 29 | 55 | **76** |
+| 15:00–15:30 | 4 | 8 | 17 | 37 | **41** |
+| 15:30–16:00 | 3 | 5 | 9 | 12 | **16** |
+
+At 5%/2% a midday trigger runs a median 76 minutes and a 9:30 trigger 29 — the opening
+half hour is the fastest tape, so upswings there are given back quickest. The late
+buckets are **truncated, not fast**: a 15:45 trigger has 15 minutes of session left, so
+it either resolves inside them or spans a close, which is exactly the 15:30–16:00 row
+of the spanning table above. Read those two rows together, never separately.
+
 ## Answer — all five thresholds
 
 | | **5% / 2%** | **4% / 1.5%** | **3% / 1%** | **2% / 0.5%** | **1% / 0.25%** |
@@ -221,3 +298,6 @@ Files are tagged `up<bps>_dn<bps>` — `up500_dn200` is 5%/2%, `up400_dn150` is 
 | `out/retreat_report_<tag>.txt` | full report — primary plus both sensitivities |
 | `out/retreat_episodes_1min_<tag>.csv` | every episode: anchor/trigger/peak/retreat stamps and prices, both leg durations on both clocks, run-up, span label, gap flag |
 | `out/retreat_episodes_1min_intrabar_<tag>.csv` | same for the intrabar variant |
+
+`independence_check.py` prints its comparison to stdout and writes nothing; run it with
+an optional lookback in bars (`python3 retreat_lab/independence_check.py 78`).
