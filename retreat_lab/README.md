@@ -502,6 +502,70 @@ either direction; crossing costs 16–33 bp naked and roughly double that for a
 vertical. Defining the risk does not create edge — it buys a smaller tail at a
 strictly worse expectancy, and in this market that trade is not close.
 
+## Buying the spread instead
+
+The same `put_spread.py` also prices the debit side: long a put ~1% OTM, short one
+below it — capped protection, bought cheaper than the naked put. It is cheaper. It
+also stops working exactly where it is needed.
+
+### Coverage runs backwards
+
+Realised option P&L as a share of the underlying's loss that night, 562 nights with
+both structures priced, 5%-wide spread:
+
+| gap bucket | n | underlying loss | naked put | cover | **spread** | **cover** |
+|---|---|---|---|---|---|---|
+| 0 to −1% | 57 | 51 bp | 14 bp | 27% | 11 bp | 23% |
+| −1 to −3% | 108 | 190 bp | 70 bp | 37% | 31 bp | **17%** |
+| −3 to −6% | 73 | 419 bp | 187 bp | 45% | 71 bp | **17%** |
+| **worse than −6%** | 24 | 986 bp | 571 bp | **58%** | 123 bp | **12%** |
+
+**The naked put's coverage rises with the size of the gap — 27% → 58% — which is what
+insurance is supposed to do. The spread's coverage falls, 23% → 12%.** The short leg
+is a promise to stop protecting you, and it comes due precisely on the nights the
+position exists for.
+
+Night by night on the five worst gaps:
+
+| night | gap | underlying loss | naked put | spread | spread's cap |
+|---|---|---|---|---|---|
+| 2026-06-22 | −21.6% | 2,157 bp | **1,497 bp** | 248 bp | 157 bp |
+| 2024-08-02 | −19.8% | 1,978 bp | **1,177 bp** | 188 bp | 153 bp |
+| 2025-01-24 | −15.5% | 1,549 bp | **1,210 bp** | 217 bp | 165 bp |
+| 2026-03-02 | −12.0% | 1,203 bp | 614 bp | **−69 bp** | 220 bp |
+
+On 2026-03-02 the "protection" **lost money on a 12% adverse gap**.
+
+### And it costs more to run
+
+| per-leg spread | long naked put | long 5%-wide vertical |
+|---|---|---|
+| 0% (prints) | −6.6 bp | **−3.1 bp** |
+| 5% | −23.0 bp | **−70.6 bp** |
+| 10% | −39.3 bp | **−138.0 bp** |
+
+Cheaper at a fictional zero spread, three times dearer at a realistic one, because
+two legs cross the market twice as often. So the debit spread buys you a lower
+premium in exchange for **5× less tail coverage and 3× the friction**.
+
+### All four structures, together
+
+| structure | mean @ 0 spread | @ 5% spread | tail behaviour |
+|---|---|---|---|
+| **long put** | −6.6 bp | −23.0 bp | covers **58%** of a >6% gap |
+| long vertical | −3.1 bp | −70.6 bp | covers 12%; can lose on a −12% night |
+| short put | +5.8 bp | −11.6 bp | worst night −1,212 bp |
+| short vertical | +2.2 bp | −52.3 bp | worst night −336 bp |
+
+Both two-leg structures are dominated by their one-leg counterparts once real spreads
+are paid. Selling the vertical caps a tail but moves break-even from a 1.8% spread to
+0.2%; buying it lowers the premium but guts the coverage. The second leg always pays
+for itself in something you wanted.
+
+**The only structure here that does its job is the naked long put, and only as
+insurance** — its expectancy is negative by construction, the point is that it is the
+one thing measured in this lab whose protection gets *better* as the night gets worse.
+
 ## Limitations
 
 * **Regular hours only.** The file is 09:30–15:59; there is no pre/post-market data.

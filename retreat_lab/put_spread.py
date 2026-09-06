@@ -1,4 +1,4 @@
-"""Selling the overnight put SPREAD instead of the naked put.
+"""Selling -- and buying -- the overnight put SPREAD instead of the naked put.
 
 premium_selling.py showed the naked overnight seller wins 57-63% of nights,
 carries a -1,200 to -1,500bp tail, and breaks even only below a 1.8% round-trip
@@ -169,5 +169,71 @@ def main():
                   f"{-s['maxloss']/s['S']*1e4:.0f}bp)")
 
 
+def buyside(book, close, opn, nxt):
+    """Buying the vertical (debit put spread) as CHEAPER PROTECTION: long a put
+    ~1% OTM, short one below it. The question is not expectancy -- it is whether
+    capped protection still covers the nights it exists for."""
+    print("\n" + "=" * 100)
+    print("BUYING THE SPREAD — long put ~1% OTM, short leg below, 3-7 DTE")
+    print("=" * 100)
+    for wp in (0.02, 0.05, 0.10):
+        sp = build(book, close, opn, nxt, 3, 7, -0.01, wp)
+        if len(sp) < 25:
+            continue
+        # long vertical = short vertical negated; costs hit BOTH sides the same way
+        print(f"\n--- width ~{wp:.0%} of spot ---   n={len(sp)}   "
+              f"median debit {median([s['maxloss']/s['S'] for s in sp])*1e4:.0f}bp, "
+              f"max payoff {median([s['credit']/s['S'] for s in sp])*1e4:.0f}bp")
+        for cp in (0, 2, 5, 10):
+            c = [(s["p1"] + s["p2"]) * cp / 100 * 2 for s in sp]
+            p = [(-s["pnl"] - ci) / s["S"] * 10000 for s, ci in zip(sp, c)]
+            print(f"  per-leg spread {cp:>2}%   mean {mean(p):>7.1f}bp   "
+                  f"med {median(p):>7.1f}bp   win {sum(1 for x in p if x>0)/len(p):>5.1%}   "
+                  f"best {max(p):>7.1f}bp")
+
+    print("\n" + "=" * 100)
+    print("DOES CAPPED PROTECTION COVER THE NIGHTS IT EXISTS FOR?")
+    print("coverage = realised option P&L / the underlying loss on that night")
+    print("=" * 100)
+    naked = {}
+    for (exp, D), legs in book.items():
+        dte = (dt.date.fromisoformat(exp) - D).days
+        if not (3 <= dte <= 7):
+            continue
+        S = close[D]
+        cands = [L for L in legs if -0.02 <= L[0] / S - 1 < 0.0]
+        if cands:
+            L = min(cands, key=lambda L: abs(L[0] / S - 1 + 0.01))
+            if D not in naked:
+                naked[D] = (L[2] - L[1]) / S * 10000      # long put P&L, bp
+    sp = {s["D"]: s for s in build(book, close, opn, nxt, 3, 7, -0.01, 0.05)}
+    both = sorted(set(naked) & set(sp))
+    downs = [d for d in both if sp[d]["gap"] < 0]
+    print(f"\n  nights with both a naked put and a 5%-wide spread priced: {len(both)}"
+          f"   ({len(downs)} gapped down)\n")
+    print(f"  {'gap bucket':<18}{'n':>5}{'und loss':>11}{'naked put':>12}{'cover':>8}"
+          f"{'spread':>11}{'cover':>8}")
+    for lbl, lo, hi in (("0 to -1%", -0.01, 0.0), ("-1 to -3%", -0.03, -0.01),
+                        ("-3 to -6%", -0.06, -0.03), ("worse than -6%", -1.0, -0.06)):
+        ds = [d for d in downs if lo <= sp[d]["gap"] < hi]
+        if len(ds) < 5:
+            continue
+        ul = [-sp[d]["gap"] * 10000 for d in ds]
+        nk = [naked[d] for d in ds]
+        vr = [-sp[d]["pnl"] / sp[d]["S"] * 10000 for d in ds]
+        print(f"  {lbl:<18}{len(ds):>5}{mean(ul):>10.0f}bp{mean(nk):>11.0f}bp"
+              f"{mean(nk)/mean(ul):>7.0%}{mean(vr):>10.0f}bp{mean(vr)/mean(ul):>7.0%}")
+    print("\n  the five worst gaps, night by night:")
+    print(f"    {'date':<12}{'gap':>8}{'und loss':>11}{'naked put':>11}{'spread':>10}"
+          f"{'spread cap':>12}")
+    for d in sorted(downs, key=lambda d: sp[d]["gap"])[:5]:
+        s = sp[d]
+        print(f"    {str(d):<12}{s['gap']:>7.1%}{-s['gap']*1e4:>10.0f}bp"
+              f"{naked[d]:>10.0f}bp{-s['pnl']/s['S']*1e4:>9.0f}bp"
+              f"{s['credit']/s['S']*1e4:>11.0f}bp")
+
+
 if __name__ == "__main__":
     main()
+    book, close, opn, nxt = paired()
+    buyside(book, close, opn, nxt)
