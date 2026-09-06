@@ -1,4 +1,4 @@
-anchor_ts,anchor_px,trigger_ts,trigger_px,peak_ts,peak_px,retreat_ts,retreat_px,legA_mkt_min,legB_mkt_min,total_mkt_min,legA_wall_min,legB_wall_min,total_wall_min,runup_past_2pct,upswing_anchor_to_peak,span,legB_span,retreat_on_first_bar_back,boundaries_crossed
+anchor_ts,anchor_px,trigger_ts,trigger_px,peak_ts,peak_px,retreat_ts,retreat_px,legA_mkt_min,legB_mkt_min,total_mkt_min,legA_wall_min,legB_wall_min,total_wall_min,runup_past_trigger,upswing_anchor_to_peak,span,legB_span,retreat_on_first_bar_back,boundaries_crossed
 2019-12-31 09:30,17.9200,2019-12-31 09:36,18.3000,2019-12-31 09:38,18.3400,2019-12-31 09:45,18.2400,2,7,9,2,7,9,0.002186,0.023438,intraday,intraday,0,0
 2019-12-31 11:33,18.0100,2020-01-02 09:30,19.1200,2020-01-02 09:30,19.1200,2020-01-02 09:31,18.9700,0,1,1,0,1,1,0.000000,0.061632,intraday,intraday,0,0
 2020-01-02 11:36,18.7700,2020-01-02 12:40,19.1600,2020-01-02 12:41,19.1700,2020-01-02 13:16,19.0600,1,35,36,1,35,36,0.000522,0.021311,intraday,intraday,0,0

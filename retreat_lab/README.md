@@ -1,9 +1,10 @@
-# retreat_lab — how long SOXL holds a 2% upswing before giving back 0.5%
+# retreat_lab — how long SOXL holds an upswing before giving it back
 
 ```bash
-git lfs pull                          # SOXL_1min.csv, SOXL_5min_6Years.csv
-python3 retreat_lab/retreat_timing.py # report + episode ledgers -> retreat_lab/out/
-python3 retreat_lab/verify.py         # re-checks every episode against the raw bars
+git lfs pull                                # SOXL_1min.csv, SOXL_5min_6Years.csv
+python3 retreat_lab/retreat_timing.py       # both configs -> retreat_lab/out/
+python3 retreat_lab/retreat_timing.py 150 40   # or any (up_bps, dn_bps) pair
+python3 retreat_lab/verify.py               # re-checks every episode against raw bars
 ```
 
 Stdlib only. Measured from `SOXL_1min.csv` — 1-min OHLCV, **2019-12-31 → 2026-07-30,
@@ -14,139 +15,160 @@ March-2020, 2024-08-05 — not basis breaks). Cross-checked on `SOXL_5min_6Years
 ## The event
 
 1. **Anchor** — the running trough while no episode is open.
-2. **Trigger** — first bar ≥ `anchor × 1.02`. This is the *2% upswing*.
+2. **Trigger** — first bar ≥ `anchor × (1 + up)`. This is the *upswing*.
 3. **Peak** — running maximum from the trigger bar onward.
-4. **Retreat** — first bar ≤ `peak × 0.995`. This is the *0.5% retreat*.
+4. **Retreat** — first bar ≤ `peak × (1 − down)`. This is the *retreat*.
    *Leg A* = trigger → peak, *Leg B* = peak → retreat. If the trigger bar is itself
    the peak, Leg A = 0 and the whole wait is Leg B.
-5. **Reset** — anchor restarts at the retreat bar; hunt for the next 2% upswing.
+5. **Reset** — anchor restarts at the retreat bar; hunt for the next upswing.
 
 Time is reported two ways because the file is regular-hours only: **market minutes**
 (tradeable bars elapsed) and **wall-clock minutes** (calendar time, including closed
 hours). For an intraday episode they are identical; they diverge only across a close.
 
-## Answer — 7,014 episodes, ~4.2 per session
+## Answer — both thresholds
 
-| leg | median | mean | p90 | p99 | max |
-|---|---|---|---|---|---|
-| A · 2% trigger → peak | **3 min** | 7.0 | 18 | 64 | 185 |
-| B · peak → 0.5% retreat | **3 min** | 4.1 | 9 | 23 | 84 |
-| **Total · trigger → retreat** | **6 min** | 11.1 | 26 | 73 | 191 |
-
-All in market minutes. 45.3% resolve within 5 minutes, 68.4% within 10, 92.7% within
-30, 98.2% within an hour. **No episode in 6.6 years survived a full session** (worst
-was 191 market minutes, about half a session), and none ever crossed more than one
-close.
-
-**The 2% line is not where it stops.** In 26.6% of episodes the trigger bar *is* the
-peak — the upswing dies the moment it prints 2%. Otherwise it keeps going: median
-run-up past the 2% line is 0.40%, p90 1.90%, max 19.9%. The full anchor→peak upswing
-runs a median 2.70% (p90 4.79%, max 28.3%).
-
-## Overnight and weekend — 236 of 7,014 (3.4%)
-
-| span | count | share |
+| | **2% up / 0.5% back** | **1% up / 0.25% back** |
 |---|---|---|
-| intraday (all three stamps in one session) | 6,778 | 96.6% |
-| **overnight** (one weeknight close) | **189** | 2.7% |
-| **weekend** (Fri → Mon) | **45** | 0.6% |
-| **holiday** (a weekday market holiday) | **2** | 0.0% |
-| **any close** | **236** | **3.4%** |
+| episodes | 7,014 (4.2 / session) | 18,166 (11.0 / session) |
+| Leg A · trigger → peak | median **3 min** | median **1 min** |
+| Leg B · peak → retreat | median **3 min** | median **2 min** |
+| **Total · trigger → retreat** | median **6 min** | median **4 min** |
+| mean / p90 / p99 / max | 11.1 / 26 / 73 / 191 | 5.6 / 12 / 32 / 122 |
+| resolved ≤ 5 min | 45.3% | 67.6% |
+| resolved ≤ 15 min | 79.4% | 94.0% |
+| resolved ≤ 30 min | 92.7% | 98.9% |
+| peak *is* the trigger bar | 26.6% | 34.6% |
+| run-up past the line | med 0.40%, p90 1.90%, max 19.9% | med 0.22%, p90 1.32%, max 18.8% |
+| full upswing anchor → peak | med 2.70%, p90 4.79%, max 28.3% | med 1.45%, p90 2.81%, max 26.0% |
+| **spans a close** | **236 (3.4%)** | **332 (1.8%)** |
+| — overnight / weekend / holiday | 189 / 45 / 2 | 267 / 60 / 5 |
+| retreat itself crossed the gap | 129 (1.8%) | 169 (0.9%) |
+| — of those, breached on first bar back | 123 | 164 |
+| give-back on that first bar back | med **2.74%**, max 31.5% | med **2.47%**, max 31.5% |
 
-Splitting by which leg crossed the bell:
+All durations in market minutes. **Neither threshold ever produced an episode that
+survived a full session** (worst 191 and 122 minutes), and **no episode at either
+threshold ever crossed more than one close.**
 
-* **129 (1.8%)** had the *retreat itself* cross a close — peaked in one session,
-  breached 0.5% in a later one, with the market shut in between (107 overnight,
-  20 weekend, 2 holiday). **123 of those breached on the very first bar back.**
-* **107 (1.5%)** were still *climbing* into the close and peaked the next session.
+### Halving both thresholds does not halve the wait
 
-**This is a clock artifact, not a market regime.** 197 of the 236 spanning episodes
-were triggered in the last 30 minutes of the session — the episode ran out of session,
-not out of momentum:
+7,014 → 18,166 episodes (2.6×), but the median wait only drops 6 → 4 minutes, and
+**Leg B barely moves at all: 3 → 2 minutes.** The retreat leg is near its floor
+because 0.25% is not a meaningful move for this instrument at 1-minute resolution.
+Measured on the same file, the median absolute 1-minute return is **0.119%**, so:
 
-| trigger window | n | median | spans a close | gap completed the retreat |
+* **0.25% is 2.1× a median minute — 22.6% of individual minutes clear it on their own.**
+* 0.5% is 4.2× a median minute — 6.1% of minutes clear it on their own.
+
+At 0.25% you are not measuring a retreat, you are measuring how long until any wiggle
+shows up: roughly one to two bars, almost regardless of what preceded it. What the
+tighter threshold really buys is **more, shorter episodes**, not earlier warning
+inside a given one. The leg that actually responds to the threshold is Leg A, the
+run-up (3 → 1 min), because a 1% trigger fires earlier in a move that a 2% trigger
+would have caught later.
+
+## Overnight and weekend
+
+Same shape at both thresholds, and it is **a clock artifact, not a market regime** —
+83% (2%/0.5%) and 96% (1%/0.25%) of all spanning episodes were triggered in the last
+30 minutes of the session. The episode ran out of session, not out of momentum:
+
+| trigger window | 2%/0.5% n | spans close | 1%/0.25% n | spans close |
 |---|---|---|---|---|
-| 09:30–10:00 | 1,672 | 4 min | 0.0% | 0.0% |
-| 11:00–12:00 | 951 | 8 min | 0.0% | 0.0% |
-| 14:00–15:00 | 693 | 8 min | 1.4% | 0.3% |
-| 15:00–15:30 | 403 | 8 min | 6.0% | 2.7% |
-| **15:30–16:00** | **464** | **5 min** | **42.5%** | **23.1%** |
+| 09:30–10:00 | 1,672 | 0.0% | 3,420 | 0.0% |
+| 11:00–12:00 | 951 | 0.0% | 2,697 | 0.0% |
+| 14:00–15:00 | 693 | 1.4% | 1,961 | 0.1% |
+| 15:00–15:30 | 403 | 6.0% | 1,013 | 0.6% |
+| **15:30–16:00** | **464** | **42.5%** | **1,265** | **25.3%** |
+
+The tighter threshold spans a close *less* often (1.8% vs 3.4%) precisely because it
+resolves faster — fewer episodes are still open when the bell rings.
 
 ### The part that matters for trading
 
-Those 123 gap-completed retreats did not give back 0.5% — **they gave back a median
-2.74% below the peak on the first bar back, worst 31.5%** (2020-03-13 → 03-16). The
-0.5% line is not a level you get filled at across a close; it is a level the open
-prints straight past. Every one of the 45 weekend episodes is a Friday-late trigger:
-carrying an un-exited 2% upswing over a weekend is a distinct, five-times-costlier
-event from the intraday case, and it happens ~7 times a year.
+At both thresholds the gap-completed retreats did not give back the threshold — **they
+gave back a median 2.47–2.74% below the peak on the first bar back, worst 31.5%**
+(2020-03-13 → 03-16). Tightening the retreat from 0.5% to 0.25% does not help here:
+across a close neither is a level you get filled at, and the give-back you actually
+eat is the same ~2.5% either way. It only makes the exposure more frequent — 60
+weekend episodes instead of 45 (9.1/yr vs 6.8/yr), every one of them a Friday-late
+trigger.
 
 ## By year (market minutes, trigger → retreat)
 
-| year | n | median | mean | p90 | max | spans a close | weekend |
-|---|---|---|---|---|---|---|---|
-| 2020 | 1,171 | 5 | 10.8 | 27 | 162 | 34 (3%) | 9 |
-| 2021 | 784 | 9 | 16.0 | 38 | 187 | 39 (5%) | 8 |
-| 2022 | 1,458 | 5 | 8.1 | 18 | 114 | 40 (3%) | 11 |
-| 2023 | 792 | 9 | 14.7 | 32 | 191 | 30 (4%) | 2 |
-| 2024 | 886 | 8 | 12.4 | 30 | 101 | 34 (4%) | 5 |
-| 2025 | 990 | 6 | 11.2 | 25 | 185 | 32 (3%) | 5 |
-| 2026 | 932 | 5 | 8.0 | 17 | 103 | 27 (3%) | 5 |
+| year | 2%/0.5% n | med | p90 | max | spans | 1%/0.25% n | med | p90 | max | spans |
+|---|---|---|---|---|---|---|---|---|---|---|
+| 2020 | 1,171 | 5 | 27 | 162 | 3% | 2,938 | 3 | 12 | 122 | 2% |
+| 2021 | 784 | 9 | 38 | 187 | 5% | 2,113 | 5 | 16 | 91 | 3% |
+| 2022 | 1,458 | 5 | 18 | 114 | 3% | 3,759 | 3 | 9 | 70 | 1% |
+| 2023 | 792 | 9 | 32 | 191 | 4% | 2,182 | 4 | 13 | 61 | 2% |
+| 2024 | 886 | 8 | 30 | 101 | 4% | 2,421 | 4 | 13 | 55 | 2% |
+| 2025 | 990 | 6 | 25 | 185 | 3% | 2,546 | 4 | 13 | 84 | 2% |
+| 2026 | 932 | 5 | 17 | 103 | 3% | 2,204 | 3 | 10 | 66 | 2% |
 
-Stable across six years and both vol regimes. Slower years (2021, 2023) are the
-low-vol grinds; 2022 and 2026 are the fast ones.
+Stable across six years and both vol regimes at both thresholds. Slower years (2021,
+2023) are the low-vol grinds; 2022 and 2026 are the fast ones.
 
 ## Robustness
 
-| variant | episodes | median total | spans a close |
-|---|---|---|---|
-| **1-min closes (primary)** | 7,014 | 6 min | 3.4% |
-| 1-min intrabar (High/Low) | 11,228 | 1 min | 1.2% |
-| 5-min closes (separate file, 2020-07→2026-07) | 3,945 | 15 min | 3.4% |
+| variant | 2%/0.5% | 1%/0.25% |
+|---|---|---|
+| **1-min closes (primary)** | 7,014 · med 6 min · 3.4% span | 18,166 · med 4 min · 1.8% span |
+| 1-min intrabar (High/Low) | 11,228 · med 1 min · 1.2% | 40,510 · med 1 min · 0.5% |
+| 5-min closes (separate file) | 3,945 · med 15 min · 6.8% | 8,467 · med 10 min · 4.8% |
 
 The three disagree exactly as sampling says they must, and none reverses the finding.
 Intrabar High/Low is the *earliest-possible* reading and is optimistic: a single 1-min
-bar whose High is +2% and whose Low is −0.5% off that High scores as a complete
-0-minute episode, though the within-bar sequence is unknowable at this resolution.
+bar whose High clears the trigger and whose Low is the retreat below that High scores
+as a complete 0-minute episode, though the within-bar sequence is unknowable at this
+resolution — and it degenerates at 1%/0.25%, where the median episode is one bar.
 5-min bars cannot resolve anything faster than 5 minutes and skip the wiggles that end
-an episode, so they overstate duration. **Closes on 1-min bars are the primary read:
-unambiguous, and every level in them is one you could actually have transacted at.**
+an episode, so they overstate duration; that bites harder at 0.25%, whose true median
+Leg B (2 min) is below their resolution entirely. **Closes on 1-min bars are the
+primary read: unambiguous, and every level in them is one you could have transacted
+at.**
 
 ## Limitations
 
 * **Regular hours only.** The file is 09:30–15:59; there is no pre/post-market data.
-  A retreat that truly occurred at 16:30 is recorded at the next open, so the 236
-  "spans a close" episodes are an upper bound on *market-hours* duration and the
+  A retreat that truly occurred at 16:30 is recorded at the next open, so the
+  "spans a close" counts are an upper bound on *market-hours* duration and the
   overnight/weekend split is a statement about the RTH session grid.
 * **Trades, not quotes**, and closes are bar-end marks — no bid/ask, so nothing here
-  is net of spread or slippage.
-* The anchor is a *running trough with no minimum dwell*, so a 2% upswing off a
+  is net of spread or slippage. This matters much more at 0.25%: a threshold roughly
+  two ticks wide on a $100 stock is inside the round-trip cost of acting on it.
+* The anchor is a *running trough with no minimum dwell*, so an upswing off a
   one-minute spike low counts the same as one off a multi-day base. That is the
   question as posed; a swing-confirmation filter would cut the episode count and
   lengthen the median.
-* Episode boundaries are sequential and non-overlapping: a new 2% upswing is only
-  hunted after the prior episode's 0.5% retreat completes.
+* Episode boundaries are sequential and non-overlapping: a new upswing is only hunted
+  after the prior episode's retreat completes.
 
 ## Correctness
 
-`verify.py` re-derives every claim in the ledger straight from `SOXL_1min.csv` without
-reusing the state machine — ordering, ledger prices against the file, the trigger
-being ≥2% *and the first such bar*, the anchor being the true running trough, the peak
-being the true running max, the retreat being ≥0.5% *and the first breach*, both legs
-summing to the total, market/wall minutes against the grid, the span labels against
-the actual dates, and non-overlap. **7,014 / 7,014 pass, 0 failures.**
+`verify.py` re-derives every claim in every ledger straight from `SOXL_1min.csv`
+without reusing the state machine — ordering, ledger prices against the file, the
+trigger clearing the threshold *and being the first such bar*, the anchor being the
+true running trough, the peak being the true running max, the retreat clearing its
+threshold *and being the first breach*, both legs summing to the total, market/wall
+minutes against the grid, the span labels against the actual dates, and non-overlap.
+**7,014 / 7,014 and 18,166 / 18,166 pass, 0 failures.**
 
 That check earned its keep. The first engine tested thresholds in floating point and
 silently dropped **9 genuine triggers** sitting exactly on +2.000%: `14.00 * 1.02`
 evaluates to `14.280000000000001`, so a real move to `14.28` failed `>=`. Every price
-in both files is exactly 2 decimals, so the engine now carries prices as **integer
-cents** and tests both thresholds as exact integer ratios (102/100 and 995/1000). No
-tolerance, no boundary class of bug.
+in both files is exactly 2 decimals, so the engine carries prices as **integer cents**
+and thresholds as **integer basis points**, testing `px*10000 >= trough*(10000+up_bps)`
+and `px*10000 <= peak*(10000−dn_bps)`. No tolerance, no boundary class of bug, and any
+threshold pair expressible in bps stays exact.
 
 ## Output
 
+Files are tagged `up<bps>_dn<bps>` — `up200_dn50` is 2%/0.5%, `up100_dn25` is 1%/0.25%.
+
 | file | what |
 |---|---|
-| `out/retreat_report.txt` | full report — primary plus both sensitivities |
-| `out/retreat_episodes_1min.csv` | all 7,014 episodes: anchor/trigger/peak/retreat stamps and prices, both leg durations on both clocks, run-up, span label, gap flag |
-| `out/retreat_episodes_1min_intrabar.csv` | same for the intrabar variant |
+| `out/retreat_report_<tag>.txt` | full report — primary plus both sensitivities |
+| `out/retreat_episodes_1min_<tag>.csv` | every episode: anchor/trigger/peak/retreat stamps and prices, both leg durations on both clocks, run-up, span label, gap flag |
+| `out/retreat_episodes_1min_intrabar_<tag>.csv` | same for the intrabar variant |

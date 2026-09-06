@@ -1,20 +1,25 @@
-"""How long SOXL holds a 2% upswing before giving back 0.5%.
+"""How long SOXL holds an upswing before giving back a fraction of it.
+
+Runs any (upswing, retreat) threshold pair; CONFIGS below holds the ones asked
+for -- 2%/0.5% and 1%/0.25%.
 
 Measured from SOXL_1min.csv (1-min OHLCV, 2019-12-31 -> 2026-07-30, 1,653
 sessions, complete grid, split-adjusted). Cross-checked on SOXL_5min_6Years.csv.
 
 Event definition (the question as asked):
   1. ANCHOR   running trough of the series while we are not in an episode.
-  2. TRIGGER  first bar whose price is >= anchor * 1.02  -> the "2% upswing".
+  2. TRIGGER  first bar >= anchor * (1 + up)   -> the "upswing".
   3. PEAK     running maximum from the trigger bar onward.
-  4. RETREAT  first bar whose price is <= peak * 0.995   -> the "0.5% retreat".
+  4. RETREAT  first bar <= peak * (1 - down)   -> the "retreat".
      Leg A = trigger -> peak, Leg B = peak -> retreat. If the trigger bar is
      itself the peak, Leg A = 0 and the whole wait is Leg B.
-  5. RESET    anchor restarts from the retreat bar; hunt for the next 2% upswing.
+  5. RESET    anchor restarts from the retreat bar; hunt for the next upswing.
 
 Time is reported two ways because the file is regular-trading-hours only:
   market minutes = tradeable 1-min bars elapsed (index distance on the grid)
   wall minutes   = calendar elapsed, which includes overnights and weekends.
+
+Usage:  python3 retreat_lab/retreat_timing.py [up_bps dn_bps]
 """
 import os, sys, csv, datetime as dt
 from decimal import Decimal
@@ -23,16 +28,25 @@ from collections import Counter, OrderedDict
 ROOT = "/home/user/TradingModel"
 OUT = os.path.join(ROOT, "retreat_lab/out")
 
-UP = 0.02      # upswing threshold off the anchor
-DOWN = 0.005   # retreat threshold off the peak
-
-# Every price in both files is exactly 2 decimals, so prices are carried as
-# integer cents and the two thresholds are tested with exact integer ratios
-# (up: 102/100, down: 995/1000). Testing them in floating point silently drops
+# Thresholds are carried in BASIS POINTS as integers, and every price in both
+# files is exactly 2 decimals, so prices are carried as integer cents and both
+# tests are exact integer comparisons: px*10000 >= trough*(10000+up_bps) and
+# px*10000 <= peak*(10000-dn_bps). Testing them in floating point silently drops
 # exact touches -- 14.00 * 1.02 evaluates to 14.280000000000001, so a genuine
 # +2.000% move to 14.28 fails a `>=` test. That cost 9 real triggers.
-UP_N, UP_D = 102, 100
-DN_N, DN_D = 995, 1000
+BPS = 10000
+
+# (upswing bps, retreat bps) -- 2%/0.5% and 1%/0.25%
+CONFIGS = [(200, 50), (100, 25)]
+
+
+def bl(bps):
+    """200 -> '2%', 25 -> '0.25%'."""
+    return f"{bps / 100:.2f}".rstrip("0").rstrip(".") + "%"
+
+
+def tag(up_bps, dn_bps):
+    return f"up{up_bps}_dn{dn_bps}"
 
 
 # ---------------------------------------------------------------- data
@@ -85,10 +99,11 @@ def worst(kinds):
 
 # ---------------------------------------------------------------- engine
 
-def episodes(bars, mode="close"):
+def episodes(bars, up_bps, dn_bps, mode="close"):
     """Run the state machine. mode 'close' uses bar closes only; mode
     'intrabar' triggers/peaks on High and retreats on Low (earliest possible
     detection, but the within-bar sequence is unknowable at 1-min)."""
+    up_n, dn_n = BPS + up_bps, BPS - dn_bps
     ts = [b[0] for b in bars]
     dates = [b[0].date() for b in bars]
     if mode == "close":
@@ -106,7 +121,7 @@ def episodes(bars, mode="close"):
         if seeking:
             if dn_px[i] < trough:
                 trough, trough_i = dn_px[i], i
-            if up_px[i] * UP_D >= trough * UP_N:
+            if up_px[i] * BPS >= trough * up_n:
                 seeking = False
                 anchor, anchor_i = trough, trough_i
                 trig_i = i
@@ -114,7 +129,7 @@ def episodes(bars, mode="close"):
         else:
             if up_px[i] > peak:
                 peak, peak_i = up_px[i], i
-            if dn_px[i] * DN_D <= peak * DN_N:
+            if dn_px[i] * BPS <= peak * dn_n:
                 eps.append(dict(
                     anchor_i=anchor_i, trig_i=trig_i, peak_i=peak_i, ret_i=i,
                     anchor=anchor / 100, trig=up_px[trig_i] / 100,
@@ -159,7 +174,8 @@ def fmt_minutes(m):
     return f"{m:.0f} min ({m/390:.1f} sessions)"
 
 
-def report(bars, eps, censored, title, fh):
+def report(bars, eps, censored, title, fh, up_bps, dn_bps):
+    U, D = bl(up_bps), bl(dn_bps)
     def out(s=""):
         print(s); fh.write(s + "\n")
 
@@ -179,31 +195,35 @@ def report(bars, eps, censored, title, fh):
     tw = [e["t_wall"] for e in eps]
 
     out("MARKET MINUTES (tradeable bars elapsed)")
-    describe(out, a, "Leg A  2% trigger -> peak")
-    describe(out, b, "Leg B  peak -> 0.5% retreat")
+    describe(out, a, f"Leg A  {U} trigger -> peak")
+    describe(out, b, f"Leg B  peak -> {D} retreat")
     describe(out, t, "Total  trigger -> retreat")
     out()
     out("WALL-CLOCK MINUTES (calendar time, includes closed hours)")
-    describe(out, aw, "Leg A  2% trigger -> peak")
-    describe(out, bw, "Leg B  peak -> 0.5% retreat")
+    describe(out, aw, f"Leg A  {U} trigger -> peak")
+    describe(out, bw, f"Leg B  peak -> {D} retreat")
     describe(out, tw, "Total  trigger -> retreat")
     out()
 
     # --- headline answer
     out("HEADLINE")
-    out(f"  Median time from the 2% trigger to the 0.5% retreat : "
-        f"{fmt_minutes(pct(t,50))} of market time")
-    out(f"  Median time from the 2% trigger to the peak         : {fmt_minutes(pct(a,50))}")
-    out(f"  Median time from the peak to the 0.5% retreat       : {fmt_minutes(pct(b,50))}")
+    out(f"  Median time from the {U} trigger to the {D} retreat".ljust(54)
+        + f": {fmt_minutes(pct(t,50))} of market time")
+    out(f"  Median time from the {U} trigger to the peak".ljust(54)
+        + f": {fmt_minutes(pct(a,50))}")
+    out(f"  Median time from the peak to the {D} retreat".ljust(54)
+        + f": {fmt_minutes(pct(b,50))}")
     imm = sum(1 for e in eps if e["a_mkt"] == 0)
-    out(f"  Peak IS the trigger bar (no further run-up)         : "
-        f"{imm}/{n} = {imm/n:.1%}")
+    out("  Peak IS the trigger bar (no further run-up)".ljust(54)
+        + f": {imm}/{n} = {imm/n:.1%}")
     ru = [e["peak"] / e["trig"] - 1 for e in eps]
-    out(f"  Run-up past the 2% line before the peak             : "
-        f"med {pct(ru,50)*100:.2f}%   p90 {pct(ru,90)*100:.2f}%   max {max(ru)*100:.1f}%")
+    out(f"  Run-up past the {U} line before the peak".ljust(54)
+        + f": med {pct(ru,50)*100:.2f}%   p90 {pct(ru,90)*100:.2f}%"
+          f"   max {max(ru)*100:.1f}%")
     tot = [e["peak"] / e["anchor"] - 1 for e in eps]
-    out(f"  Full upswing anchor -> peak                         : "
-        f"med {pct(tot,50)*100:.2f}%   p90 {pct(tot,90)*100:.2f}%   max {max(tot)*100:.1f}%")
+    out("  Full upswing anchor -> peak".ljust(54)
+        + f": med {pct(tot,50)*100:.2f}%   p90 {pct(tot,90)*100:.2f}%"
+          f"   max {max(tot)*100:.1f}%")
     out()
 
     out("SURVIVAL — share of episodes still un-retreated after N market minutes")
@@ -225,7 +245,7 @@ def report(bars, eps, censored, title, fh):
     out()
 
     out("  ...of which the RETREAT ITSELF happened across the gap (peak one session,")
-    out("     0.5% breach in a later one — un-actionable while the market was shut):")
+    out(f"     {D} breach in a later one — un-actionable while the market was shut):")
     bspan = [e for e in eps if e["b_kinds"]]
     cb = Counter(worst(e["b_kinds"]) for e in bspan)
     out(f"     peak -> retreat crossed a close : {len(bspan)} / {n} = {len(bspan)/n:.1%}"
@@ -235,7 +255,7 @@ def report(bars, eps, censored, title, fh):
     out(f"     breached on the very first bar back (gap-down did it) : {len(gap_done)}"
         f"   (overnight {cg['overnight']}, weekend {cg['weekend']}, holiday {cg['holiday']})")
     out()
-    out("  ...and the run-up leg spanning a close (2% hit, kept climbing past the bell):")
+    out(f"  ...and the run-up leg spanning a close ({U} hit, kept climbing past the bell):")
     aspan = [e for e in eps if e["a_kinds"]]
     ca = Counter(worst(e["a_kinds"]) for e in aspan)
     out(f"     trigger -> peak crossed a close : {len(aspan)} / {n} = {len(aspan)/n:.1%}"
@@ -278,7 +298,7 @@ def report(bars, eps, censored, title, fh):
     out()
 
     # --- longest holds
-    out("TEN LONGEST HOLDS (2% trigger -> 0.5% retreat, by market minutes)")
+    out(f"TEN LONGEST HOLDS ({U} trigger -> {D} retreat, by market minutes)")
     out(f"  {'trigger':<17} {'peak':<17} {'retreat':<17} {'A':>6} {'B':>6}"
         f" {'total':>7} {'runup':>7} {'span':>9}")
     for e in sorted(eps, key=lambda e: -e["t_mkt"])[:10]:
@@ -297,7 +317,7 @@ def write_ledger(bars, eps, path):
                     "peak_ts", "peak_px", "retreat_ts", "retreat_px",
                     "legA_mkt_min", "legB_mkt_min", "total_mkt_min",
                     "legA_wall_min", "legB_wall_min", "total_wall_min",
-                    "runup_past_2pct", "upswing_anchor_to_peak",
+                    "runup_past_trigger", "upswing_anchor_to_peak",
                     "span", "legB_span", "retreat_on_first_bar_back",
                     "boundaries_crossed"])
         for e in eps:
@@ -313,27 +333,37 @@ def write_ledger(bars, eps, path):
                 int(e["ret_at_open"]), len(e["t_kinds"])])
 
 
-def main():
-    os.makedirs(OUT, exist_ok=True)
-    m1 = load("SOXL_1min.csv")
-    with open(os.path.join(OUT, "retreat_report.txt"), "w") as fh:
-        eps, cens = episodes(m1, "close")
-        report(m1, eps, cens, "PRIMARY — SOXL 1-min bar CLOSES  (+2% upswing, "
-               "then 0.5% off the peak)", fh)
-        write_ledger(m1, eps, os.path.join(OUT, "retreat_episodes_1min.csv"))
+def run(m1, m5, up_bps, dn_bps):
+    U, D, tg = bl(up_bps), bl(dn_bps), tag(up_bps, dn_bps)
+    with open(os.path.join(OUT, f"retreat_report_{tg}.txt"), "w") as fh:
+        eps, cens = episodes(m1, up_bps, dn_bps, "close")
+        report(m1, eps, cens, f"PRIMARY — SOXL 1-min bar CLOSES  (+{U} upswing, "
+               f"then {D} off the peak)", fh, up_bps, dn_bps)
+        write_ledger(m1, eps, os.path.join(OUT, f"retreat_episodes_1min_{tg}.csv"))
 
-        eps_ib, cens_ib = episodes(m1, "intrabar")
-        report(m1, eps_ib, cens_ib, "SENSITIVITY A — SOXL 1-min INTRABAR "
-               "(trigger/peak on High, retreat on Low)", fh)
-        write_ledger(m1, eps_ib, os.path.join(OUT, "retreat_episodes_1min_intrabar.csv"))
+        eps_ib, cens_ib = episodes(m1, up_bps, dn_bps, "intrabar")
+        report(m1, eps_ib, cens_ib, f"SENSITIVITY A — SOXL 1-min INTRABAR "
+               f"(trigger/peak on High, retreat on Low)  [{U} / {D}]",
+               fh, up_bps, dn_bps)
+        write_ledger(m1, eps_ib,
+                     os.path.join(OUT, f"retreat_episodes_1min_intrabar_{tg}.csv"))
 
-        m5 = load("SOXL_5min_6Years.csv")
-        eps5, cens5 = episodes(m5, "close")
+        eps5, cens5 = episodes(m5, up_bps, dn_bps, "close")
         for e in eps5:               # 5-min bars -> convert bar counts to minutes
             e["a_mkt"] *= 5; e["b_mkt"] *= 5; e["t_mkt"] *= 5
-        report(m5, eps5, cens5, "SENSITIVITY B — SOXL 5-min bar CLOSES "
-               "(independent file, 2020-07 -> 2026-07)", fh)
-    print(f"\nwrote {OUT}/retreat_report.txt and 2 episode ledgers")
+        report(m5, eps5, cens5, f"SENSITIVITY B — SOXL 5-min bar CLOSES "
+               f"(independent file, 2020-07 -> 2026-07)  [{U} / {D}]",
+               fh, up_bps, dn_bps)
+    print(f"\nwrote {OUT}/retreat_report_{tg}.txt and 2 episode ledgers")
+
+
+def main():
+    os.makedirs(OUT, exist_ok=True)
+    cfgs = [(int(sys.argv[1]), int(sys.argv[2]))] if len(sys.argv) > 2 else CONFIGS
+    m1 = load("SOXL_1min.csv")
+    m5 = load("SOXL_5min_6Years.csv")
+    for up_bps, dn_bps in cfgs:
+        run(m1, m5, up_bps, dn_bps)
 
 
 if __name__ == "__main__":

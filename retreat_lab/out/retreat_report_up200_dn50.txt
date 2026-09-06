@@ -86,7 +86,7 @@ TEN LONGEST HOLDS (2% trigger -> 0.5% retreat, by market minutes)
   2020-08-06 12:54  2020-08-06 14:44  2020-08-06 15:25    110     41     151   1.3%  intraday
 
 ====================================================================================================
-SENSITIVITY A — SOXL 1-min INTRABAR (trigger/peak on High, retreat on Low)
+SENSITIVITY A — SOXL 1-min INTRABAR (trigger/peak on High, retreat on Low)  [2% / 0.5%]
 ====================================================================================================
 Window 2019-12-31 -> 2026-07-30   642,510 bars   episodes=11228
 
@@ -173,7 +173,7 @@ TEN LONGEST HOLDS (2% trigger -> 0.5% retreat, by market minutes)
   2020-01-14 12:02  2020-01-14 13:34  2020-01-14 13:36     92      2      94   1.9%  intraday
 
 ====================================================================================================
-SENSITIVITY B — SOXL 5-min bar CLOSES (independent file, 2020-07 -> 2026-07)
+SENSITIVITY B — SOXL 5-min bar CLOSES (independent file, 2020-07 -> 2026-07)  [2% / 0.5%]
 ====================================================================================================
 Window 2020-07-16 -> 2026-07-21   117,348 bars   episodes=3945
 
