@@ -304,6 +304,76 @@ A 0.5% stop costs 0.80% to execute — a **59% overshoot** — and at 5%/2% **ha
 total slippage comes from one episode in nine**, the ones that cross a close. That
 concentration, not any directional signal, is the durable, actionable finding here.
 
+## What overnight protection actually costs
+
+`protection_cost.py` prices the hedge the slippage finding implies, from
+`raw_data/SOXL_intraday_5m_exp_*.csv` (736 files, 5-min option **trade
+aggregates**). Buy a put at the last print of the session, sell at the first
+print of the next: **37,586 paired trades over 1,353 overnights, 2021-01 → 2026-07.**
+
+Two data facts had to be established first. The **16:00 option bar never carries a
+trade** — the last print of the session is 15:55, so that is the entry stamp. And
+trade density collapses with tenor: 26% of bars at 0–4 DTE, 5% at 35–39, so only
+short-dated contracts support this measurement at all.
+
+### Cost of one night, in bp of the SOXL notional protected
+
+| tenor / strike | median premium | median cost/night | **mean cost/night** | paid off |
+|---|---|---|---|---|
+| 3–7 DTE, ATM ±1% | 446 bp | 39.2 bp | **14.0 bp** | 40.2% |
+| 3–7 DTE, 3–7% OTM | 238 bp | 23.6 bp | **3.6 bp** | 40.3% |
+| 8–14 DTE, ATM ±1% | 613 bp | 27.8 bp | **10.5 bp** | 42.4% |
+| 1–2 DTE, ATM ±1% | 278 bp | 52.2 bp | **−1.7 bp** | 37.9% |
+
+**Mean far below median is the insurance signature** — you lose a little on most
+nights and get paid on the bad ones. Splitting 3–7 DTE ATM by what the night did
+shows the payoff working exactly as intended: gap down >2% returns **−241 bp**
+(paid off 94.3% of the time), gap up >2% costs **+218 bp** (paid off 0.5%).
+
+### But prints are not quotes
+
+These are trade prints, so the measured cost is a **lower bound** — you buy nearer
+the ask and sell nearer the bid. On the 3–7 DTE, 0 to −7% population (n=2,695,
+median premium 327 bp):
+
+| round-trip spread | cost/night |
+|---|---|
+| 0% (measured) | 6.6 bp |
+| 5% | 23.0 bp |
+| 10% | 39.3 bp |
+| 20% | 72.0 bp |
+
+SOXL weekly spreads are realistically 5–15% of premium, so **~25–50 bp/night** is
+the honest planning number, not 6.6.
+
+### Head to head with the slippage it prevents
+
+| pair | nights exposed | gap slippage per exposed night | hedge cost/night (5–15% spread) |
+|---|---|---|---|
+| 5%/2% | 370 | **103 bp** | 23–50 bp |
+| 3%/1% | 292 | **137 bp** | 23–50 bp |
+| 2%/0.5% | 236 | **188 bp** | 23–50 bp |
+
+The benefit exceeds the cost at every realistic spread. **Three caveats keep this
+from being a free lunch**, and they are large:
+
+1. **Delta.** An ATM put is ~0.5 delta, so one put per 100 shares hedges about half
+   the initial move; full coverage roughly doubles the cost. Delta rises toward 1 as
+   a gap goes ITM, so the tail is better hedged than the median — but the median
+   night is over-counted above.
+2. **The put and the stop do not target the same level.** "Gap slippage" is measured
+   against `peak × (1 − down)`; a put pays below its strike. They overlap, they are
+   not the same quantity, so this is an order-of-magnitude comparison, not a P&L.
+3. **The benefit only exists if you run the stop strategy** — and the section above
+   shows that strategy is zero-mean. Hedging a no-edge strategy does not create edge;
+   the cheaper fix is not to trade it.
+
+A conditional test — does the hedge cost less on nights an episode was open? — is
+negative at four of five thresholds (t between −0.16 and +0.24). Only 2%/0.5% shows
+an effect (−31.2 bp vs +12.8 bp, t −3.01) and it does survive a split sample, but
+with no monotone pattern across thresholds and one hit in five tests it should be
+read as multiple comparisons, not a finding.
+
 ## Limitations
 
 * **Regular hours only.** The file is 09:30–15:59; there is no pre/post-market data.
@@ -356,6 +426,8 @@ Files are tagged `up<bps>_dn<bps>` — `up500_dn200` is 5%/2%, `up400_dn150` is 
 | `out/retreat_episodes_1min_<tag>.csv` | every episode: anchor/trigger/peak/retreat stamps and prices, both leg durations on both clocks, run-up, span label, gap flag |
 | `out/retreat_episodes_1min_intrabar_<tag>.csv` | same for the intrabar variant |
 
-`independence_check.py`, `tradeability.py` and `edge_test.py` print to stdout and write
-nothing. `independence_check.py` takes an optional lookback in bars; `tradeability.py`
+`independence_check.py`, `tradeability.py`, `edge_test.py` and `protection_cost.py`
+print to stdout and write nothing. `protection_cost.py` needs the option files
+(`git lfs pull --include="raw_data/SOXL_intraday_5m_exp_*.csv"`, ~4 GB) and a cached
+extract of put prints at the 15:55 / 09:30 stamps. `independence_check.py` takes an optional lookback in bars; `tradeability.py`
 takes an optional per-side cost in bps (`python3 retreat_lab/tradeability.py 5`).
