@@ -36,8 +36,8 @@ OUT = os.path.join(ROOT, "retreat_lab/out")
 # +2.000% move to 14.28 fails a `>=` test. That cost 9 real triggers.
 BPS = 10000
 
-# (upswing bps, retreat bps) -- 3%/1%, 2%/0.5% and 1%/0.25%
-CONFIGS = [(300, 100), (200, 50), (100, 25)]
+# (upswing bps, retreat bps) -- 4%/1.5%, 3%/1%, 2%/0.5% and 1%/0.25%
+CONFIGS = [(400, 150), (300, 100), (200, 50), (100, 25)]
 
 
 def bl(bps):
