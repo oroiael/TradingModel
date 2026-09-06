@@ -34,3 +34,5 @@ gamma_scalp_cycles.csv -filter -diff -merge text
 gamma_scalp_grid.csv -filter -diff -merge text
 gamma_ladder_equity.csv -filter -diff -merge text
 gamma_ladder_grid.csv -filter -diff -merge text
+gamma_tqqq_grid.csv -filter -diff -merge text
+gamma_tqqq_strands.csv -filter -diff -merge text

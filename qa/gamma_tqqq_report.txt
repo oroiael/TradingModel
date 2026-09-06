@@ -1,0 +1,83 @@
+R5c GAMMA ON TQQQ -- OUT-OF-SAMPLE INSTRUMENT TEST
+run: 2026-09-06 01:20
+Same engines as R5/R5b, unchanged; this file supplies data only.
+Generic loader reproduces load_options() on SOXL: PASS
+Daily hedge only -- no intraday TQQQ bars exist here, and daily
+is the schedule that uses the real EOD delta with no model.
+
+--- SCALP ---
+   symbol               config  cycles  total_pnl  mean_pct_prem  t_stat  pnl_ex_best  win_rate_pct  mean_entry_iv  mean_realized_vol qa_recon
+ TQQQ_pre       stra_t60_daily    10.0    -3651.0          -2.38   -0.28     -10763.0          30.0          0.530              0.595     PASS
+ TQQQ_pre       stra_t30_daily    19.0     1554.0           0.44    0.11      -5282.0          47.4          0.548              0.573     PASS
+ TQQQ_pre       stra_t90_daily     7.0     -354.0          -0.29   -0.04      -5874.0          42.9          0.542              0.597     PASS
+ TQQQ_pre       call_t60_daily    10.0    -9451.0          -6.25   -0.69     -17266.0          30.0          0.516              0.595     PASS
+ TQQQ_pre        put_t60_daily    10.0     2315.0           1.52    0.18      -4337.0          40.0          0.544              0.595     PASS
+ TQQQ_pre stra_t60_daily_GROSS    10.0    -2579.0          -1.64   -0.20      -9803.0          30.0          0.530              0.595     PASS
+TQQQ_post       stra_t60_daily     3.0   -10048.0         -22.94   -1.80     -10328.0          33.3          0.689              0.501     PASS
+TQQQ_post       stra_t30_daily     6.0   -11842.0         -13.29   -1.63     -13527.0          33.3          0.630              0.548     PASS
+TQQQ_post       stra_t90_daily     2.0    -5783.0         -20.42     NaN      -6870.0          50.0          0.697              0.585     PASS
+TQQQ_post       call_t60_daily     3.0   -10451.0         -23.56   -2.47      -9716.0           0.0          0.679              0.501     PASS
+TQQQ_post        put_t60_daily     3.0    -9882.0         -22.68   -1.42     -11127.0          33.3          0.698              0.501     PASS
+TQQQ_post stra_t60_daily_GROSS     3.0    -9741.0         -22.24   -1.75     -10119.0          33.3          0.689              0.501     PASS
+     SOXL       stra_t60_daily    15.0    21771.0          10.38    1.62      11560.0          66.7          0.949              1.123     PASS
+     SOXL       stra_t30_daily    26.0    38227.0          11.05    1.64      24889.0          57.7          0.962              1.121     PASS
+     SOXL       stra_t90_daily     9.0    14622.0          11.68    1.36       4892.0          77.8          0.917              1.116     PASS
+     SOXL       call_t60_daily    15.0    20538.0           9.43    1.37       9434.0          66.7          0.950              1.123     PASS
+     SOXL        put_t60_daily    15.0    24728.0          11.32    1.79      13908.0          73.3          0.947              1.123     PASS
+     SOXL stra_t60_daily_GROSS    15.0    23544.0          11.19    1.75      13242.0          66.7          0.949              1.123     PASS
+
+--- LADDER ---
+   symbol       config  rungs      pnl  cagr_pct  max_dd_pct  sharpe  ann_vol_pct  beta_to_underlying  mean_prem_at_risk qa_recon
+ TQQQ_pre stra_t60_s10   35.0 -28338.0     -10.6       -26.0   -0.52         18.3              -0.098            41685.0     PASS
+ TQQQ_pre  stra_t60_s5   66.0 -55806.0     -22.0       -52.2   -0.54         35.1              -0.169            77568.0     PASS
+ TQQQ_pre stra_t60_s20   20.0 -16647.0      -6.1       -16.9   -0.46         12.0              -0.053            24059.0     PASS
+ TQQQ_pre stra_t90_s10   23.0   2396.0       0.9       -13.5    0.13         14.9              -0.077            41932.0     PASS
+TQQQ_post stra_t60_s10   10.0 -15452.0     -16.5       -17.2   -0.96         16.6              -0.058            37744.0     PASS
+TQQQ_post  stra_t60_s5   16.0 -17677.0     -18.8       -26.2   -0.50         30.7              -0.098            58104.0     PASS
+TQQQ_post stra_t60_s20    6.0  -9928.0     -10.7        -9.4   -1.16          8.8              -0.032            22817.0     PASS
+TQQQ_post stra_t90_s10    7.0 -12572.0     -13.5       -12.4   -0.97         13.5              -0.051            44200.0     PASS
+     SOXL stra_t60_s10   53.0  54140.0      13.2       -19.5    0.66         22.5              -0.053            45591.0     PASS
+     SOXL  stra_t60_s5   94.0  76353.0      18.0       -30.6    0.61         39.5              -0.080            82261.0     PASS
+     SOXL stra_t60_s20   28.0  41013.0      10.2       -14.6    0.79         13.5              -0.032            23946.0     PASS
+     SOXL stra_t90_s10   42.0  66663.0      15.9       -16.1    0.74         23.8              -0.067            57506.0     PASS
+
+--- STRANDS ---
+   symbol  offset  cycles      pnl  pct_prem  win      first
+ TQQQ_pre       0      10  -3651.0     -2.38 30.0 2024-01-02
+ TQQQ_pre       4      10  -3777.0     -2.47 30.0 2024-01-08
+ TQQQ_pre       8      10  -3253.0     -2.10 30.0 2024-01-12
+ TQQQ_pre      12      10  -2135.0     -1.34 40.0 2024-01-19
+ TQQQ_pre      16      10  -2718.0     -1.74 40.0 2024-01-25
+ TQQQ_pre      20      10  -1623.0     -1.03 30.0 2024-02-01
+ TQQQ_pre      24      10   -891.0     -0.52 40.0 2024-02-06
+ TQQQ_pre      28      10  -3252.0     -2.14 30.0 2024-02-12
+ TQQQ_pre      32      10  -3018.0     -1.94 30.0 2024-02-16
+ TQQQ_pre      36      10  -3610.0     -2.35 20.0 2024-02-23
+ TQQQ_pre      40      10  -2657.0     -1.68 30.0 2024-02-29
+ TQQQ_pre      44      10  -5222.0     -3.43 20.0 2024-03-07
+TQQQ_post       0       3 -10048.0    -22.94 33.3 2025-11-21
+TQQQ_post       4       3 -12942.0    -29.23 33.3 2025-11-28
+TQQQ_post       8       3  -6840.0    -15.27 33.3 2025-12-04
+TQQQ_post      12       3  -5598.0    -12.96 33.3 2025-12-11
+TQQQ_post      16       3  -5874.0    -13.20 33.3 2025-12-16
+TQQQ_post      20       3  -2308.0     -5.08 33.3 2025-12-22
+TQQQ_post      24       3  -1860.0     -3.95 33.3 2025-12-29
+TQQQ_post      28       2  -1886.0     -6.60 50.0 2026-01-05
+TQQQ_post      32       2  -1306.0     -4.41 50.0 2026-01-09
+TQQQ_post      36       2   -826.0     -2.77 50.0 2026-01-15
+TQQQ_post      40       2  -1018.0     -3.37 50.0 2026-01-22
+TQQQ_post      44       2  -1414.0     -4.69 50.0 2026-01-28
+     SOXL       0      15  21771.0     10.38 66.7 2024-01-02
+     SOXL       4      15  21286.0     10.22 66.7 2024-01-08
+     SOXL       8      14  10844.0      5.26 50.0 2024-01-12
+     SOXL      12      14   8270.0      3.99 42.9 2024-01-19
+     SOXL      16      14   7090.0      3.40 42.9 2024-01-25
+     SOXL      20      14   7227.0      3.49 42.9 2024-02-01
+     SOXL      24      14   4925.0      2.38 35.7 2024-02-06
+     SOXL      28      14   7430.0      3.56 35.7 2024-02-12
+     SOXL      32      14  20789.0     10.69 64.3 2024-02-16
+     SOXL      36      14  18442.0      9.52 64.3 2024-02-23
+     SOXL      40      14  21768.0     11.13 64.3 2024-02-29
+     SOXL      44      13   8218.0      4.26 38.5 2024-03-06
+
+QA reconciliation failures: 0 of 30

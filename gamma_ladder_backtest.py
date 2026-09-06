@@ -241,7 +241,7 @@ def summarize(bt, eq):
         "hedges": bt.final["hedges"],
         "opt_pnl": round(float(cl["opt_pnl"].sum()), 0) if len(cl) else 0.0,
         "ann_vol_pct": round(float(r.std() * np.sqrt(252) * 100), 1),
-        "beta_to_soxl": round(float(np.polyfit(
+        "beta_to_underlying": round(float(np.polyfit(
             eq["spot"].pct_change().dropna().values[-len(r):],
             r.values[-len(eq["spot"].pct_change().dropna()):], 1)[0]), 3)
         if len(r) > 10 else None,

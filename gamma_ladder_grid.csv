@@ -1,4 +1,4 @@
-config,days,rungs,end_equity,pnl,cagr_pct,max_dd_pct,sharpe,mean_rungs_open,mean_prem_at_risk,peak_prem_at_risk,pnl_pct_of_mean_prem,costs,hedges,opt_pnl,ann_vol_pct,beta_to_soxl,qa_recon
+config,days,rungs,end_equity,pnl,cagr_pct,max_dd_pct,sharpe,mean_rungs_open,mean_prem_at_risk,peak_prem_at_risk,pnl_pct_of_mean_prem,costs,hedges,opt_pnl,ann_vol_pct,beta_to_underlying,qa_recon
 stra_t60_s10,627,53,204140.0,54140.0,13.2,-19.5,0.66,3.2,45591.0,73929.0,118.8,4910.0,613,250701.0,22.5,-0.053,PASS
 stra_t60_s5,627,94,226353.0,76353.0,18.0,-30.6,0.61,5.7,82261.0,146765.0,92.8,8162.0,623,587712.0,39.5,-0.08,PASS
 stra_t60_s20,627,28,191013.0,41013.0,10.2,-14.6,0.79,1.7,23946.0,44346.0,171.3,2810.0,609,138122.0,13.5,-0.032,PASS

@@ -222,6 +222,89 @@ cannot.
 
 ---
 
+## 4c. TQQQ — the out-of-sample instrument test, and it failed
+
+Every limitation above reduced to one: a single instrument over a single
+2.5-year path. TQQQ's chains cover exactly the same window with an identical
+schema, so `gamma_tqqq_backtest.py` runs the same engines on it with **no code
+changes** — that file supplies data only.
+
+**The prediction was stated before the run.** `vol_anatomy` measured TQQQ's VRP
+as negative at the same tenors and nearly the same margin as SOXL's (30d −9.9
+vs −10.3 pts), while its vol *level* is roughly half. Since gamma P&L scales
+with `rv² − iv²`, TQQQ should be **positive but smaller**.
+
+**It came back negative.**
+
+| | entry IV | realized | edge (pts) | `rv²−iv²` | rel. to SOXL | net | % of premium |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| **SOXL** | 0.949 | 1.123 | **+17.4** | 0.361 | 1.00 | **+$21,771** | **+10.4%** |
+| **TQQQ** (pre-split) | 0.530 | 0.595 | +6.5 | 0.073 | **0.20** | **−$3,651** | **−2.4%** |
+| **TQQQ** (post-split) | 0.689 | 0.501 | −18.8 | −0.224 | −0.62 | −$10,048 | −22.9% |
+
+Strand sweeps say it is not entry-timing luck in either direction: SOXL is
+**positive in 12 of 12** start dates, TQQQ **positive in 0 of 12** (pre-split
+range −$5,222 to −$891; post-split 0 of 12, −$12,942 to −$826). The ladder
+agrees — TQQQ pre-split runs −$28,338 at Sharpe −0.52 against SOXL's +$54,140
+at +0.66. The SOXL figures reproduce to the dollar through this separate code
+path, which is the regression check that the refactor changed nothing.
+
+### The prediction was wrong, and friction is not the excuse
+
+TQQQ pre-split is **negative gross** — −$2,579 with every cost switched off.
+So this is not a friction story, and the honest reading is that a positive
+aggregate vol edge is **necessary but not sufficient**. TQQQ pre-split realized
+6.5 vol points *more* than implied and still lost money before costs.
+
+The reason is the one flagged for SOXL's flat 2025: gamma P&L is
+**gamma-weighted**, not variance-weighted. It pays for moves that arrive while
+the position sits near its strike, not for aggregate variance however measured.
+A surface can realize more than it implied and still hand a delta-hedged holder
+nothing, if the movement shows up in the wrong places.
+
+There is a quantitative story that partly rescues the mechanism: TQQQ's
+variance edge is **20% of SOXL's** (0.073 vs 0.361), so the predicted return
+was roughly a fifth of SOXL's +10%, i.e. ~+2% per cycle — and the fixed drag
+that gamma-weighting imposes was evidently larger than that. **But this is
+post-hoc.** I am explaining a failed prediction after seeing the answer, and it
+should be read as a hypothesis for the next test, not as a defence of this one.
+
+### What this does to the SOXL result
+
+The SOXL numbers are unchanged and were not contradicted — TQQQ is a different
+surface, not a replication of the same one. But the claim that mattered was
+never "it worked on SOXL"; it was "this is a property of negative-VRP leveraged
+ETFs." **That claim now has one test and it failed.** Treat the SOXL result as
+a single-instrument finding whose generality is unproven, and weight it well
+below where §1 of this document left it.
+
+The next test that would actually settle it is a *third* instrument with a
+large `rv²−iv²` — the falsifiable form being that the trade pays where the
+variance edge is large and fails where it is small, independent of ticker.
+
+### A data defect worth recording
+
+The first TQQQ run returned **+170% of premium per cycle** at Sharpe 2.25, and
+it was entirely fabricated. `TQQQ_IBKR_3YR_EOD.csv` is split- and
+dividend-**adjusted**; the chain's `underlying_price` and its strikes are
+**raw**. The two disagree by a factor of **2.0533** before TQQQ's 2:1 split on
+**2025-11-20** and by 1.0000 after it. The engine was picking a $48 strike and
+settling it against a $23 close.
+
+The tell was that the result contradicted the prediction in the *favourable*
+direction, and that TQQQ appeared to realize **155% vol** when its true vol is
+~56%. SOXL is unaffected — its two sources agree to 1.0001, which is why the
+defect never surfaced before. The fix is to take spot from the chain's own
+`underlying_price`, which matches the strikes by construction, and to run
+either side of the split so that no cycle spans it (option contracts are
+themselves adjusted at a split, which the engine does not model).
+
+`find_splits()` now detects this by *comparing the two sources* rather than by
+move size — the distinction that matters, since 2025-04-09's +30% appears in
+both series (real) while 2025-11-20's −77% appears in only one (a split).
+
+---
+
 ## 5. Honest limitations
 
 * **The sample is small and the t-statistic is not significant.** 15 cycles,
@@ -254,9 +337,15 @@ cannot.
 * **Not modelled:** early exercise (both legs are long, so this is an option we
   hold rather than a liability), borrow cost or dividends on the short share
   leg, and any intraday re-strike of the straddle as spot drifts.
-* **One instrument, one window,** 2024-01 → 2026-06, containing the 2026
-  melt-up. The negative VRP that powers this trade is itself a measured property
-  of this window, not a law.
+* **The one out-of-sample instrument test failed** (§4c). TQQQ is negative on
+  the same engines over the same window, gross as well as net, and in 0 of 12
+  entry timings. The SOXL result stands as measured; its generality does not.
+* **One window,** 2024-01 → 2026-06, containing the 2026 melt-up. The negative
+  VRP that powers this trade is a measured property of this window, not a law.
+* **Adjusted vs raw price sources are a live hazard** in this repo, not a
+  hypothetical: mixing them fabricated a +170%/cycle result on the first TQQQ
+  run. Any new instrument must pass the chain-spot-vs-bar-close ratio check
+  before its numbers mean anything.
 
 ---
 
