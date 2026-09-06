@@ -269,6 +269,10 @@ tenor that is not cheap”; that half has since been measured and withdrawn
 (`CALENDAR.md`). On this data there is no short-premium structure on SOXL that
 pays — not naked, not defined-risk, not calendarized, not gated, not stopped.
 
+**And there is now one long structure that does pay: delta-hedged long gamma,
++$21,771 over 15 cycles with a +0.69 correlation to the vol edge that drives it —
+hedged ONCE A DAY, not continuously. See `GAMMA.md`.**
+
 | | blueprint | SOXL version | why |
 |---|---|---|---|
 | direction | short premium | **long premium** | VRP is −14 to −29 pts at 30–180d |
@@ -347,6 +351,7 @@ Supporting evidence, already in the repo:
 
 | claim | source |
 |---|---|
+| delta-hedged long gamma is positive — the one options structure that pays | `harvest_blueprint/GAMMA.md`, `gamma_scalp_backtest.py`, `qa/gamma_scalp_report.txt` |
 | calendars/diagonals fail too (40/40 short legs negative) | `harvest_blueprint/CALENDAR.md`, `calendar_backtest.py`, `qa/calendar_report.txt` |
 | condor grid, 37 configs, stops | `qa/r3_condor_report.txt`, `r3_iron_condor_backtest.py` |
 | VRP by tenor, term structure, skew, spreads, wings, put bleed | `qa/pricing_lab_report.txt`, `volatility_pricing_lab.py` |

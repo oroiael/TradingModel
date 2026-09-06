@@ -30,3 +30,5 @@ ccp_lab/out/*.csv -filter -diff -merge text
 calendar_ledger.csv -filter -diff -merge text
 calendar_grid.csv -filter -diff -merge text
 harvest_blueprint/out/*.csv -filter -diff -merge text
+gamma_scalp_cycles.csv -filter -diff -merge text
+gamma_scalp_grid.csv -filter -diff -merge text
