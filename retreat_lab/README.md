@@ -247,6 +247,63 @@ skip the wiggles that end an episode, so they overstate duration everywhere. **C
 on 1-min bars are the primary read: unambiguous, and every level in them is one you
 could have transacted at.**
 
+## Is it tradeable? — measured, and mostly no
+
+`tradeability.py` turns each ledger into a trade log; `edge_test.py` asks whether the
+events carry information at all. Both were run before any strategy was proposed, and
+they rule most of them out.
+
+**The mechanical trade is zero-mean.** Buy at the trigger, sell at the retreat, over
+6.6 years, no costs:
+
+| pair | n | win% | mean/trade | median/trade | time in market |
+|---|---|---|---|---|---|
+| 5%/2% | 1,518 | 37.0% | +0.039% | −0.819% | 22.5% |
+| 3%/1% | 3,575 | 36.0% | +0.019% | −0.472% | 16.9% |
+| 2%/0.5% | 7,014 | 34.4% | **−0.042%** | −0.303% | 12.2% |
+| 1%/0.25% | 18,166 | 35.4% | **−0.002%** | −0.195% | 15.7% |
+
+Mean per trade is within a rounding error of zero and **flips sign** with the threshold
+and with a one-bar execution lag. Compounded outcomes swing wildly (−97% to +898%)
+because a near-zero mean with 2–4% per-trade dispersion is all volatility drag, not
+edge. Buy-and-hold over the same window returned **542%**. The mirror trade (short the
+trigger, cover the retreat) is the same series negated and is not a strategy either.
+
+**The trigger and the retreat carry no information.** Forward returns after each event
+versus an unconditional random bar, Welch t:
+
+| horizon | after trigger | after retreat | after peak |
+|---|---|---|---|
+| +15 min | t −0.9 … +0.8 | t +0.2 … +0.8 | **t −32** |
+| +60 min | t −1.1 … +0.4 | t +0.2 … +0.9 | **t −26** |
+
+Trigger and retreat are indistinguishable from noise at every threshold and horizon.
+The peak looks enormously predictive and is **not tradeable**: it is defined
+retrospectively as the running maximum, so price falls after it by construction. That
+row is a look-ahead-bias check, not a signal.
+
+**The one candidate edge does not survive a split sample.** Overnight return when an
+episode was open at the close looked negative (2%/0.5%: −0.54% vs +0.44%, t −2.64).
+Split at 2023-04-13 it is a first-half-only effect — 3%/1% goes −1.22% (t −2.87) then
++0.30% (t +0.64); 1%/0.25% goes −0.89% then −0.01%. It is COVID-era volatility, not
+structure, and five thresholds were tested to find one t past 2.
+
+### What the data does establish: the cost of a stop
+
+Slippage against the level the stop was aiming at (`peak × (1 − down)`):
+
+| pair | avg slip/episode | p99 | max | share of total drag from the ~1–11% of episodes crossing a close |
+|---|---|---|---|---|
+| 5%/2% | 0.486% | 5.86% | 30.1% | **52%** |
+| 4%/1.5% | 0.398% | 4.37% | 30.4% | 40% |
+| 3%/1% | 0.344% | 3.56% | 30.8% | 33% |
+| 2%/0.5% | 0.296% | 2.31% | 31.1% | 21% |
+| 1%/0.25% | 0.251% | 1.62% | 31.3% | 12% |
+
+A 0.5% stop costs 0.80% to execute — a **59% overshoot** — and at 5%/2% **half the
+total slippage comes from one episode in nine**, the ones that cross a close. That
+concentration, not any directional signal, is the durable, actionable finding here.
+
 ## Limitations
 
 * **Regular hours only.** The file is 09:30–15:59; there is no pre/post-market data.
@@ -299,5 +356,6 @@ Files are tagged `up<bps>_dn<bps>` — `up500_dn200` is 5%/2%, `up400_dn150` is 
 | `out/retreat_episodes_1min_<tag>.csv` | every episode: anchor/trigger/peak/retreat stamps and prices, both leg durations on both clocks, run-up, span label, gap flag |
 | `out/retreat_episodes_1min_intrabar_<tag>.csv` | same for the intrabar variant |
 
-`independence_check.py` prints its comparison to stdout and writes nothing; run it with
-an optional lookback in bars (`python3 retreat_lab/independence_check.py 78`).
+`independence_check.py`, `tradeability.py` and `edge_test.py` print to stdout and write
+nothing. `independence_check.py` takes an optional lookback in bars; `tradeability.py`
+takes an optional per-side cost in bps (`python3 retreat_lab/tradeability.py 5`).
