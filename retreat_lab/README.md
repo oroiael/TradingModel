@@ -81,6 +81,68 @@ this repo's version of SOXL: **the return is overnight, the risk is overnight, a
 the intraday session is a variance-drag machine.** Everything that works here is a
 consequence of that sentence; everything that fails, of ignoring it.
 
+## Walk-forward: does the RV20 filter survive an honest threshold?
+
+The filter as reported used a percentile of the **whole sample** — at any night it
+implicitly knew where that night's volatility would rank against volatility that had
+not happened yet. RV20 was always trailing; the cut was not. `walkforward.py` rebuilds
+it with no forward information: `threshold(i)` = the p-th percentile of RV20 over a
+window strictly **before** i, with a 252-session burn-in.
+
+Everything below is over the same post-burn-in window (2021-01-29 → 2026-07-29, 5.5y,
+1,380 nights) — which **excludes 2020**, one of the strategy's two best years, so every
+figure is lower than the headline numbers elsewhere in this README.
+
+| strategy | n | total | CAGR | max DD | Sharpe | t |
+|---|---|---|---|---|---|---|
+| hold every night (no filter) | 1,380 | +460% | 36.8% | −78.2% | 0.80 | 1.88 |
+| *in-sample cut at p60* | 811 | *+811%* | *49.5%* | *−29.5%* | *1.19* | *2.78* |
+| **walk-forward expanding, p60** | 787 | **+607%** | **42.7%** | **−32.2%** | **1.08** | **2.53** |
+| walk-forward expanding, p80 | 1,129 | +419% | 34.9% | −69.3% | 0.83 | 1.94 |
+| walk-forward rolling 252, p60 | 775 | +121% | 15.6% | −61.2% | 0.55 | 1.30 |
+| walk-forward rolling 504, p60 | 743 | +238% | 24.8% | −49.6% | 0.77 | 1.81 |
+
+**It survives, and it costs something.** Expanding-window p60 keeps a real edge over
+no filter (Sharpe 1.08 vs 0.80, drawdown −32% vs −78%) but gives back about a quarter
+of the in-sample return, +811% → +607%.
+
+**The window choice is itself a fitted decision, and it matters more than the
+percentile.** Expanding works; rolling 252 and 504 do not, and rolling-252 p60 is
+*worse* than no filter at all. A rolling threshold adapts to the recent regime, so in
+a high-vol period it raises the bar and lets high-vol nights through. That the
+absolute-memory version works and the relative one does not is consistent with the
+earlier VXX result, where a relative-to-recent conditioner also failed. **The effect
+appears to be about absolute volatility levels, not relative ones.**
+
+### The clean single split
+
+Fit the threshold on the first half of the live window, apply it to the second, no
+other contact:
+
+| second half | n | total | CAGR | max DD | Sharpe | t |
+|---|---|---|---|---|---|---|
+| hold every night | 690 | **+1,149%** | 149.9% | −61.6% | 1.58 | 2.62 |
+| cut fitted on 1st half, p60 | 434 | +733% | 115.7% | **−30.3%** | **1.87** | 3.11 |
+| cut fitted on 1st half, p80 | 579 | **+1,133%** | 148.7% | −45.1% | 1.85 | 3.08 |
+
+Thresholds transfer well — first-half p60 = 109% annualised, second-half p60 = 107% —
+so the volatility distribution is stable enough for a fitted cut to carry forward.
+
+### The correction this forces
+
+The scoreboard section says the filter "beat buy-and-hold on return, on drawdown and
+on Sharpe." **Out of sample that is only two-thirds true.** What survives honest
+construction is the **risk** improvement: Sharpe 1.58 → 1.87 and drawdown −61.6% →
+−30.3% at p60; at p80, essentially identical return (+1,133% vs +1,149%) with Sharpe
+1.85 and a −45.1% drawdown instead of −61.6%.
+
+What does not reliably survive is the **return** improvement. In-sample the filter
+appeared to add return and cut risk; walk-forward it mostly cuts risk, and at p60 it
+cuts return too. The right description is **a volatility-based risk overlay on the
+overnight position, not a return enhancer** — worth having if the −78% drawdown of the
+unfiltered version is what stops you holding it, which is a real reason, but not the
+free lunch the in-sample numbers implied.
+
 ## The event
 
 1. **Anchor** — the running trough while no episode is open.
@@ -1450,7 +1512,7 @@ Files are tagged `up<bps>_dn<bps>` — `up500_dn200` is 5%/2%, `up400_dn150` is 
 `premium_selling.py`, `put_spread.py`, `collar.py`, `exit_rules.py`, `backtest.py` and `overnight.py` print to stdout and write nothing;
 `backtest.py`, `overnight.py` and `intraday_short.py` take an optional cost in bps
 per side; `intraday_short.py` also takes an annual borrow rate. `overnight_vol_filter.py` and
-`intraday_vol_filter.py` and `take_profit.py` and `bracket.py` and `floor_sweep.py` and `scoreboard.py` take an optional cost in bps per side. `collar.py` needs cached extracts of both put and call prints at the
+`intraday_vol_filter.py` and `take_profit.py` and `bracket.py` and `floor_sweep.py` and `scoreboard.py` and `walkforward.py` take an optional cost in bps per side. `collar.py` needs cached extracts of both put and call prints at the
 15:55 / 09:30 stamps. `protection_cost.py` needs the option files
 (`git lfs pull --include="raw_data/SOXL_intraday_5m_exp_*.csv"`, ~4 GB) and a cached
 extract of put prints at the 15:55 / 09:30 stamps. `independence_check.py` takes an optional lookback in bars; `tradeability.py`
