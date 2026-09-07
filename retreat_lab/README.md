@@ -1011,6 +1011,75 @@ This is the only result in this lab that survived every robustness test applied 
    a knife-edge, but the exact cut is fitted and should be expected to degrade
    out of sample.
 
+## The same vol filter on the intraday leg — it does not rescue it
+
+The overnight filter worked. `intraday_vol_filter.py` applies the same conditioner
+to the intraday leg, where there is a precise hypothesis to test rather than a hunch:
+drag is ~σ²/2, so restricting to low-vol days should shrink it with the *square* of
+σ. If the positive arithmetic mean (+0.077%/day) survives while drag collapses, the
+geometric mean flips and the intraday long becomes viable.
+
+RV20 is measured through the close of **D−1** here and applied to day D, so a
+session's own move cannot inform its own filter.
+
+### The long is not rescued
+
+| RV20 quintile | n | total | arith mean | geo mean | drag | sd/day | t |
+|---|---|---|---|---|---|---|---|
+| all sessions | 1,632 | −79% | +0.0608% | −0.0962% | 0.157 | 5.60% | 0.44 |
+| 1 (lowest vol) | 326 | **−5%** | +0.0591% | −0.0173% | 0.076 | 3.88% | 0.28 |
+| 2 | 326 | −57% | **−0.1608%** | −0.2600% | 0.099 | 4.41% | −0.66 |
+| 3 | 327 | **+22%** | +0.1978% | +0.0615% | 0.136 | 5.19% | 0.69 |
+| 4 | 326 | −20% | +0.1052% | −0.0677% | 0.173 | 5.86% | 0.32 |
+| 5 (highest vol) | 327 | −48% | +0.1021% | −0.1973% | 0.299 | 7.84% | 0.24 |
+
+**No monotone pattern**, the only positive bucket is the *middle* one, and every
+t-statistic is between −0.66 and +0.69 — the arithmetic means are not
+distinguishable from zero in any bucket. Compare the overnight leg, where the
+quintiles were near-monotone and the top one lost money outright.
+
+### The mechanism worked exactly as predicted — and it still was not enough
+
+| quintile | sd/day | drag = σ²/2 | arith mean | **mean ÷ drag** |
+|---|---|---|---|---|
+| Q1 | 3.88% | 0.075 pp | 0.0591% | **0.78** |
+| Q3 | 5.19% | 0.135 pp | 0.1978% | 1.47 |
+| Q5 | 7.84% | 0.307 pp | 0.1021% | 0.33 |
+| all | 5.60% | 0.157 pp | 0.0608% | 0.39 |
+
+The σ² scaling is exact: Q1's drag is 0.48× the all-session drag, and
+(3.88/5.60)² = 0.48. Filtering to the calmest fifth **halved the drag and doubled
+the mean-to-drag ratio, 0.39 → 0.78.** It simply did not reach 1.
+
+**SOXL's calmest quintile is still 3.88%/day — 61% annualised.** For the intraday
+long to survive compounding you would need σ near 3.4%/day, below anything this
+instrument offers. The drift is not too small so much as the floor volatility is too
+high; a 3× levered single-sector ETF has no quiet regime in which its intraday
+arithmetic mean can outrun its own variance penalty.
+
+### The short is destroyed in every bucket
+
+| RV20 quintile | total | t |
+|---|---|---|
+| 1 (lowest vol) | −43% | −0.46 |
+| 3 | −70% | −0.83 |
+| 5 | −79% | −0.33 |
+
+Only Q2 is positive (+9%, t 0.49 — noise). On the VXX conditioner it is worse still:
+below p40 returns −98% with t −3.19.
+
+### Why the filter helped one leg and not the other
+
+The overnight filter worked because it removed a genuinely **negative** subset — the
+top vol quintile returned −44% on its own. There was something real to cut.
+
+Intraday has no such subset: every quintile's arithmetic mean is statistical noise
+around a small positive number, and what kills the strategy is not a bad regime but
+the variance penalty, which scales with exactly the quantity you are filtering on.
+**You cannot filter your way out of drag: the filter removes the drag and the drift
+together.** That is the difference between conditioning away a loss and conditioning
+away a fee.
+
 ## Limitations
 
 * **Regular hours only.** The file is 09:30–15:59; there is no pre/post-market data.
@@ -1066,8 +1135,8 @@ Files are tagged `up<bps>_dn<bps>` — `up500_dn200` is 5%/2%, `up400_dn150` is 
 `independence_check.py`, `tradeability.py`, `edge_test.py`, `protection_cost.py` and
 `premium_selling.py`, `put_spread.py`, `collar.py`, `exit_rules.py`, `backtest.py` and `overnight.py` print to stdout and write nothing;
 `backtest.py`, `overnight.py` and `intraday_short.py` take an optional cost in bps
-per side; `intraday_short.py` also takes an annual borrow rate. `overnight_vol_filter.py`
-takes an optional cost in bps per side. `collar.py` needs cached extracts of both put and call prints at the
+per side; `intraday_short.py` also takes an annual borrow rate. `overnight_vol_filter.py` and
+`intraday_vol_filter.py` take an optional cost in bps per side. `collar.py` needs cached extracts of both put and call prints at the
 15:55 / 09:30 stamps. `protection_cost.py` needs the option files
 (`git lfs pull --include="raw_data/SOXL_intraday_5m_exp_*.csv"`, ~4 GB) and a cached
 extract of put prints at the 15:55 / 09:30 stamps. `independence_check.py` takes an optional lookback in bars; `tradeability.py`
