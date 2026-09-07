@@ -81,6 +81,53 @@ this repo's version of SOXL: **the return is overnight, the risk is overnight, a
 the intraday session is a variance-drag machine.** Everything that works here is a
 consequence of that sentence; everything that fails, of ignoring it.
 
+## Read this first: which strategy is which
+
+This README covers two separate questions that are easy to conflate.
+
+1. **The intraday design** — enter by time, exit at +X% or on a floor breach or a
+   time stop, whichever is sooner, flat by the bell. **Nothing works.** 1,024
+   configurations, 5 with t>2 against ~26 expected by chance, and the best dies at
+   2 bps per side. See *What stop width actually works with a +1% target*.
+2. **The overnight strategy** — buy at the close, sell at the next open, flat all
+   day. This is a *different trade*, and it is the only thing in this lab that beat
+   buy-and-hold. **Every mention of "RV20 filter", "p60" or "walk-forward" below
+   refers to this one, not to the intraday design.**
+
+They are not variants of each other. The intraday result does not rescue the
+overnight one and vice versa.
+
+### And what the RV20 filter actually does
+
+Walk-forward expanding p60, year by year, on the overnight strategy:
+
+| year | all nights | filtered | nights kept | filter helped? |
+|---|---|---|---|---|
+| 2021 | +94.0% | +29.8% | 178/234 | no |
+| 2022 | −69.7% | **−13.6%** | 30/251 | **yes** |
+| 2023 | −0.2% | +7.1% | 223/250 | yes |
+| 2024 | +207.1% | +121.4% | 185/252 | no |
+| 2025 | +54.5% | **+104.2%** | 139/250 | **yes** |
+| 2026 | +100.9% | +30.2% | 32/143 | no |
+
+**It helps in three years of six and hurts in three.** It is not picking better
+nights. What it does is cut the bad stretch:
+
+| | all nights | filtered | sd/night |
+|---|---|---|---|
+| first half (2021–23) | **−55%** | **−8%** | 3.57% → 3.04% |
+| second half (2024–26) | **+1,149%** | +671% | 4.87% → 3.69% |
+| **compounded** | **+460%** | **+607%** | |
+
+The filter loses 478 points in the good half and saves 47 in the bad half — and still
+wins overall, because **−8% then +671% compounds to more than −55% then +1,149%.**
+Losing less in the drawdown leaves more capital to compound afterwards.
+
+That is a real effect and it is what risk management is for. It is **not** an edge in
+night selection, and the distinction matters: in a good regime this filter will
+underperform, sometimes badly (2024: +207% → +121%; 2026: +101% → +30%). It earns its
+keep by making the bad regimes survivable, not by finding better nights.
+
 ## Walk-forward: does the RV20 filter survive an honest threshold?
 
 The filter as reported used a percentile of the **whole sample** — at any night it
