@@ -799,6 +799,83 @@ a position that should not be opened. **The measured conclusion of this lab is t
 the tradeable content of the retreat timing study is zero, and the one durable fact
 it surfaced is about when SOXL earns its return, not about upswings and retreats.**
 
+## Backtesting the overnight-only strategy
+
+`overnight.py` turns the decomposition into a strategy and charges it: buy at the
+session close, sell at the next open, flat all day. 251 round trips a year against
+the trigger strategy's 1,066, so friction is ~4× lighter — 5.0%/yr at 1 bp per side.
+
+### It beats buy-and-hold, and survives realistic costs
+
+| strategy | total | CAGR | max DD | Sharpe | win |
+|---|---|---|---|---|---|
+| buy and hold | +542% | 32.7% | −90.5% | 0.78 | |
+| **sell at the 09:30 open print** | **+1,586%** | **53.6%** | −78.2% | **0.97** | 54.8% |
+| sell 5 min after the open | +1,214% | 47.9% | −85.6% | 0.91 | 53.0% |
+| sell 30 min after the open | +886% | 41.6% | −85.8% | 0.84 | 52.1% |
+
+Cost sensitivity, selling at the open print: **+2,245% at 0 bp, +1,586% at 1, +1,112%
+at 2, +350% at 5, and −14% at 10 bp per side.** It needs sub-5-bp execution — plausible
+in SOXL with MOC/MOO orders, fatal if you cross a spread.
+
+The edge decays the longer you hold past the open (53.6% → 47.9% → 41.6% CAGR), which
+is consistent with a genuine open-print effect rather than a data artifact.
+
+### But the return is 20 nights out of 1,652
+
+| | total |
+|---|---|
+| all 1,652 nights | +1,586% |
+| drop the best 5 | +624% |
+| drop the best 10 | +249% |
+| **drop the best 20 (1.2% of nights)** | **−0%** |
+| drop the best 50 | −95% |
+
+**The entire six-year return comes from twenty nights.** That is not a drift you
+harvest; it is a lottery-ticket portfolio that happened to hit. And the nights that
+pay are the volatile ones — precisely where your fill is least likely to match a print
+in a 5-minute aggregate.
+
+### And it is not stable
+
+| year | overnight | buy & hold | intraday |
+|---|---|---|---|
+| 2020 | **+134.8%** | +61.3% | −32.5% |
+| 2021 | +140.0% | +127.5% | −13.6% |
+| 2022 | −69.7% | −86.5% | −53.8% |
+| **2023** | **−0.2%** | **+175.4%** | **+180.1%** |
+| 2024 | **+207.1%** | −7.3% | −70.9% |
+| 2025 | +54.5% | +68.0% | −1.2% |
+| 2026 | +100.9% | +155.0% | +15.1% |
+
+**2023 reverses the thesis completely** — the overnight leg made nothing while the
+intraday leg made +180%. Leave-one-year-out spans +449% (excluding 2024) to +5,457%
+(excluding 2022). Split-half: +53% then +998%, Sharpe 0.54 then 1.36.
+
+The mean is **0.272%/night, sd 4.46%, t = 2.48** — marginal for a single test, and
+this was not an independent test: the effect was found by looking, then measured on
+the same data.
+
+### The tail is the point
+
+Worst nights: −31.2% (2020-03-13), −23.3%, −22.2%, −21.6% (2026-06-22), −20.5%.
+**147 nights worse than −5%, 31 worse than −10%**, against a best night of +19.9%.
+Max drawdown −78.2%.
+
+So the honest description is not "SOXL drifts up overnight." It is: **SOXL's largest
+gaps in both directions happen overnight, and over this particular sample the up-gaps
+won, by a margin concentrated in twenty nights.** You are being paid to hold
+event risk through the close — which is the same risk the protective-put section was
+trying to hedge, and hedging it would cost more than the 0.272%/night it pays.
+
+### Verdict
+
+Better risk-adjusted than buy-and-hold on this sample (Sharpe 0.97 vs 0.78) and the
+only structure in this lab that beats it at all. But it is a concentrated, unstable,
+cost-fragile bet on a regime that fully reversed in 2023, with a −78% drawdown and a
+−31% single night. It is a real finding about **where SOXL's return lives**, and a
+weak basis for a strategy.
+
 ## Limitations
 
 * **Regular hours only.** The file is 09:30–15:59; there is no pre/post-market data.
@@ -852,8 +929,8 @@ Files are tagged `up<bps>_dn<bps>` — `up500_dn200` is 5%/2%, `up400_dn150` is 
 | `out/retreat_episodes_1min_intrabar_<tag>.csv` | same for the intrabar variant |
 
 `independence_check.py`, `tradeability.py`, `edge_test.py`, `protection_cost.py` and
-`premium_selling.py`, `put_spread.py`, `collar.py`, `exit_rules.py` and `backtest.py` print
-to stdout and write nothing; `backtest.py` takes an optional cost in bps per side. `collar.py` needs cached extracts of both put and call prints at the
+`premium_selling.py`, `put_spread.py`, `collar.py`, `exit_rules.py`, `backtest.py` and `overnight.py` print to stdout and write nothing;
+`backtest.py` and `overnight.py` take an optional cost in bps per side. `collar.py` needs cached extracts of both put and call prints at the
 15:55 / 09:30 stamps. `protection_cost.py` needs the option files
 (`git lfs pull --include="raw_data/SOXL_intraday_5m_exp_*.csv"`, ~4 GB) and a cached
 extract of put prints at the 15:55 / 09:30 stamps. `independence_check.py` takes an optional lookback in bars; `tradeability.py`
