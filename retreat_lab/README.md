@@ -1080,6 +1080,90 @@ the variance penalty, which scales with exactly the quantity you are filtering o
 together.** That is the difference between conditioning away a loss and conditioning
 away a fee.
 
+## Enter, wait for +X%, exit on the cross — does the take-profit work?
+
+`take_profit.py` tests it directly: enter at a chosen minute, rest a limit at
++X%, exit the moment it prints. The target is detected on the bar **high**, since a
+resting limit fills when price trades there — the one place in this lab where
+intrabar data is the correct field rather than an optimistic one.
+
+### With a session-close fallback, every configuration loses
+
+Target +1%, exit at the close if it never prints:
+
+| entry | hit rate | median trade | mean | total | t |
+|---|---|---|---|---|---|
+| 09:30 | **80.0%** | **+0.980%** | −0.060% | −80% | −0.91 |
+| 11:00 | 72.8% | +0.980% | −0.020% | −55% | −0.36 |
+| 13:00 | 62.0% | +0.980% | −0.031% | −55% | −0.66 |
+| 15:00 | 43.0% | +0.408% | −0.053% | −64% | −1.57 |
+| 15:30 | 32.8% | +0.154% | −0.056% | −65% | −1.88 |
+
+That is the take-profit signature in one table: **you hit the target 80% of the time,
+the median trade is +0.98%, and the strategy still loses 80%.** The 20% of days that
+never print the target give back more than the 80% collect. Same at +2% and +3%
+targets; no entry time, no target, and no t-statistic above +0.10.
+
+### The intuition about "later in the day" is right — but not for the reason given
+
+Hold to the next open instead of exiting at the bell and the picture inverts:
+
+| entry | hit rate | mean | total | CAGR | t |
+|---|---|---|---|---|---|
+| 09:30 | 80.0% | −0.142% | −96% | −39.6% | −1.75 |
+| 13:00 | 62.0% | +0.021% | −36% | −6.6% | 0.28 |
+| 15:00 | 43.0% | +0.213% | **+1,366%** | 50.4% | 2.77 |
+| **15:30** | 32.9% | +0.226% | **+1,521%** | 52.7% | 2.75 |
+
+Later is better — but the **hit rate falls** as you go later (80% → 33%), so it is not
+that the rise is more probable late in the day. A 15:30 entry held to the open is
+simply the overnight trade wearing a different hat, and the overnight leg is where
+this instrument's return lives.
+
+### And the target actively subtracts
+
+| variant | mean/night | total | max DD |
+|---|---|---|---|
+| 15:30 → next open, **no cap** | **0.287%** | **+1,816%** | −74.9% |
+| 15:30 → next open, +1% cap | 0.226% | +1,521% | **−49.2%** |
+| 15:59 close → next open (plain overnight) | 0.280% | +1,639% | −74.0% |
+
+The cap costs **0.061%/night and about 300 points of total return**. It is not a
+return improvement; it is a *risk* trade — it cuts the drawdown from −74.9% to −49.2%
+by truncating the nights that run past +1%. Worth having if the drawdown is what
+binds; worth knowing it is paid for in return, not free.
+
+## Which days not to trade
+
+On the plain 15:30 → next-open trade (n=1,619, +1,824%, t 2.52):
+
+| filter | n | mean/night | total | max DD | t |
+|---|---|---|---|---|---|
+| all sessions | 1,619 | 0.290% | +1,824% | −74.9% | 2.52 |
+| drop the highest-vol quintile | 1,295 | 0.308% | +1,888% | −59.6% | 2.82 |
+| drop Thursdays | 1,294 | 0.399% | +3,960% | −66.6% | 3.03 |
+| drop prior-day 0 to +3% | 1,306 | 0.424% | **+5,759%** | −61.0% | 3.24 |
+| **drop both vol-Q5 and prior-day 0–3%** | 1,022 | **0.454%** | +4,610% | **−46.3%** | **3.69** |
+
+Split-half on the combined filter: +500% (t 2.49) then +685% (t 2.73) — both positive,
+both significant.
+
+**But weight these very unequally.** Eighteen cuts were tested (5 weekdays, 5 vol
+quintiles, 4 gap buckets, 4 prior-day buckets). Finding two or three that look good is
+what chance produces at that width.
+
+* **The vol filter is credible** — it independently replicates the overnight
+  volatility result found earlier on different code and different cuts. Two
+  independent arrivals at "do not hold overnight in the top vol quintile" is evidence.
+* **Thursday (t 0.03 on its own) and prior-day 0–3% are single-sample findings** from
+  an 18-cut search, with no mechanism proposed and no out-of-sample test. They are the
+  best-looking slices of a search, and the honest prior is that most of that
+  advantage decays. Do not size on them.
+
+The defensible version of the answer is the narrow one: **don't hold overnight when
+SOXL's trailing volatility is in its top quintile.** Everything else in the table is a
+hypothesis, not a finding.
+
 ## Limitations
 
 * **Regular hours only.** The file is 09:30–15:59; there is no pre/post-market data.
@@ -1136,7 +1220,7 @@ Files are tagged `up<bps>_dn<bps>` — `up500_dn200` is 5%/2%, `up400_dn150` is 
 `premium_selling.py`, `put_spread.py`, `collar.py`, `exit_rules.py`, `backtest.py` and `overnight.py` print to stdout and write nothing;
 `backtest.py`, `overnight.py` and `intraday_short.py` take an optional cost in bps
 per side; `intraday_short.py` also takes an annual borrow rate. `overnight_vol_filter.py` and
-`intraday_vol_filter.py` take an optional cost in bps per side. `collar.py` needs cached extracts of both put and call prints at the
+`intraday_vol_filter.py` and `take_profit.py` take an optional cost in bps per side. `collar.py` needs cached extracts of both put and call prints at the
 15:55 / 09:30 stamps. `protection_cost.py` needs the option files
 (`git lfs pull --include="raw_data/SOXL_intraday_5m_exp_*.csv"`, ~4 GB) and a cached
 extract of put prints at the 15:55 / 09:30 stamps. `independence_check.py` takes an optional lookback in bars; `tradeability.py`
