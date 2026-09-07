@@ -566,6 +566,87 @@ for itself in something you wanted.
 insurance** — its expectancy is negative by construction, the point is that it is the
 one thing measured in this lab whose protection gets *better* as the night gets worse.
 
+## Buying the put and selling a call against it — the collar
+
+`collar.py` puts the second leg on the *other* side: keep the put whole, sell a call
+to pay for it, give up upside instead of downside. That is a different trade-off from
+the debit spread, and it measures very differently. Uses `raw_data/SOXL_intraday_5m_exp_*.csv`
+for both rights — 187,032 call prints alongside the 161,613 put prints.
+
+### The risk transformation is real, and the coverage is right way up
+
+3% OTM put / 3% OTM call, 3–7 DTE, 634 nights, holding 100 shares through the night:
+
+| position | mean | sd | worst | best | Sharpe |
+|---|---|---|---|---|---|
+| stock alone | 27.5 bp | 419.7 bp | −2,157 bp | 1,987 bp | 1.04 |
+| stock + collar @ 0% spread | 1.7 bp | **135.8 bp** | **−592 bp** | 477 bp | 0.20 |
+
+Volatility falls **3.1×** and the worst night **3.6×**. Unlike the debit spread,
+coverage *rises* with the size of the gap — 71% on −3 to 0%, 75% on −6 to −3%,
+**86% worse than −6%** — because on a down gap the put gains **and** the short call
+also gains. Both legs pull the same way. That is the structural difference from the
+put spread, where the short leg fought you exactly when it mattered.
+
+The median net debit is **0 bp**: at 3%/3% the call fully finances the put.
+
+### But the call costs 2.5× more than the put it finances
+
+Leg attribution over the same 634 nights, zero spread:
+
+| | bp/night |
+|---|---|
+| stock overnight drift | **+27.5** |
+| long put leg | −7.4 |
+| **short call leg** | **−18.4** |
+| collar net | +1.7 |
+
+| leg | 335 up nights | 299 down nights |
+|---|---|---|
+| call | **−135.2 bp** | +112.5 bp |
+| put | −117.2 bp | +115.6 bp |
+
+On a >6% up gap the collar surrenders 747 bp of a 931 bp rally — you keep 20%.
+
+### Vol-matched, the protective put alone beats both
+
+A structure that cuts volatility must be compared at equal risk:
+
+| position | mean | sd | Sharpe | **vol-matched mean** |
+|---|---|---|---|---|
+| stock alone | 27.5 bp | 419.7 bp | 1.04 | 27.5 bp |
+| **stock + long put only** | 20.1 bp | 269.3 bp | **1.18** | **31.3 bp** |
+| stock + collar | 1.7 bp | 135.8 bp | 0.20 | 5.3 bp |
+
+**At zero spread the protective put alone is the only overlay in this lab that beats
+holding the stock** — Sharpe 1.18 against 1.04, and 31.3 bp against 27.5 bp once
+levered to equal volatility. Adding the call takes that to 5.3 bp. At a realistic 5%
+per-leg spread everything is negative again: put-only −14.0 bp/night, collar −66.4.
+
+### The caveat that matters most
+
+SOXL's overnight drift over this sample is **+27.5 bp/night — about +69%/yr from gaps
+alone.** A short call is structurally punished in that regime, so **the call-leg
+result is the most sample-dependent number in this lab.** In a flat or falling market
+the collar would look materially better, and nothing measured here rules that out.
+The put-leg and coverage results do not depend on the drift the same way; the −18.4
+bp/night call cost does.
+
+### Every structure measured, together
+
+| structure | mean @ 0 spread | @ 5% spread | tail behaviour |
+|---|---|---|---|
+| **long put** | −6.6 bp overlay / **+31.3 bp vol-matched** | −23.0 bp | covers 58–86% of a big gap |
+| **collar** | +1.7 bp / +5.3 vol-matched | −66.4 bp | covers 86%, keeps 20% of a big rally |
+| long vertical | −3.1 bp | −70.6 bp | covers 12%; can lose on a −12% night |
+| short put | +5.8 bp | −11.6 bp | worst night −1,212 bp |
+| short vertical | +2.2 bp | −52.3 bp | worst night −336 bp |
+
+The collar is the first two-leg structure here that is not dominated on risk — it
+genuinely converts a fat-tailed holding into a narrow one, with coverage that improves
+as the night gets worse. What it cannot do is survive the spread, and in this sample
+it pays for its protection with more upside than the protection is worth.
+
 ## Limitations
 
 * **Regular hours only.** The file is 09:30–15:59; there is no pre/post-market data.
@@ -619,7 +700,9 @@ Files are tagged `up<bps>_dn<bps>` — `up500_dn200` is 5%/2%, `up400_dn150` is 
 | `out/retreat_episodes_1min_intrabar_<tag>.csv` | same for the intrabar variant |
 
 `independence_check.py`, `tradeability.py`, `edge_test.py`, `protection_cost.py` and
-`premium_selling.py` and `put_spread.py` print to stdout and write nothing. `protection_cost.py` needs the option files
+`premium_selling.py`, `put_spread.py` and `collar.py` print to stdout and write
+nothing. `collar.py` needs cached extracts of both put and call prints at the
+15:55 / 09:30 stamps. `protection_cost.py` needs the option files
 (`git lfs pull --include="raw_data/SOXL_intraday_5m_exp_*.csv"`, ~4 GB) and a cached
 extract of put prints at the 15:55 / 09:30 stamps. `independence_check.py` takes an optional lookback in bars; `tradeability.py`
 takes an optional per-side cost in bps (`python3 retreat_lab/tradeability.py 5`).
