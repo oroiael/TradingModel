@@ -876,6 +876,66 @@ cost-fragile bet on a regime that fully reversed in 2023, with a −78% drawdown
 −31% single night. It is a real finding about **where SOXL's return lives**, and a
 weak basis for a strategy.
 
+## The intraday short — and a correction to how the decomposition was described
+
+`intraday_short.py` trades the other leg: short at the open, cover at the close, flat
+overnight. An intraday-only short is flat at settlement so it typically avoids the
+overnight borrow charge, but borrow is a parameter here rather than an assumption.
+
+### It loses catastrophically — and so does the long
+
+| strategy | total | CAGR | max DD | Sharpe | worst day |
+|---|---|---|---|---|---|
+| buy and hold | +528% | 32.2% | | | |
+| intraday **long** (open→close) | −80% | −21.9% | −92.6% | 0.16 | −21.1% |
+| **intraday SHORT (open→close)** | **−99%** | **−47.6%** | −99.4% | −0.28 | **−51.7%** |
+| overnight long (close→open) | +1,586% | 53.6% | −78.2% | 0.97 | −31.2% |
+| short the day + long the night | −74% | −18.6% | −98.5% | 0.40 | −51.7% |
+
+Costs and borrow barely matter — at **zero** cost and zero borrow the short still
+returns −98%. It loses in six of seven years, in both sample halves (−88% / −88%),
+and **t = −0.71** on the daily mean. There is no intraday edge in either direction.
+
+### Why: it is variance drag, not drift
+
+| leg | arithmetic mean | geometric mean | daily sd | variance drag |
+|---|---|---|---|---|
+| **intraday** | **+0.0770%/day (+21.4%/yr)** | −0.0784%/day (**−17.9%/yr**) | 5.58% | **39%/yr** |
+| overnight | +0.2919%/day (+108.5%/yr) | +0.1912%/day (+61.8%/yr) | 4.46% | 25%/yr |
+
+**The intraday leg's arithmetic mean is positive.** Its −17.9%/yr compounded result is
+entirely the ½σ² penalty of compounding a 5.58%-a-day series — 39%/yr of pure drag on
+a 3× levered ETF.
+
+This corrects how the previous section described it. Calling intraday "a persistent
+−19.1%/yr headwind" implies a drift you can short. **You cannot short variance drag.**
+Shorting flips the sign of the mean — turning +0.077%/day into −0.097%/day after
+costs — while the drag stays exactly where it was, because drag is symmetric. The
+short is charged twice and compounds to −99%.
+
+The overnight leg is different in kind, not just in sign: its arithmetic mean
+(+108.5%/yr) is large enough to survive its own 25%/yr drag. That, not a directional
+tilt, is why one leg works and the other cannot.
+
+### The tail closes the case
+
+Worst days for the short: **−51.7%**, −25.3%, −24.0%, −19.0%, −18.6%. **262 days worse
+than −5%, 47 worse than −10%.** A single 2025 session took more than half the account.
+Dropping the best 5, 10, 20 or 50 days changes nothing — it is already −99%.
+
+### Where the whole investigation lands
+
+| | arithmetic | geometric | verdict |
+|---|---|---|---|
+| overnight long | +108.5%/yr | **+61.8%/yr** | works, but 20 nights carry it and 2023 reversed it |
+| intraday long | +21.4%/yr | −17.9%/yr | positive edge, eaten by drag |
+| intraday short | −21.4%/yr | −47.6%/yr | drag *and* negative mean |
+
+The only leg with a mean big enough to beat its own compounding penalty is the
+overnight one, and the previous section already showed that leg is 20 nights of luck
+in a 1,652-night sample. Everything else in this lab is a way of paying friction to
+hold a zero-mean exposure.
+
 ## Limitations
 
 * **Regular hours only.** The file is 09:30–15:59; there is no pre/post-market data.
@@ -930,7 +990,8 @@ Files are tagged `up<bps>_dn<bps>` — `up500_dn200` is 5%/2%, `up400_dn150` is 
 
 `independence_check.py`, `tradeability.py`, `edge_test.py`, `protection_cost.py` and
 `premium_selling.py`, `put_spread.py`, `collar.py`, `exit_rules.py`, `backtest.py` and `overnight.py` print to stdout and write nothing;
-`backtest.py` and `overnight.py` take an optional cost in bps per side. `collar.py` needs cached extracts of both put and call prints at the
+`backtest.py`, `overnight.py` and `intraday_short.py` take an optional cost in bps
+per side; `intraday_short.py` also takes an annual borrow rate. `collar.py` needs cached extracts of both put and call prints at the
 15:55 / 09:30 stamps. `protection_cost.py` needs the option files
 (`git lfs pull --include="raw_data/SOXL_intraday_5m_exp_*.csv"`, ~4 GB) and a cached
 extract of put prints at the 15:55 / 09:30 stamps. `independence_check.py` takes an optional lookback in bars; `tradeability.py`
