@@ -12,6 +12,75 @@ Stdlib only. Measured from `SOXL_1min.csv` — 1-min OHLCV, **2019-12-31 → 202
 inconsistencies, split-adjusted (largest overnight moves are real events — COVID
 March-2020, 2024-08-05 — not basis breaks). Cross-checked on `SOXL_5min_6Years.csv`.
 
+## Scoreboard — what actually works on this instrument
+
+`scoreboard.py` re-runs every candidate on identical terms. Same window, same cost,
+same metrics. 2019-12-31 → 2026-07-30 (6.6y), 1 bp per side:
+
+| strategy | total | CAGR | max DD | Sharpe | trades | t |
+|---|---|---|---|---|---|---|
+| overnight, RV20 < p80 | **+2,826%** | 67.1% | −59.2% | 1.25 | 1,306 | 3.21 |
+| **overnight, RV20 < p60** | **+2,248%** | **61.6%** | **−29.5%** | **1.38** | 979 | **3.53** |
+| overnight only | +1,586% | 53.6% | −78.2% | 0.97 | 1,652 | 2.48 |
+| **buy and hold** | **+528%** | 32.2% | −90.5% | 0.83 | 1 | — |
+| best intraday bracket (of 1,024) | +34% | 4.6% | −16.2% | 0.80 | 1,653 | 2.05 |
+| intraday long | −80% | −21.9% | −92.6% | 0.16 | 1,653 | 0.42 |
+| intraday short | −99% | −47.6% | −99.4% | −0.28 | 1,653 | −0.71 |
+| 2%/0.5% retreat momentum | −99% | −53.3% | −99.4% | −1.49 | 7,014 | −3.82 |
+
+Cost sensitivity of the only two that beat buy-and-hold:
+
+| bps/side | overnight | overnight RV20<p60 |
+|---|---|---|
+| 0 | +2,245% | +2,754% |
+| 1 | +1,586% | +2,248% |
+| 2 | +1,112% | +1,831% |
+| **5** | **+350%** | **+975%** |
+
+The filter also makes it *more* cost-robust, because it trades 40% fewer nights.
+
+### One thing works
+
+**Hold SOXL overnight; skip the nights when trailing realised volatility is in its
+top quintiles.** It beat buy-and-hold on return, on drawdown and on Sharpe, survived
+every robustness test applied (positive in 6 of 7 years, both split halves
+significant, still +271% after deleting its 20 best nights), and holds up to 5 bps of
+cost.
+
+Its caveats, all recorded above and none of them small: the threshold was fitted on
+this data; "low vol" means below **107.6% annualised**, not calm; the **VIX-like
+proxy does not confirm it** (lowest VXX bucket is the *worst*); the drawdown is still
+−29.5%; and the overnight/intraday split is a **documented market anomaly**, not a
+discovery here — which means it is not a fluke of this sample, and also that plenty
+of people already know about it.
+
+### Everything else fails for one of two structural reasons
+
+**Intraday: variance drag.** The intraday leg has a *positive* arithmetic mean
+(+21.4%/yr) and a negative geometric one (−17.9%/yr). The 39%/yr gap is ½σ² on a
+5.58%-a-day series. Exit rules redistribute a distribution; they cannot raise its
+mean. That is why 1,024 bracket configurations produced 5 significant results against
+26 expected by chance, why tighter stops are only ever *less bad*, and why shorting
+is worse still — the short flips the mean negative and keeps the drag.
+
+**Options: the spread exceeds the edge.** Mid-market, the overnight put costs ~6.6 bp
+and the short collects ~5.8 bp. Crossing costs 16–33 bp naked and roughly double for
+a vertical. Every structure tested — long put, short put, long vertical, short
+vertical, collar — is priced through. The naked long put is the only one that does
+its job, and only as insurance: its expectancy is negative by construction, but it is
+the one thing measured here whose protection *improves* as the night gets worse
+(58–86% coverage on a >6% gap, against 12% for the debit spread).
+
+### What the original question was worth
+
+The retreat timing study that started this — how long SOXL holds a 2% upswing before
+giving back 0.5% — produced **no tradeable signal**. The trigger is indistinguishable
+from noise (t −1.1 to +1.0), the mechanical trade compounds to −99%, and it is worse
+than a random entry. What it did surface, incidentally, is the one durable fact in
+this repo's version of SOXL: **the return is overnight, the risk is overnight, and
+the intraday session is a variance-drag machine.** Everything that works here is a
+consequence of that sentence; everything that fails, of ignoring it.
+
 ## The event
 
 1. **Anchor** — the running trough while no episode is open.
@@ -1381,7 +1450,7 @@ Files are tagged `up<bps>_dn<bps>` — `up500_dn200` is 5%/2%, `up400_dn150` is 
 `premium_selling.py`, `put_spread.py`, `collar.py`, `exit_rules.py`, `backtest.py` and `overnight.py` print to stdout and write nothing;
 `backtest.py`, `overnight.py` and `intraday_short.py` take an optional cost in bps
 per side; `intraday_short.py` also takes an annual borrow rate. `overnight_vol_filter.py` and
-`intraday_vol_filter.py` and `take_profit.py` and `bracket.py` and `floor_sweep.py` take an optional cost in bps per side. `collar.py` needs cached extracts of both put and call prints at the
+`intraday_vol_filter.py` and `take_profit.py` and `bracket.py` and `floor_sweep.py` and `scoreboard.py` take an optional cost in bps per side. `collar.py` needs cached extracts of both put and call prints at the
 15:55 / 09:30 stamps. `protection_cost.py` needs the option files
 (`git lfs pull --include="raw_data/SOXL_intraday_5m_exp_*.csv"`, ~4 GB) and a cached
 extract of put prints at the 15:55 / 09:30 stamps. `independence_check.py` takes an optional lookback in bars; `tradeability.py`
