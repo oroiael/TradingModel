@@ -936,6 +936,81 @@ overnight one, and the previous section already showed that leg is 20 nights of 
 in a 1,652-night sample. Everything else in this lab is a way of paying friction to
 hold a zero-mean exposure.
 
+## Holding overnight only when volatility is low
+
+`overnight_vol_filter.py` conditions the overnight leg on volatility. **Data note:**
+the VIX index itself was not obtainable — it is absent from the repo, and IBKR
+returns "Details currently unavailable" for contract 13455763 (index subscription).
+Two substitutes are used and reported side by side, both computed strictly through
+the close of day D so there is no look-ahead:
+
+* **RV20** — SOXL's own trailing 20-session realised volatility, annualised.
+* **VXXr** — VXX over its own 60-day average. VXX's *level* is useless across time
+  (roll decay and reverse splits put 2026's maximum below 2020's minimum), but the
+  ratio to its own recent average detrends that and tracks the vol regime.
+
+### On SOXL's own realised vol, the filter improves everything
+
+| filter | nights | total | CAGR | max DD | Sharpe | worst night |
+|---|---|---|---|---|---|---|
+| all nights | 1,632 | +1,482% | 52.1% | **−78.2%** | 0.95 | **−31.2%** |
+| **RV20 below p60** | 979 | **+2,248%** | **61.6%** | **−29.5%** | **1.38** | −15.5% |
+| RV20 below p80 | 1,305 | +2,729% | 66.2% | −59.2% | 1.24 | −15.5% |
+
+By quintile, and it is close to monotone:
+
+| RV20 quintile | nights | total | Sharpe | worst | mean/night |
+|---|---|---|---|---|---|
+| 1 (lowest vol) | 326 | +144% | 0.79 | −7.5% | 0.312% |
+| 2 | 326 | +278% | 1.01 | −15.5% | **0.461%** |
+| 3 | 327 | +155% | 0.65 | −13.7% | 0.364% |
+| 4 | 326 | +20% | 0.25 | −15.0% | 0.157% |
+| **5 (highest vol)** | 327 | **−44%** | 0.06 | **−31.2%** | 0.060% |
+
+**The top vol quintile loses money outright.** Excluding the top two takes the whole
+strategy from +1,482% to +2,248% while cutting the drawdown from −78.2% to −29.5%.
+
+### It is not keeping the big winners — it is dropping the big losers
+
+The 20 best nights sit at a **median RV20 percentile of 95**; the 20 worst at **93**.
+Only 1 of the best 20 is in the lowest vol quintile, and 0 of the worst 20. High vol
+produces both tails. The filter gives up most of the biggest up-nights and still ends
+ahead, because in that bucket the losses outweigh the wins.
+
+That also fixes the fragility. Unfiltered, dropping the best 20 nights took the
+strategy to **−6%**. Filtered, it still returns **+271%**:
+
+| | unfiltered | RV20 below p60 |
+|---|---|---|
+| full | +1,482% | +2,248% |
+| drop best 20 | **−6%** | **+271%** |
+| drop best 50 | −95% | −42% |
+
+### Robustness
+
+| test | result |
+|---|---|
+| by year | positive in **6 of 7** (2022 −19.0% against −69.7% unfiltered; 2023 **+23.0%** against −0.2%) |
+| split halves | +232% (t 2.09) then +607% (t 2.86) — both positive, both significant |
+| worst night per year | −6.8% to −15.5%, against −31.2% unfiltered |
+| t on the mean | **3.53** (0.379%/night, sd 3.36%), against 2.48 unfiltered |
+
+This is the only result in this lab that survived every robustness test applied to it.
+
+### Three caveats that matter
+
+1. **The VIX-like proxy does not confirm it.** On VXX/MA60 the quintiles are
+   non-monotone and the *lowest* bucket is the worst: −56% total, Sharpe −0.38.
+   Trading below its p20 loses money. So this is a **SOXL-realised-vol** effect, not a
+   "VIX is low" effect — the two measure different things, and the question as asked
+   ("when VIX is low") is answered **no** by the closest proxy available here.
+2. **"Low vol" here is not calm.** The p60 threshold is **107.6% annualised**. This
+   filter does not select quiet markets; it selects SOXL below its own median chaos.
+3. **The threshold was chosen from the same data.** p20/p40/p60/p80 were all tested
+   and p60 reported. p40 (+822%) and p80 (+2,729%) also beat unfiltered, so it is not
+   a knife-edge, but the exact cut is fitted and should be expected to degrade
+   out of sample.
+
 ## Limitations
 
 * **Regular hours only.** The file is 09:30–15:59; there is no pre/post-market data.
@@ -991,7 +1066,8 @@ Files are tagged `up<bps>_dn<bps>` — `up500_dn200` is 5%/2%, `up400_dn150` is 
 `independence_check.py`, `tradeability.py`, `edge_test.py`, `protection_cost.py` and
 `premium_selling.py`, `put_spread.py`, `collar.py`, `exit_rules.py`, `backtest.py` and `overnight.py` print to stdout and write nothing;
 `backtest.py`, `overnight.py` and `intraday_short.py` take an optional cost in bps
-per side; `intraday_short.py` also takes an annual borrow rate. `collar.py` needs cached extracts of both put and call prints at the
+per side; `intraday_short.py` also takes an annual borrow rate. `overnight_vol_filter.py`
+takes an optional cost in bps per side. `collar.py` needs cached extracts of both put and call prints at the
 15:55 / 09:30 stamps. `protection_cost.py` needs the option files
 (`git lfs pull --include="raw_data/SOXL_intraday_5m_exp_*.csv"`, ~4 GB) and a cached
 extract of put prints at the 15:55 / 09:30 stamps. `independence_check.py` takes an optional lookback in bars; `tradeability.py`
