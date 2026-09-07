@@ -725,6 +725,80 @@ above was chasing a way to survive the overnight gap; **the cheapest way to surv
 is not to be there.** That only costs the overnight drift, which the entry signal does
 not earn anyway.
 
+## Backtesting the underlying-only rules — and a correction
+
+`exit_rules.py` compared exits per-trade. Per-trade means hide compounding and
+turnover, so `backtest.py` runs each rule as a full strategy: compounded equity,
+costs per side, drawdown, against buy-and-hold over the same 6.6 years. All-in /
+all-out, never levered, no overlapping trades.
+
+### Every variant loses, most of them catastrophically
+
+At 1 bp per side (2 bp round trip):
+
+| strategy | total | CAGR | max DD | Sharpe | trades | in market |
+|---|---|---|---|---|---|---|
+| **buy and hold** | **+542%** | **+32.7%** | | | 1 | 100% |
+| trail 2%, flat at bell | −42% | −7.9% | −71.2% | 0.15 | 4,409 | 56.8% |
+| flat at bell only (no stop) | −73% | −18.2% | −83.1% | 0.16 | 1,658 | 90.0% |
+| trail 1%, flat at bell | −79% | −20.9% | −87.1% | −0.31 | 6,083 | 29.2% |
+| time 30m, flat at bell | −82% | −22.9% | −93.8% | −0.18 | 5,528 | 24.7% |
+| trail 0.5%, flat at bell | −95% | −36.9% | −96.4% | −1.32 | 7,014 | 12.1% |
+| trail 0.5%, hold overnight | −99% | −53.3% | −99.4% | −1.49 | 7,014 | 12.2% |
+
+Set costs to zero and only one variant turns positive — trail 2% flat at bell,
+**+40% against buy-and-hold's +542%.** The per-trade improvements were real and they
+do not survive contact with turnover: **1,066 round trips a year is 21.3%/yr of pure
+friction at 1 bp per side, 42.6%/yr at 2 bp.**
+
+### The entry is worse than random
+
+| rule | trigger entry | random entry, same count |
+|---|---|---|
+| trail 1%, flat at bell | **−79%** | −22% |
+| time 30m, flat at bell | −82% | −85% |
+
+Entering on a +2% upswing is *actively worse* than entering at a random minute. This
+does not contradict the earlier finding that the trigger has no directional edge
+(t −1.1 to +1.0) — it explains it. The trigger is not predictive of direction, but it
+is systematically bad for a **trailing stop**, because you enter at a local extreme
+where the stop sits immediately under a fresh peak. Recall 26.6% of triggers *are*
+the peak.
+
+### The correction: what "flat at the bell" actually costs
+
+Decomposing SOXL's 6.6 years into the two legs:
+
+| leg | total | annualised |
+|---|---|---|
+| **overnight (close → next open), 1,652 nights** | **+2,320%** | **+62.3%/yr** |
+| **intraday (open → close), 1,652 sessions** | **−75%** | **−19.1%/yr** |
+
+**SOXL's entire return is overnight. The intraday session is a persistent −19.1%/yr
+headwind.** Buy-and-hold's +542% is the product of the two.
+
+This overturns the recommendation this lab made one section earlier. "Flat at the
+bell" was offered as a free improvement because it improved every per-trade metric —
+mean, dispersion, worst case. It improved them **by removing exposure to the only
+part of the day that makes money.** The claim that it "costs only the overnight
+drift, which this entry signal does not earn anyway" was right about the signal and
+badly wrong about the magnitude: that drift is +62.3%/yr, the whole instrument.
+
+So the per-trade table was not measuring a better rule. It was measuring the risk
+reduction you get from being flat — which you can obtain more cheaply and completely
+by not trading at all.
+
+### What survives
+
+Nothing, as a strategy. Any intraday long on SOXL fights a −19.1%/yr drift before
+costs, and this entry adds 1,066 round trips a year of friction on top. The three
+exit-rule claims tested in the previous section remain correct **as statements about
+exits** — a clock exit really does eliminate slippage, late entries really are far
+worse, tight stops really do have the lowest dispersion — but they are refinements to
+a position that should not be opened. **The measured conclusion of this lab is that
+the tradeable content of the retreat timing study is zero, and the one durable fact
+it surfaced is about when SOXL earns its return, not about upswings and retreats.**
+
 ## Limitations
 
 * **Regular hours only.** The file is 09:30–15:59; there is no pre/post-market data.
@@ -778,8 +852,8 @@ Files are tagged `up<bps>_dn<bps>` — `up500_dn200` is 5%/2%, `up400_dn150` is 
 | `out/retreat_episodes_1min_intrabar_<tag>.csv` | same for the intrabar variant |
 
 `independence_check.py`, `tradeability.py`, `edge_test.py`, `protection_cost.py` and
-`premium_selling.py`, `put_spread.py`, `collar.py` and `exit_rules.py` print to
-stdout and write nothing. `collar.py` needs cached extracts of both put and call prints at the
+`premium_selling.py`, `put_spread.py`, `collar.py`, `exit_rules.py` and `backtest.py` print
+to stdout and write nothing; `backtest.py` takes an optional cost in bps per side. `collar.py` needs cached extracts of both put and call prints at the
 15:55 / 09:30 stamps. `protection_cost.py` needs the option files
 (`git lfs pull --include="raw_data/SOXL_intraday_5m_exp_*.csv"`, ~4 GB) and a cached
 extract of put prints at the 15:55 / 09:30 stamps. `independence_check.py` takes an optional lookback in bars; `tradeability.py`
