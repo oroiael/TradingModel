@@ -1164,6 +1164,90 @@ The defensible version of the answer is the narrow one: **don't hold overnight w
 SOXL's trailing volatility is in its top quintile.** Everything else in the table is a
 hypothesis, not a finding.
 
+## The three-way bracket: target, trailing stop, adaptive time stop
+
+`bracket.py` implements the full proposal — enter by time, take profit at +X%, cut on
+a 0.5% retreat from the running peak, and if neither fires exit at an **adaptive**
+time limit set to the trailing-6-month median minutes-to-target. Same-minute
+target+stop collisions resolve as **stop first** (pessimistic); stops fill at their
+trigger (optimistic by the 24–30 bp of slippage measured earlier).
+
+### The risk control is real. The edge is not.
+
+Enter 09:30, target +1%, adding one rule at a time:
+
+| configuration | target hit | stopped | mean | total | max DD | t |
+|---|---|---|---|---|---|---|
+| target only, bell backstop | **80.0%** | — | −0.060% | −80% | **−92.6%** | −0.91 |
+| + trailing stop 0.5% | **21.2%** | 78.8% | −0.012% | −21% | **−38.4%** | −0.86 |
+| + adaptive time stop | 10.8% | 40.8% | −0.023% | −33% | −42.8% | −1.76 |
+| trailing stop 1% instead | 11.8% | 12.5% | −0.029% | −40% | −52.1% | −1.89 |
+| trailing stop 2% instead | 12.0% | 1.2% | −0.030% | −42% | −57.4% | −1.88 |
+
+**The stop more than halves the drawdown and more than halves the loss** — from −80%
+to −21%, −92.6% to −38.4%. As risk control it works. It just never crosses zero, and
+every entry time and target tested has a negative mean with t between −0.80 and −4.09.
+
+### Why: 0.5% is inside the noise, so the stop cuts risers, not collapses
+
+**6.13% of individual SOXL minutes move ≥0.5%** (1.0%: 0.86%; 2.0%: 0.06%). A 0.5%
+trailing stop is therefore triggered by ordinary one-minute chop. Adding it drops the
+target hit rate from **80.0% to 21.2%** — it kills three of every four trades that
+would have reached +1%, before the rise can develop.
+
+The economics, by exit reason:
+
+| exit | n | share | mean | contribution |
+|---|---|---|---|---|
+| target | 178 | 10.8% | +0.980% | **+174.4 pp** |
+| **stop** | 675 | 40.8% | **−0.520%** | **−351.0 pp** |
+| time | 800 | 48.4% | +0.173% | +138.5 pp |
+
+Losing 0.52% on 40.8% of trades costs more than winning 0.98% on 10.8% earns. To break
+even the target would need roughly double its hit rate, or the stop half its frequency
+— and those move together.
+
+### The adaptive time stop has a bias built into its estimator
+
+The trailing-6-month median chose **1 minute**, range 1–30. That is not a bug in the
+code; it is what the definition produces. Minutes-to-target is measured *only on
+trades that hit the target*, and conditioning on hitting selects fast moves — the
+median winner takes 1 minute. Using the winners' median as a waiting time therefore
+**systematically cuts off the slower winners**. Fixed 5/15/60-minute limits all give
+the same result (−21%, −20%, −21%), because the 0.5% stop fires first regardless.
+
+### The full grid: 200 configurations
+
+5 entry times × 4 targets × 5 stops × (bell | overnight):
+
+| best by total | n | hit | mean | total | t |
+|---|---|---|---|---|---|
+| 15:30, +2.0% / −5.0%, **overnight** | 1,641 | 10.1% | 0.237% | +1,239% | 2.43 |
+| 11:00, +3.0% / −3.0%, **overnight** | 1,653 | 27.0% | 0.187% | +1,080% | 2.76 |
+| 15:00, +0.5% / −5.0%, **overnight** | 1,641 | 68.6% | 0.156% | +779% | 2.96 |
+| *worst:* 09:30, +2.0% / −5.0% | 1,653 | 57.4% | −0.107% | −91% | −1.59 |
+
+71 of 200 are positive; 13 have t > 2, against ~10 expected by chance at that width.
+
+**Every top configuration holds overnight, and every one uses a stop so wide it almost
+never fires.** The winners are the settings that switch the bracket *off* and let the
+overnight leg run. Conversely the 09:30 entries — where the bracket has the whole
+session to work — are the worst in the grid.
+
+### What this says about the idea
+
+The reasoning behind it is sound and the instinct to cut before a collapse is the
+right one; it runs into a specific empirical fact rather than a logical error. At 0.5%
+on SOXL **you cannot distinguish a riser from noise**, so a stop at that distance
+spends its time cutting the winners it was meant to protect. Widening it to where it
+only catches real collapses (2–5%) means it essentially never fires, and what is left
+is the overnight hold with a decorative bracket attached.
+
+The bracket's genuine contribution is drawdown: −92.6% → −38.4% at 09:30, and the
+overnight configs keep most of their return while capping the tail. That is worth
+having as **risk management on a position held for another reason**. It is not an
+entry edge, and no setting in 200 made it one.
+
 ## Limitations
 
 * **Regular hours only.** The file is 09:30–15:59; there is no pre/post-market data.
@@ -1220,7 +1304,7 @@ Files are tagged `up<bps>_dn<bps>` — `up500_dn200` is 5%/2%, `up400_dn150` is 
 `premium_selling.py`, `put_spread.py`, `collar.py`, `exit_rules.py`, `backtest.py` and `overnight.py` print to stdout and write nothing;
 `backtest.py`, `overnight.py` and `intraday_short.py` take an optional cost in bps
 per side; `intraday_short.py` also takes an annual borrow rate. `overnight_vol_filter.py` and
-`intraday_vol_filter.py` and `take_profit.py` take an optional cost in bps per side. `collar.py` needs cached extracts of both put and call prints at the
+`intraday_vol_filter.py` and `take_profit.py` and `bracket.py` take an optional cost in bps per side. `collar.py` needs cached extracts of both put and call prints at the
 15:55 / 09:30 stamps. `protection_cost.py` needs the option files
 (`git lfs pull --include="raw_data/SOXL_intraday_5m_exp_*.csv"`, ~4 GB) and a cached
 extract of put prints at the 15:55 / 09:30 stamps. `independence_check.py` takes an optional lookback in bars; `tradeability.py`
