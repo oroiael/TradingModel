@@ -647,6 +647,84 @@ genuinely converts a fat-tailed holding into a narrow one, with coverage that im
 as the night gets worse. What it cannot do is survive the spread, and in this sample
 it pays for its protection with more upside than the protection is worth.
 
+## The three underlying-only claims, tested
+
+This lab asserted three risk-management claims and did not check them.
+`exit_rules.py` does. Entry is always the same +2% trigger (7,014 of them, no
+directional edge), so only the exit rule varies — these are exit-quality questions,
+judged on dispersion, tail and execution slippage, not on profit.
+
+### Claim 1 — "time stops beat price stops": **supported, but "beats" is too strong**
+
+At matched holding periods:
+
+| exit rule | median hold | mean | sd | p1 | slippage |
+|---|---|---|---|---|---|
+| trailing stop 0.50% | 6 min | −4.21 bp | 136.2 | −225 bp | **29.6 bp** |
+| time stop 5 min | 5 min | **−1.51 bp** | **123.1** | **−336 bp** | **0** |
+| trailing stop 1.00% | 15 min | −2.43 bp | 201.3 | −386 bp | 33.9 bp |
+| time stop 15 min | 15 min | −2.01 bp | 209.1 | −549 bp | **0** |
+
+The clock exit gives an equal-or-better mean and **eliminates the 26–34 bp of
+slippage entirely** — a stop has to be filled, a clock does not. But it has a
+*fatter left tail* (p1 −336 vs −225), because it never cuts a loser. So it is a
+trade, not a free win: you swap guaranteed slippage for an uncapped tail.
+
+### Claim 2 — "don't set a stop tighter than ~0.5%": **not supported**
+
+| trailing stop | mean | sd | worst | slippage | spans a close |
+|---|---|---|---|---|---|
+| **0.25%** | **−1.74 bp** | **106.9** | −2,799 | **28.3 bp** | **1.9%** |
+| 0.50% | −4.21 bp | 136.2 | −2,799 | 29.6 bp | 3.4% |
+| 1.00% | −2.43 bp | 201.3 | −2,799 | 33.9 bp | 8.5% |
+| 3.00% | +22.48 bp | 493.9 | −2,799 | 60.6 bp | 43.2% |
+
+The claim was that below ~0.5% you stop on noise and it costs you. **It does not.**
+The 0.25% stop has the *lowest* dispersion, the *lowest* slippage and the *least*
+overnight exposure, with a mean no worse than 0.5%. The reasoning was wrong:
+stopping on noise costs nothing when there is no edge to protect. The rising mean at
+wider stops (+22 bp at 3%) is not stop quality — it is holding longer and collecting
+more of SOXL's drift, bought with 4.6× the dispersion.
+
+The real argument against a very tight stop is **turnover** — more round trips, more
+commission and spread — and this test does not price that. It is a cost question, not
+a noise question.
+
+### Claim 3 — "don't open a stop-managed position in the last 30 minutes": **strongly supported**
+
+Trailing stop 0.50%, split by entry time:
+
+| entries | n | mean | sd | worst | spans a close | slippage |
+|---|---|---|---|---|---|---|
+| before 15:30 | 6,550 | −2.59 bp | 98.1 | −436 | 0.6% | 23.9 bp |
+| **15:30–16:00** | 464 | **−27.07 bp** | 379.6 | **−2,799** | 42.5% | **110.7 bp** |
+| late, forced flat at the bell | 464 | **+8.84 bp** | 95.9 | −226 | 0% | 27.4 bp |
+
+Late entries are **10× worse in mean, 4× the dispersion, 6× the worst case and 4.6×
+the slippage.** At a 1% stop it is starker still: −53.75 bp and 156.9 bp of slippage.
+
+But the fix is better than the claim. **Do not avoid the entry — force the exit.**
+
+### The finding none of the three claims made
+
+Flattening at the bell rather than holding the stop overnight improves **every metric
+at every stop width**, and costs nothing:
+
+| rule | mean | sd | worst | spans |
+|---|---|---|---|---|
+| stop 0.50%, hold overnight | −4.21 bp | 136.2 | −2,799 | 3.4% |
+| **stop 0.50%, flat at bell** | **−1.86 bp** | **95.4** | **−435** | 0% |
+| stop 1.00%, hold overnight | −2.43 bp | 201.3 | −2,799 | 8.5% |
+| **stop 1.00%, flat at bell** | **+0.55 bp** | **143.5** | **−435** | 0% |
+| stop 2.00%, hold overnight | +1.64 bp | 331.8 | −2,799 | 25.7% |
+| **stop 2.00%, flat at bell** | **+4.03 bp** | **222.1** | **−548** | 0% |
+
+Mean improves, dispersion falls ~30%, and the worst case falls **6×** — from −2,799 bp
+to −435. No premium, no second leg, no options account. The whole options investigation
+above was chasing a way to survive the overnight gap; **the cheapest way to survive it
+is not to be there.** That only costs the overnight drift, which the entry signal does
+not earn anyway.
+
 ## Limitations
 
 * **Regular hours only.** The file is 09:30–15:59; there is no pre/post-market data.
@@ -700,8 +778,8 @@ Files are tagged `up<bps>_dn<bps>` — `up500_dn200` is 5%/2%, `up400_dn150` is 
 | `out/retreat_episodes_1min_intrabar_<tag>.csv` | same for the intrabar variant |
 
 `independence_check.py`, `tradeability.py`, `edge_test.py`, `protection_cost.py` and
-`premium_selling.py`, `put_spread.py` and `collar.py` print to stdout and write
-nothing. `collar.py` needs cached extracts of both put and call prints at the
+`premium_selling.py`, `put_spread.py`, `collar.py` and `exit_rules.py` print to
+stdout and write nothing. `collar.py` needs cached extracts of both put and call prints at the
 15:55 / 09:30 stamps. `protection_cost.py` needs the option files
 (`git lfs pull --include="raw_data/SOXL_intraday_5m_exp_*.csv"`, ~4 GB) and a cached
 extract of put prints at the 15:55 / 09:30 stamps. `independence_check.py` takes an optional lookback in bars; `tradeability.py`
