@@ -1248,6 +1248,83 @@ overnight configs keep most of their return while capping the tail. That is wort
 having as **risk management on a position held for another reason**. It is not an
 entry edge, and no setting in 200 made it one.
 
+## What stop width actually works with a +1% target — intraday only
+
+The previous section drifted into overnight holds, which is not the rule as
+specified. `floor_sweep.py` tests it as stated: enter, exit at +1%, **or** on a dip
+below a floor, **or** after N minutes — whichever is sooner, **no overnight hold.**
+
+The time stop is set from the duration this lab already measured for an upswing
+before it retreats (4 minutes at 1%/0.25%, 6 at 2%/0.5%) rather than the
+median-time-to-target estimator, which conditions on winners and degenerates to 1
+minute.
+
+### The answer: none of them, and tighter is less bad
+
+Enter 09:30, +1% target, fixed floor, 4-minute time stop:
+
+| floor | target hit | stopped | mean | total | max DD |
+|---|---|---|---|---|---|
+| **0.25%** | 18.3% | 77.0% | **−0.011%** | **−18%** | **−30.1%** |
+| 0.50% | 26.0% | 60.0% | −0.022% | −33% | −48.4% |
+| 1.00% | 32.5% | 34.8% | −0.033% | −45% | −58.0% |
+| 3.00% | 34.7% | 2.5% | −0.042% | −54% | −67.9% |
+| 5.00% | 34.7% | 0.2% | −0.041% | −54% | −68.1% |
+
+The full 8×8 matrix of floor width × time stop is **negative in all 64 cells**, from
+−0.8 bp to −6.7 bp per trade:
+
+| floor | 2m | 4m | 6m | 15m | 60m | 390m |
+|---|---|---|---|---|---|---|
+| **0.25%** | −0.9 | −1.1 | −1.0 | −0.9 | −0.8 | −0.8 |
+| 0.50% | −2.4 | −2.2 | −2.0 | −1.8 | −1.9 | −2.0 |
+| 1.00% | −3.2 | −3.3 | −4.1 | −3.5 | −3.7 | −3.8 |
+| 3.00% | −4.3 | −4.2 | −4.9 | −3.5 | −4.5 | −5.0 |
+
+**Tighter is monotonically less bad**, and the reason is not that the stop works. A
+tighter floor cuts the position sooner, so it spends less time exposed to a zero-mean,
+high-variance process. Less exposure, less loss. That is the ½σ² penalty showing up
+again — you are minimising a fee, not capturing an edge.
+
+### Across every entry time: 1,024 configurations
+
+8 entry times × 8 floor widths × 8 time stops × (fixed | trailing):
+
+| best by total | n | hit% | stopped% | mean | total | max DD | t |
+|---|---|---|---|---|---|---|---|
+| 10:00, 0.25% trailing, 10m | 1,653 | 6.4% | **93.5%** | +0.018% | **+34%** | −16.2% | 2.05 |
+| 10:00, 0.25% trailing, 6m | 1,653 | 6.0% | 92.8% | +0.018% | +32% | −16.3% | 1.97 |
+
+* **38 of 1,024 positive (4%).**
+* **5 with t > 2, against about 26 expected by chance at that width.** There are
+  *fewer* significant results than random data would produce.
+
+And the single best of the 1,024 does not survive one extra basis point:
+
+| bps/side | mean/trade | total | t |
+|---|---|---|---|
+| 0.5 | 2.8 bp | +58% | 3.16 |
+| **1.0** | **1.8 bp** | **+34%** | **2.05** |
+| 1.5 | 0.8 bp | +14% | 0.94 |
+| **2.0** | **−0.2 bp** | **−4%** | −0.18 |
+
+251 trades a year, each crossing twice. The whole edge is 1.8 bp per trade; two bps
+per side erases it. And its profile — 6.4% of trades reaching the target, 93.5%
+stopped — is not "catching risers." It is being stopped out nine times in ten and
+losing slightly less than the alternatives.
+
+### The direct answer
+
+**There is no stop width that makes a +1% intraday target profitable on SOXL.** The
+best of 1,024 tested configurations returns +34% over 6.6 years against buy-and-hold's
++542%, sits inside the count expected from chance, and dies at 2 bps per side.
+
+The reason is the same one measured throughout: intraday SOXL has a **positive
+arithmetic mean (+21.4%/yr) and a negative geometric one (−17.9%/yr)**, the gap being
+39%/yr of variance drag. Exit rules redistribute a zero-mean distribution; they cannot
+add to its mean. Narrowing the floor reduces how much of the drag you pay, which is
+why 0.25% wins — but paying less of a fee is not the same as earning a return.
+
 ## Limitations
 
 * **Regular hours only.** The file is 09:30–15:59; there is no pre/post-market data.
@@ -1304,7 +1381,7 @@ Files are tagged `up<bps>_dn<bps>` — `up500_dn200` is 5%/2%, `up400_dn150` is 
 `premium_selling.py`, `put_spread.py`, `collar.py`, `exit_rules.py`, `backtest.py` and `overnight.py` print to stdout and write nothing;
 `backtest.py`, `overnight.py` and `intraday_short.py` take an optional cost in bps
 per side; `intraday_short.py` also takes an annual borrow rate. `overnight_vol_filter.py` and
-`intraday_vol_filter.py` and `take_profit.py` and `bracket.py` take an optional cost in bps per side. `collar.py` needs cached extracts of both put and call prints at the
+`intraday_vol_filter.py` and `take_profit.py` and `bracket.py` and `floor_sweep.py` take an optional cost in bps per side. `collar.py` needs cached extracts of both put and call prints at the
 15:55 / 09:30 stamps. `protection_cost.py` needs the option files
 (`git lfs pull --include="raw_data/SOXL_intraday_5m_exp_*.csv"`, ~4 GB) and a cached
 extract of put prints at the 15:55 / 09:30 stamps. `independence_check.py` takes an optional lookback in bars; `tradeability.py`
