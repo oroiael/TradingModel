@@ -128,6 +128,75 @@ night selection, and the distinction matters: in a good regime this filter will
 underperform, sometimes badly (2024: +207% → +121%; 2026: +101% → +30%). It earns its
 keep by making the bad regimes survivable, not by finding better nights.
 
+## p80 vs p60, and why the early years differ from the late ones
+
+`regime.py`, walk-forward expanding cuts on the overnight strategy:
+
+| year | all | p40 | p60 | p80 | kept p60 | kept p80 |
+|---|---|---|---|---|---|---|
+| 2021 | +94.0% | −9.0% | +29.8% | +46.6% | 178/234 | 211/234 |
+| **2022** | **−69.7%** | −2.4% | **−13.6%** | **−54.0%** | **30/251** | 156/251 |
+| 2023 | −0.2% | +8.3% | +7.1% | −0.2% | 223/250 | 250/250 |
+| 2024 | +207.1% | +41.6% | +121.4% | +176.8% | 185/252 | 211/252 |
+| 2025 | +54.5% | +22.3% | +104.2% | +100.5% | 139/250 | 223/250 |
+| 2026 | +100.9% | +5.8% | +30.2% | +39.0% | 32/143 | 78/143 |
+| **full** | **+460%** | +76% | **+607%** | +419% | | |
+| 2021–23 | −41% | −4% | **+20%** | −33% | | |
+| 2024–26 | +853% | +83% | +489% | +672% | | |
+
+**p80 is not the answer.** Over the full window it returns +419% against p60's +607%
+and no-filter's +460% — it is slightly *worse than not filtering at all*. The reason
+is visible in 2022: p80 kept 156 of 251 nights and returned −54.0%, barely better than
+the −69.7% it was meant to avoid, where p60 kept only 30 nights and lost 13.6%. **The
+filter's entire value is being tight enough to actually stand aside in the bad year**,
+and p80 is not.
+
+### Why the years differ
+
+| year | mean/night | sd/night | win% | worst | median RV20 | drag |
+|---|---|---|---|---|---|---|
+| 2021 | +0.324% | 2.87% | 58.1% | −9.0% | 76% | 0.041 |
+| **2022** | **−0.379%** | 4.39% | 43.8% | −12.2% | **131%** | 0.095 |
+| 2023 | +0.045% | 3.05% | 50.8% | −6.8% | 83% | 0.046 |
+| 2024 | +0.525% | 3.95% | 57.1% | −19.8% | 90% | 0.078 |
+| 2025 | +0.280% | 4.60% | 55.2% | −15.5% | 103% | 0.106 |
+| **2026** | **+0.729%** | **6.93%** | 55.9% | −21.6% | 119% | **0.240** |
+
+Two things changed, and neither is subtle.
+
+1. **The overnight drift is not a constant.** It averaged roughly zero across 2021–23
+   — including a solidly negative 2022 at −0.379%/night — and strongly positive across
+   2024–26 (+0.525%, +0.280%, +0.729%). The "overnight premium" was **absent in 2022**,
+   which was a semiconductor bear market. Six years is six annual observations; that is
+   a very thin basis for calling it persistent.
+2. **Volatility more than doubled.** Nightly sd went 2.87% → 6.93% and the variance
+   drag with it, 0.041 → 0.240 per night. The late years are a different instrument,
+   statistically, from the early ones.
+
+### The finding that explains the filter
+
+Mean overnight return by RV20 tercile **within each year**, so it is not a level
+effect:
+
+| year | low vol | mid | high vol | winner |
+|---|---|---|---|---|
+| 2021 | 0.080% | 0.106% | **0.788%** | high |
+| 2022 | −0.685% | −0.034% | **−0.416%** | high |
+| 2023 | **0.072%** | 0.022% | 0.041% | low |
+| 2024 | 0.467% | 0.333% | **0.774%** | high |
+| 2025 | 0.135% | **0.778%** | −0.069% | low |
+| 2026 | **0.800%** | 0.652% | 0.734% | low |
+
+**High vol wins in three years, low vol wins in three.** Within a year, volatility does
+not predict the overnight return at all — it is a coin flip.
+
+So the filter is **not selecting better nights**, and never was. What it does is stand
+aside when the distribution is wide, which mechanically cuts the ½σ² drag (0.041 in
+2021 vs 0.240 in 2026) and the drawdown. **It is a position-sizing rule wearing a
+signal's clothing.** That is a legitimate and useful thing to be — but it means the
+right way to judge it is on drawdown and survivability, not on return, and it explains
+why p60 beats p80: the tighter cut sizes down harder exactly when sizing down matters.
+
 ## Walk-forward: does the RV20 filter survive an honest threshold?
 
 The filter as reported used a percentile of the **whole sample** — at any night it
@@ -1559,7 +1628,7 @@ Files are tagged `up<bps>_dn<bps>` — `up500_dn200` is 5%/2%, `up400_dn150` is 
 `premium_selling.py`, `put_spread.py`, `collar.py`, `exit_rules.py`, `backtest.py` and `overnight.py` print to stdout and write nothing;
 `backtest.py`, `overnight.py` and `intraday_short.py` take an optional cost in bps
 per side; `intraday_short.py` also takes an annual borrow rate. `overnight_vol_filter.py` and
-`intraday_vol_filter.py` and `take_profit.py` and `bracket.py` and `floor_sweep.py` and `scoreboard.py` and `walkforward.py` take an optional cost in bps per side. `collar.py` needs cached extracts of both put and call prints at the
+`intraday_vol_filter.py` and `take_profit.py` and `bracket.py` and `floor_sweep.py` and `scoreboard.py` and `walkforward.py` and `regime.py` take an optional cost in bps per side. `collar.py` needs cached extracts of both put and call prints at the
 15:55 / 09:30 stamps. `protection_cost.py` needs the option files
 (`git lfs pull --include="raw_data/SOXL_intraday_5m_exp_*.csv"`, ~4 GB) and a cached
 extract of put prints at the 15:55 / 09:30 stamps. `independence_check.py` takes an optional lookback in bars; `tradeability.py`
