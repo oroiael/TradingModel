@@ -259,6 +259,92 @@ premium is twice as large so the same percentage spread is twice the dollars. **
 cannot buy this insurance nightly at retail spreads.** Sizing down to f = 0.50 buys the
 same drawdown reduction for free, which is the honest substitute.
 
+## p60 at half size, and is this a bull-market strategy?
+
+`regime_switch.py`. SOXX — the **unlevered** semiconductor index ETF — is the regime
+yardstick, because it carries no leverage decay so its moving averages mean what they
+say.
+
+### p60 at f = 0.50, $100,000 start
+
+Final **$297,588**, +198%, **CAGR 22.0%, max drawdown −14.7%**, 288 weeks, 787 nights
+traded. Median week $0 (it stands aside 36% of weeks), mean +$686, best +$20,300,
+worst −$29,339.
+
+| year | cash | equity end | running CAGR | worst week |
+|---|---|---|---|---|
+| 2021 | +15,631 | 115,631 | 17.1% | −4,718 |
+| **2022** | **−7,263** | 108,368 | 4.3% | −7,030 |
+| 2023 | +6,591 | 114,959 | 4.9% | −6,006 |
+| 2024 | +68,000 | 182,959 | 16.6% | −7,784 |
+| 2025 | +83,450 | 266,409 | 22.0% | −17,239 |
+| 2026 | +31,179 | 297,588 | 21.9% | −29,339 |
+
+Even the bad year costs only −$7,263 at half size, and equity never drops below
+$100,000 after the first quarter.
+
+### Yes, it is a bull strategy — at the raw level
+
+The **unfiltered** overnight premium, split by SOXX against its 200-day average:
+
+| regime | nights | mean/night |
+|---|---|---|
+| SOXX **above** 200d | 934 | **+0.280%** |
+| SOXX **below** 200d | 373 | **−0.051%** |
+
+The premium is a bull-regime phenomenon. Below the 200-day average it is *gone* —
+slightly negative. That confirms the concern stated earlier in this README.
+
+### But the volatility filter is already the regime switch
+
+Within the p60-filtered nights the split reverses — below-200d nights average +0.796%
+against +0.228% above — but **that is not significant (Welch t = 1.27)** and it rests
+on 103 nights, of which 2022's 28 were themselves negative (−0.107%); the positive
+figure comes from 37 nights in 2023 and 2025. Treat it as noise.
+
+What is not noise is the mechanism: **the p60 filter keeps only 103 of 373 bear
+nights — 28%.** Bear markets are high-volatility markets, so a volatility gate
+excludes them automatically. The filter is not a separate idea from regime timing; it
+*is* regime timing, expressed in the one variable that updates daily rather than
+monthly.
+
+### Which is why adding a trend gate makes it worse
+
+| gate | nights | final | CAGR | max DD |
+|---|---|---|---|---|
+| **none (p60 only)** | 787 | **$297,588** | **22.0%** | −15.6% |
+| + SOXX > 200d avg | 659 | $194,546 | 12.9% | −17.3% |
+| + SOXX > 50d avg | 589 | $201,941 | 13.6% | −21.9% |
+| + within 20% of 1y high | 653 | $266,048 | 19.5% | −15.6% |
+
+Every trend gate *reduces* return and none reduces drawdown. Volatility has already
+removed the dangerous bear nights; the trend gate then additionally removes the calm
+ones, which were profitable. **Do not stack a bull-market filter on top of the vol
+filter — you would be paying twice for the same protection and cutting good nights to
+do it.**
+
+### The leveraged-ETF mechanic
+
+A 3× ETF must trade *with* the day's move at the close to hold leverage constant —
+buying after up days, selling after down days — so required flow scales with the
+day's move. If the overnight premium were that flow, it should depend on the day's own
+move:
+
+| that day's intraday move | nights | mean overnight |
+|---|---|---|
+| **< −3%** | 159 | **+0.038%** |
+| −3 to −1% | 132 | +0.394% |
+| −1 to +1% | 159 | +0.429% |
+| +1 to +3% | 155 | +0.301% |
+| > +3% | 182 | +0.373% |
+
+One bucket stands out: **after a >3% down day the overnight premium essentially
+disappears** (+0.038% against ~+0.37% everywhere else). That is consistent with
+forced deleveraging into the close — the fund sells low, and the bounce does not come
+that night. It is a usable rule of thumb (skip the night after a −3% session) but not
+a regime indicator; the other four buckets are flat, so there is no monotone
+rebalance signature to trade.
+
 ## Walk-forward: does the RV20 filter survive an honest threshold?
 
 The filter as reported used a percentile of the **whole sample** — at any night it
@@ -1690,7 +1776,8 @@ Files are tagged `up<bps>_dn<bps>` — `up500_dn200` is 5%/2%, `up400_dn150` is 
 `premium_selling.py`, `put_spread.py`, `collar.py`, `exit_rules.py`, `backtest.py` and `overnight.py` print to stdout and write nothing;
 `backtest.py`, `overnight.py` and `intraday_short.py` take an optional cost in bps
 per side; `intraday_short.py` also takes an annual borrow rate. `overnight_vol_filter.py` and
-`intraday_vol_filter.py` and `take_profit.py` and `bracket.py` and `floor_sweep.py` and `scoreboard.py` and `walkforward.py` and `regime.py` and `sizing_and_hedge.py` take an optional cost in bps per side. `collar.py` needs cached extracts of both put and call prints at the
+`intraday_vol_filter.py` and `take_profit.py` and `bracket.py` and `floor_sweep.py` and `scoreboard.py` and `walkforward.py` and `regime.py` and `sizing_and_hedge.py` and `regime_switch.py` take an optional cost in bps per
+side; `regime_switch.py` also takes capital and a position fraction. `collar.py` needs cached extracts of both put and call prints at the
 15:55 / 09:30 stamps. `protection_cost.py` needs the option files
 (`git lfs pull --include="raw_data/SOXL_intraday_5m_exp_*.csv"`, ~4 GB) and a cached
 extract of put prints at the 15:55 / 09:30 stamps. `independence_check.py` takes an optional lookback in bars; `tradeability.py`
