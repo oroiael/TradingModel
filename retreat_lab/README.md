@@ -197,6 +197,68 @@ signal's clothing.** That is a legitimate and useful thing to be — but it mean
 right way to judge it is on drawdown and survivability, not on return, and it explains
 why p60 beats p80: the tighter cut sizes down harder exactly when sizing down matters.
 
+## Position sizing, and a real put overlay
+
+`sizing_and_hedge.py`, on the walk-forward p60 overnight strategy, $100,000 start.
+
+### Sizing is a risk dial, not an optimisation
+
+Fraction *f* of the balance committed each night, remainder in cash:
+
+| f | final equity | CAGR | max DD | ann vol | Sharpe | worst night |
+|---|---|---|---|---|---|---|
+| 0.25 | $177,466 | 11.0% | **−8.0%** | 10.2% | 1.08 | −$3,878 |
+| 0.50 | $297,588 | 22.0% | −15.6% | 20.3% | 1.08 | −$7,755 |
+| **1.00** (full) | $706,655 | 42.7% | −32.2% | 40.6% | 1.08 | −$15,510 |
+| 2.00 | $2,026,224 | 72.9% | −63.6% | 81.3% | 1.08 | −$31,021 |
+| **2.50** | **$2,434,324** | 78.8% | −75.6% | 101.6% | 1.08 | −$38,776 |
+| 4.00 | $977,280 | 51.4% | −94.8% | 162.5% | 1.08 | −$62,042 |
+
+**Sharpe is constant at 1.08 across every f** — scaling a return series scales mean and
+standard deviation together. So sizing buys nothing in risk-adjusted terms; it only
+chooses where on the curve you sit. Terminal wealth peaks near **f = 2.50**, past which
+variance drag (which grows with f²) finally overtakes return (which grows with f) —
+and the peak is illusory anyway, because f > 1 requires margin whose cost is not
+charged here and which would move the peak left.
+
+The practical reading is the opposite of "maximise terminal wealth": **f = 0.50 gives
+22.0% CAGR with a −15.6% drawdown**, which is a far more holdable profile than 42.7%
+with −32.2% for the same Sharpe. A **fixed $100,000 stake, never compounded, returns
+$340,832** — the compounding is doing a large share of the headline.
+
+### The put overlay works mechanically and fails economically
+
+One put per night on the nights the strategy is long, priced from **real paired
+15:55 → next-09:30 prints**. Hedged and unhedged compared over exactly the same nights:
+
+| 3–7 DTE (398 nights, 51% coverage) | final | CAGR | max DD | worst night | ann vol |
+|---|---|---|---|---|---|
+| unhedged | $219,883 | 15.4% | −42.6% | −15.5% | 29.2% |
+| **+ long put** | $185,965 | 12.0% | **−33.9%** | **−5.0%** | **19.0%** |
+
+| 15–45 DTE (580 nights, 74% coverage) | final | CAGR | max DD | worst night | ann vol |
+|---|---|---|---|---|---|
+| unhedged | $242,545 | 17.5% | −51.3% | −15.5% | 36.9% |
+| **+ long put** | $222,804 | 15.7% | −41.1% | **−6.3%** | 22.5% |
+
+It does exactly what insurance should: **the worst night goes from −15.5% to −5.0%,
+volatility falls by a third, drawdown improves 9 points.** The longer-dated put is the
+cheaper hedge per night (−5.5 bp vs −7.6 bp), as expected.
+
+And then the spread kills it:
+
+| round-trip spread | 3–7 DTE final | CAGR | 15–45 DTE final | CAGR |
+|---|---|---|---|---|
+| 0% (prints) | $185,965 | 12.0% | $222,804 | 15.7% |
+| **5%** | **$49,985** | −11.9% | **$3,387** | −46.0% |
+| 10% | $13,377 | −30.7% | $50 | −74.9% |
+
+At a realistic 5% round trip the hedged strategy loses money; at 10% it is destroyed.
+The longer-dated put is *worse* here despite its lower per-night cost, because its
+premium is twice as large so the same percentage spread is twice the dollars. **You
+cannot buy this insurance nightly at retail spreads.** Sizing down to f = 0.50 buys the
+same drawdown reduction for free, which is the honest substitute.
+
 ## Walk-forward: does the RV20 filter survive an honest threshold?
 
 The filter as reported used a percentile of the **whole sample** — at any night it
@@ -1628,7 +1690,7 @@ Files are tagged `up<bps>_dn<bps>` — `up500_dn200` is 5%/2%, `up400_dn150` is 
 `premium_selling.py`, `put_spread.py`, `collar.py`, `exit_rules.py`, `backtest.py` and `overnight.py` print to stdout and write nothing;
 `backtest.py`, `overnight.py` and `intraday_short.py` take an optional cost in bps
 per side; `intraday_short.py` also takes an annual borrow rate. `overnight_vol_filter.py` and
-`intraday_vol_filter.py` and `take_profit.py` and `bracket.py` and `floor_sweep.py` and `scoreboard.py` and `walkforward.py` and `regime.py` take an optional cost in bps per side. `collar.py` needs cached extracts of both put and call prints at the
+`intraday_vol_filter.py` and `take_profit.py` and `bracket.py` and `floor_sweep.py` and `scoreboard.py` and `walkforward.py` and `regime.py` and `sizing_and_hedge.py` take an optional cost in bps per side. `collar.py` needs cached extracts of both put and call prints at the
 15:55 / 09:30 stamps. `protection_cost.py` needs the option files
 (`git lfs pull --include="raw_data/SOXL_intraday_5m_exp_*.csv"`, ~4 GB) and a cached
 extract of put prints at the 15:55 / 09:30 stamps. `independence_check.py` takes an optional lookback in bars; `tradeability.py`
