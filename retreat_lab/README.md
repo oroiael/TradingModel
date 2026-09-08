@@ -345,6 +345,73 @@ that night. It is a usable rule of thumb (skip the night after a −3% session) 
 a regime indicator; the other four buckets are flat, so there is no monotone
 rebalance signature to trade.
 
+## Adding the skip-after-a-3%-down-day rule
+
+`skip_rule.py`. The rule is implementable with no look-ahead — entry is at 15:59 and
+the day's open-to-close move is known by then. **But the −3% threshold was found by
+inspecting this same data**, so it is treated here as a hypothesis to attack rather
+than a result.
+
+### It is not a knife-edge
+
+p60 overnight, f = 0.50, skipping the night after an intraday move below X:
+
+| rule | nights | skipped | final | CAGR | max DD | Sharpe | t |
+|---|---|---|---|---|---|---|---|
+| p60 only | 787 | 0 | $297,588 | 22.0% | −15.6% | 1.08 | 2.53 |
+| skip < −1% | 496 | 291 | $232,802 | 16.6% | −19.5% | 1.05 | 2.46 |
+| skip < −2% | 570 | 217 | $268,470 | 19.7% | −19.3% | 1.17 | 2.74 |
+| **skip < −3%** | 628 | 159 | $297,324 | 21.9% | **−13.6%** | **1.22** | 2.87 |
+| skip < −4% | 675 | 112 | $319,261 | 23.5% | −14.6% | **1.25** | 2.92 |
+| skip < −5% | 711 | 76 | $321,620 | 23.7% | −16.5% | 1.22 | 2.86 |
+| skip < −7% | 751 | 36 | $309,966 | 22.9% | −15.5% | 1.14 | 2.68 |
+
+Everything from −3% to −7% improves Sharpe (1.14–1.25 against 1.08) with equal or
+better return. Only the aggressive cuts (−1%, −2%) hurt, by removing too many ordinary
+nights. A rule that works across a broad plateau of thresholds is much less likely to
+be an artifact than one that works at exactly one.
+
+### It survives a split
+
+Applying the −3% rule unchanged to each half:
+
+| half | variant | nights | mean/night | total | t |
+|---|---|---|---|---|---|
+| first | p60 only | 394 | 0.050% | +6% | 0.33 |
+| first | **p60 + skip** | 308 | **0.139%** | +20% | 0.81 |
+| second | p60 only | 393 | 0.563% | +182% | 3.01 |
+| second | **p60 + skip** | 320 | **0.600%** | +149% | 3.07 |
+
+The mean improves in **both** halves — though the first half remains insignificant on
+its own (t 0.81), and the gap between halves (0.050% vs 0.563% a night) is the regime
+problem restated: there was almost no overnight premium in 2021–23.
+
+The rule removes **159 of 787 nights (20.2%)**, and those nights averaged **+0.038%**
+against **+0.374%** for the nights kept.
+
+### The run at f = 0.50
+
+**Final $297,324 · +197% · CAGR 21.9% · max drawdown −11.5%** (weekly marks) over 628
+nights.
+
+| year | cash | equity end | running CAGR | worst week |
+|---|---|---|---|---|
+| 2021 | +14,838 | 114,838 | 16.2% | −3,071 |
+| **2022** | **−352** | 114,486 | 7.3% | −6,969 |
+| 2023 | +7,109 | 121,595 | 6.9% | −6,160 |
+| 2024 | +58,016 | 179,611 | 16.1% | −8,260 |
+| 2025 | +88,681 | 268,292 | 22.2% | −12,316 |
+| 2026 | +29,032 | 297,324 | 21.9% | −30,166 |
+
+**2022 goes from −$7,263 to −$352** — the bad year becomes a flat year. That is the
+rule's real contribution.
+
+Two things to be honest about. **Return is unchanged**: 21.9% against 22.0%. The whole
+gain is in drawdown and Sharpe, so this is another risk overlay, not a return
+enhancer. And the **−11.5% drawdown is measured on weekly marks**, which smooth over
+intra-week troughs; the night-by-night figure in the sensitivity table above is
+**−13.6%**, and that is the honest one to plan against.
+
 ## Walk-forward: does the RV20 filter survive an honest threshold?
 
 The filter as reported used a percentile of the **whole sample** — at any night it
@@ -1777,7 +1844,7 @@ Files are tagged `up<bps>_dn<bps>` — `up500_dn200` is 5%/2%, `up400_dn150` is 
 `backtest.py`, `overnight.py` and `intraday_short.py` take an optional cost in bps
 per side; `intraday_short.py` also takes an annual borrow rate. `overnight_vol_filter.py` and
 `intraday_vol_filter.py` and `take_profit.py` and `bracket.py` and `floor_sweep.py` and `scoreboard.py` and `walkforward.py` and `regime.py` and `sizing_and_hedge.py` and `regime_switch.py` take an optional cost in bps per
-side; `regime_switch.py` also takes capital and a position fraction. `collar.py` needs cached extracts of both put and call prints at the
+side; `regime_switch.py` and `skip_rule.py` also take capital and a position fraction. `collar.py` needs cached extracts of both put and call prints at the
 15:55 / 09:30 stamps. `protection_cost.py` needs the option files
 (`git lfs pull --include="raw_data/SOXL_intraday_5m_exp_*.csv"`, ~4 GB) and a cached
 extract of put prints at the 15:55 / 09:30 stamps. `independence_check.py` takes an optional lookback in bars; `tradeability.py`
