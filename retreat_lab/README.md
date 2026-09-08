@@ -538,6 +538,61 @@ At that width roughly one test in twenty clears t = 2 by chance. **A new rule no
 to clear it in both halves and by a wide margin to carry any weight**, and the up-side
 skip does not come close.
 
+## Full backtest at f = 1.00: p60 + skip −3% and −4%
+
+`skip_rule.py 1 100000 1.0 60 -0.03` and `... -0.04`. Walk-forward p60 threshold,
+1 bp per side, $100,000, full reinvestment, 2021-01-29 → 2026-07-29.
+
+| variant | nights | final | CAGR | max DD | Sharpe | t |
+|---|---|---|---|---|---|---|
+| buy and hold | — | $344,521 | 25.2% | | | |
+| p60 only | 787 | $706,655 | 42.7% | −32.2% | 1.08 | 2.53 |
+| **p60 + skip −3%** | 628 | $748,636 | 44.2% | **−27.6%** | 1.22 | 2.87 |
+| **p60 + skip −4%** | 675 | **$849,145** | **47.6%** | −28.6% | **1.25** | 2.92 |
+| p60 + skip −5% | 711 | $851,527 | 47.7% | −32.6% | 1.22 | 2.86 |
+
+Drawdowns are night-by-night. At full size both skip variants beat p60 alone on return
+*and* drawdown, which they did not do at f = 0.50 (there the return was flat and only
+the risk improved).
+
+### p60 + skip −3%, f = 1.00
+
+Final **$748,636**, +649%, **CAGR 44.2%**, 628 nights. Drawdown **−22.2% on weekly
+marks, −27.6% night by night**. Weekly cash: median $0, mean +$2,252, best +$65,556,
+worst **−$151,609**, 35.1% of weeks positive.
+
+| year | cash | equity end | running CAGR | worst week |
+|---|---|---|---|---|
+| 2021 | +29,502 | 129,502 | 32.5% | −6,397 |
+| **2022** | **−2,546** | 126,956 | 13.3% | −15,381 |
+| 2023 | +10,561 | 137,517 | 11.6% | −13,634 |
+| 2024 | +150,714 | 288,230 | 30.9% | −27,229 |
+| 2025 | +332,208 | 620,438 | 44.9% | −59,158 |
+| 2026 | +128,198 | 748,636 | 44.2% | **−151,609** |
+
+### p60 + skip −4%, f = 1.00
+
+Final **$849,145**, +749%, **CAGR 47.6%**, 675 nights. Drawdown **−23.1% weekly,
+−28.6% night by night**. Weekly cash: median $0, mean +$2,601, best +$106,503, worst
+**−$162,504**, 36.1% positive.
+
+| year | cash | equity end | running CAGR | worst week |
+|---|---|---|---|---|
+| 2021 | +40,511 | 140,511 | 44.7% | −9,539 |
+| **2022** | **−11,415** | 129,096 | 14.2% | −16,688 |
+| 2023 | +12,184 | 141,280 | 12.6% | −13,864 |
+| 2024 | +155,079 | 296,359 | 31.9% | −28,711 |
+| 2025 | +368,666 | 665,025 | 46.9% | −63,409 |
+| 2026 | +184,120 | 849,145 | 47.5% | **−162,504** |
+
+**−3% protects 2022 better** (−$2,546 vs −$11,415); **−4% makes more everywhere else**
+($849,145 vs $748,636). Neither year-1 equity ever falls below the starting capital.
+
+The cost of full size versus half: **worst week goes from −$30,166 to −$151,609**, and
+the −$151,609 week is 2026, when the account was large. As a share of equity the worst
+weeks are −19.5% at f = 0.5 and roughly −20% at f = 1.0 — the dollar figure grows with
+the account, the percentage does not.
+
 ## Walk-forward: does the RV20 filter survive an honest threshold?
 
 The filter as reported used a percentile of the **whole sample** — at any night it

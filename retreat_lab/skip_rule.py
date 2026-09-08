@@ -22,6 +22,7 @@ COST = float(sys.argv[1]) if len(sys.argv) > 1 else 1.0
 CAP = float(sys.argv[2]) if len(sys.argv) > 2 else 100_000.0
 F = float(sys.argv[3]) if len(sys.argv) > 3 else 0.5
 PCT = float(sys.argv[4]) if len(sys.argv) > 4 else 60.0
+SKIP = float(sys.argv[5]) if len(sys.argv) > 5 else -0.03
 BURN = 252
 OUT = os.path.join(ROOT, "retreat_lab/out")
 
@@ -110,8 +111,8 @@ def main():
                   f"{m['total']*100:>10.0f}%{m['t']:>7.2f}")
 
     # ---------- the chosen rule, weekly
-    keep = [(i, d, r) for i, d, r, g in sel if g >= -0.03]
-    skipped = [(d, r) for _, d, r, g in sel if g < -0.03]
+    keep = [(i, d, r) for i, d, r, g in sel if g >= SKIP]
+    skipped = [(d, r) for _, d, r, g in sel if g < SKIP]
     print(f"\n  what the rule actually removes: {len(skipped)} nights of {len(sel)} "
           f"({len(skipped)/len(sel):.1%})")
     print(f"  those nights averaged {mean(r for _, r in skipped)*100:+.3f}% "
@@ -132,18 +133,23 @@ def main():
                          week_pct=round((eq / start - 1) * 100, 3),
                          running_cagr_pct=round(((eq / CAP) ** (1 / y) - 1) * 100, 2),
                          drawdown_pct=round((eq / pk - 1) * 100, 2)))
-    path = os.path.join(OUT, f"weekly_p{int(PCT)}_skip3_f{int(F*100)}.csv")
+    path = os.path.join(OUT, f"weekly_p{int(PCT)}_skip{int(abs(SKIP)*100)}"
+                        f"_f{int(F*100)}.csv")
     with open(path, "w", newline="") as f:
         wr = csv.DictWriter(f, fieldnames=list(rows[0].keys()), lineterminator="\n")
         wr.writeheader(); wr.writerows(rows)
 
     print("\n" + "=" * 100)
-    print(f"p{PCT:.0f} + SKIP AFTER A -3% DAY, at f={F:.2f}, week by week")
+    print(f"p{PCT:.0f} + SKIP AFTER A {SKIP:.0%} DAY, at f={F:.2f}, week by week")
     print("=" * 100)
     pnl = [r["cash_pnl"] for r in rows]
+    ne = CAP; npk = CAP; ndd = 0.0
+    for _, _, r in keep:
+        ne *= (1 + F * r); npk = max(npk, ne); ndd = min(ndd, ne / npk - 1)
     print(f"  final ${eq:,.0f}   total {(eq/CAP-1)*100:,.0f}%   "
-          f"CAGR {((eq/CAP)**(1/yrs)-1)*100:.1f}%   maxDD {dd*100:.1f}%   "
-          f"nights {len(keep)}")
+          f"CAGR {((eq/CAP)**(1/yrs)-1)*100:.1f}%   nights {len(keep)}")
+    print(f"  maxDD {dd*100:.1f}% on weekly marks, {ndd*100:.1f}% night by night "
+          f"(the night-level figure is the one to plan against)")
     print(f"  weekly cash: median ${median(pnl):,.0f}  mean ${mean(pnl):,.0f}  "
           f"best ${max(pnl):,.0f}  worst ${min(pnl):,.0f}  "
           f"positive {sum(1 for x in pnl if x>0)/len(pnl):.1%}")
