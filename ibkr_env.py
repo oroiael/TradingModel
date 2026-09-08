@@ -87,12 +87,17 @@ def diagnosis(module: str) -> str:
             "",
             f"      python {script}      # Windows: `python`, never `python3`",
         ]
-        # Name the one that is actually on disk; printing both Windows and
-        # POSIX layouts makes the reader pick, and picking is the mistake.
-        candidates = [os.path.join(venv, "Scripts", "python.exe"),
-                      os.path.join(venv, "bin", "python")]
-        found = [c for c in candidates if os.path.exists(c)] or candidates
-        lines += [f"      {c} {script}" for c in found]
+        # An absolute path, and `&` in front of it: PowerShell reads a bare
+        # `.env\Scripts\python.exe` as a module name, not a program, and
+        # answers "The module '.env' could not be loaded" -- which sends the
+        # reader off after a third, imaginary problem.
+        vp = venv_python(venv)
+        if vp:
+            lines.append('      & "%s" %s' % (vp, script))
+        lines += [
+            "",
+            f"  `{script} --check-env` prints where everything actually is.",
+        ]
     else:
         where = "this virtualenv" if in_venv else "this interpreter"
         lines += [
@@ -109,6 +114,89 @@ def diagnosis(module: str) -> str:
         "",
         "  band_lab/live/RUNBOOK_WINDOWS.md is the reference for the trading box.",
     ]
+    return "\n".join(lines)
+
+
+def venv_python(venv: str | None = None) -> str | None:
+    """The interpreter that belongs to `venv`, if it is on disk."""
+    venv = venv or os.environ.get("VIRTUAL_ENV")
+    if not venv:
+        return None
+    for rel in (("Scripts", "python.exe"), ("bin", "python")):
+        candidate = os.path.join(venv, *rel)
+        if os.path.exists(candidate):
+            return candidate
+    return None
+
+
+def wrong_interpreter() -> bool:
+    """Is a virtualenv active that this interpreter is not part of?"""
+    venv = os.environ.get("VIRTUAL_ENV")
+    return bool(venv) and not _same_path(venv, sys.prefix)
+
+
+def _module_line(name: str) -> str:
+    """One line per dependency: where it is, or that it is missing."""
+    try:
+        mod = importlib.import_module(name)
+    except ImportError:
+        return f"  {name:<10} MISSING from this interpreter"
+    version = getattr(mod, "__version__", "")
+    where = getattr(mod, "__file__", "(built-in)") or "(namespace package)"
+    return f"  {name:<10} {version or 'ok':<10} {os.path.dirname(where)}"
+
+
+def report(modules=("pandas", "numpy", "ib_async", "requests")) -> str:
+    """Where everything actually is.
+
+    Written for the question a person asks when a script fails on a machine
+    where `pip` and `python3` disagree: *where is my environment?* Printing the
+    answer beats four rounds of guessing at it.
+    """
+    venv = os.environ.get("VIRTUAL_ENV")
+    lines = [
+        "INTERPRETER",
+        f"  running     {sys.executable}",
+        f"  version     {sys.version.split()[0]}",
+        f"  sys.prefix  {sys.prefix}",
+        f"  base_prefix {sys.base_prefix}",
+        "",
+        "VIRTUALENV",
+        f"  VIRTUAL_ENV {venv or '(not set)'}",
+    ]
+    if venv:
+        vp = venv_python(venv)
+        lines.append(f"  its python  {vp or '(no interpreter found under it)'}")
+        scripts = os.path.join(venv, "Scripts")
+        if os.path.isdir(scripts):
+            # Windows venvs ship python.exe and pythonw.exe. Whether python3.exe
+            # is there decides whether `python3` reaches this venv at all, which
+            # is the whole failure this module exists for -- so show it.
+            has3 = os.path.exists(os.path.join(scripts, "python3.exe"))
+            lines.append(f"  python3.exe {'present' if has3 else 'ABSENT'}"
+                         f"  ({scripts})")
+            if not has3:
+                lines.append("              -> `python3` cannot reach this venv; "
+                             "it falls through PATH")
+    lines += ["", "PACKAGES (in the interpreter above)"]
+    lines += [_module_line(m) for m in modules]
+
+    lines += ["", "VERDICT"]
+    if wrong_interpreter():
+        vp = venv_python(venv)
+        lines += [
+            "  A virtualenv is active and this is NOT its interpreter.",
+            "  `pip` installs into the venv; this Python cannot see any of it.",
+            "",
+            f"  Use:  python {os.path.basename(sys.argv[0]) or '<script>'}",
+        ]
+        if vp:
+            script = os.path.basename(sys.argv[0]) or "<script>"
+            lines.append('  Or:   & "%s" %s' % (vp, script))
+    elif venv:
+        lines.append("  This IS the active virtualenv's interpreter.")
+    else:
+        lines.append("  No virtualenv is active; this is a bare interpreter.")
     return "\n".join(lines)
 
 

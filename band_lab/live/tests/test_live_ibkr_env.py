@@ -1,10 +1,11 @@
 """Tests for the missing-client diagnosis.
 
-This message is the entire user experience of a failed IBKR import, and it gets
-read exactly once, by someone who has just lost a run. It is worth testing that
-it names the interpreter rather than only the module, because the version that
-did not cost a user their afternoon (`option_spread_probe.py`'s comment records
-it) and was then fixed in one file out of a dozen.
+This message is the entire user experience of a failed IBKR import, and it is
+read by someone who has just lost a run. The version that named only the module
+sent a user through four rounds of `pip install` before the real fault -- the
+wrong interpreter -- was visible at all, so the wording is worth asserting on:
+it must name the interpreter, the virtualenv, and which of the two cases the
+reader is in.
 """
 
 from __future__ import annotations
@@ -70,6 +71,53 @@ def test_require_exits_rather_than_raising_importerror():
     with pytest.raises(SystemExit) as exc:
         ibkr_env.require("some_module_nobody_has")
     assert "some_module_nobody_has" in str(exc.value)
+
+
+# -------------------------------------------------------------------- report
+def test_report_names_the_running_interpreter_and_the_venv(monkeypatch, tmp_path):
+    scripts = tmp_path / "Scripts"
+    scripts.mkdir()
+    (scripts / "python.exe").write_text("")
+    monkeypatch.setenv("VIRTUAL_ENV", str(tmp_path))
+    out = ibkr_env.report(modules=("os",))
+
+    assert sys.executable in out
+    assert str(tmp_path) in out
+    assert str(scripts / "python.exe") in out
+    # The fact that settles whether `python3` can reach the venv at all.
+    assert "python3.exe ABSENT" in out
+    assert "NOT its interpreter" in out
+
+
+def test_report_says_so_when_the_interpreter_is_the_venv(monkeypatch):
+    monkeypatch.setenv("VIRTUAL_ENV", sys.prefix)
+    out = ibkr_env.report(modules=("os",))
+    assert "This IS the active virtualenv" in out
+    assert "NOT its interpreter" not in out
+
+
+def test_report_marks_a_missing_package(monkeypatch):
+    monkeypatch.delenv("VIRTUAL_ENV", raising=False)
+    out = ibkr_env.report(modules=("os", "some_module_nobody_has"))
+    assert "some_module_nobody_has MISSING" in out.replace("  ", " ")
+    assert "MISSING" not in out.split("os")[1].split("\n")[0]
+
+
+def test_wrong_interpreter_is_only_true_on_a_real_mismatch(monkeypatch):
+    monkeypatch.delenv("VIRTUAL_ENV", raising=False)
+    assert ibkr_env.wrong_interpreter() is False
+    monkeypatch.setenv("VIRTUAL_ENV", sys.prefix)
+    assert ibkr_env.wrong_interpreter() is False
+    monkeypatch.setenv("VIRTUAL_ENV", os.path.join(os.sep, "nope"))
+    assert ibkr_env.wrong_interpreter() is True
+
+
+def test_venv_python_prefers_whichever_layout_is_on_disk(monkeypatch, tmp_path):
+    monkeypatch.setenv("VIRTUAL_ENV", str(tmp_path))
+    assert ibkr_env.venv_python() is None          # nothing there yet
+    (tmp_path / "bin").mkdir()
+    (tmp_path / "bin" / "python").write_text("")
+    assert ibkr_env.venv_python() == str(tmp_path / "bin" / "python")
 
 
 # --------------------------------------------------------------------- drift

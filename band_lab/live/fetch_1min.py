@@ -43,6 +43,7 @@ the environment this was written in — PHASE2_PLAN.md §6):
 from __future__ import annotations
 
 import argparse
+import importlib
 import os
 import sys
 import time
@@ -55,6 +56,7 @@ _HERE = os.path.dirname(os.path.abspath(__file__))
 if _HERE not in sys.path:                    # same idiom as broker.py
     sys.path.insert(0, _HERE)
 
+import ibkr_env                                              # noqa: E402
 from ibkr_env import require_ib_async                        # noqa: E402
 
 NY = ZoneInfo("America/New_York")
@@ -199,6 +201,9 @@ def main() -> int:
         epilog="If IBKR's history does not reach the requested start, any "
                "vendor will do — intrabar.py only needs the CSV columns "
                "Date,Open,High,Low,Close,Volume with RTH-only 1-minute bars.")
+    ap.add_argument("--check-env", action="store_true",
+                    help="print which interpreter, virtualenv and packages are "
+                         "in play, and exit; 0 if this Python can run the fetch")
     ap.add_argument("--symbol", required=True)
     ap.add_argument("--start", required=True, help="earliest session, YYYY-MM-DD")
     ap.add_argument("--out", default=None, help="default <ROOT>/<SYMBOL>_1min.csv")
@@ -212,8 +217,18 @@ def main() -> int:
     ap.add_argument("--exchange", default="SMART")
     ap.add_argument("--primary", default="ARCA",
                     help="primary listing exchange; pass '' to omit")
+    # Parsed before --symbol can complain: the environment question comes up
+    # precisely when nothing else works yet.
+    if "--check-env" in sys.argv[1:]:
+        print(ibkr_env.report())
+        try:
+            importlib.import_module("ib_async")
+            return 0
+        except ImportError:
+            return 1
     args = ap.parse_args()
 
+    require_ib_async()          # before any output, not mid-fetch
     out = args.out or os.path.join(ROOT, f"{args.symbol}_1min.csv")
     start = datetime.strptime(args.start, "%Y-%m-%d")
     print(f"{args.symbol}: 1-minute RTH bars back to {start:%Y-%m-%d} -> {out}")

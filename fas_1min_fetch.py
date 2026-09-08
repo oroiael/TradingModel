@@ -54,6 +54,7 @@ USAGE
 from __future__ import annotations
 
 import argparse
+import importlib
 import os
 import sys
 import time
@@ -72,6 +73,7 @@ try:
 except ImportError:                                          # pragma: no cover
     requests = None
 
+import ibkr_env
 from ibkr_env import require_ib_async
 
 ROOT = os.path.dirname(os.path.abspath(__file__))
@@ -547,6 +549,9 @@ def main() -> int:
                          "split era so it matches SOXL_1min.csv's convention")
     ap.add_argument("--probe", action="store_true",
                     help="fetch one day, print the raw payload, exit")
+    ap.add_argument("--check-env", action="store_true",
+                    help="print which interpreter, virtualenv and packages are "
+                         "in play, and exit; 0 if this Python can run the fetch")
     ap.add_argument("--host", default="127.0.0.1")
     ap.add_argument("--port", type=int, default=7497, help="IBKR: 7497 paper")
     ap.add_argument("--client-id", type=int, default=96)
@@ -562,6 +567,14 @@ def main() -> int:
                          "Pass '' to let IBKR resolve it")
     args = ap.parse_args()
 
+    if args.check_env:
+        print(ibkr_env.report())
+        try:
+            importlib.import_module("ib_async")
+            return 0
+        except ImportError:
+            return 1
+
     if args.probe:
         return probe(args.symbol)
 
@@ -572,6 +585,12 @@ def main() -> int:
         start = datetime.strptime(args.start, "%Y-%m-%d").date()
     end = (datetime.strptime(args.end, "%Y-%m-%d").date() if args.end
            else datetime.now().date())
+
+    # Before the header, not two hundred lines into the fetch: a run that
+    # cannot import the client should say so while the operator is still
+    # looking at the prompt, not after it has announced what it is doing.
+    if args.source == "ibkr":
+        require_ib_async()
 
     print(f"{args.symbol}: 1-minute RTH bars {start} -> {end}")
     print(f"output: {out}\n")

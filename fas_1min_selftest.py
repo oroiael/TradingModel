@@ -209,6 +209,26 @@ try:
 except SystemExit:
     check("require() exits rather than raising ImportError", True)
 
+# --check-env is the answer to "where is my environment?", so it has to work
+# on a machine where nothing else does.
+_venv = os.environ.get("VIRTUAL_ENV")
+try:
+    os.environ["VIRTUAL_ENV"] = os.path.join(os.sep, "somewhere", "else")
+    rep = ibkr_env.report(modules=("os",))
+    check("--check-env names the running interpreter", sys.executable in rep)
+    check("--check-env names the active virtualenv",
+          os.path.join(os.sep, "somewhere", "else") in rep)
+    check("--check-env reaches a verdict", "VERDICT" in rep and
+          "NOT its interpreter" in rep)
+finally:
+    os.environ.pop("VIRTUAL_ENV", None)
+    if _venv is not None:
+        os.environ["VIRTUAL_ENV"] = _venv
+check("the fetcher exposes --check-env",
+      "--check-env" in open(
+          os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                       "fas_1min_fetch.py"), encoding="utf-8").read())
+
 print("\n" + "=" * 72)
 print(f"{len(PASS)} passed, {len(FAIL)} failed")
 if FAIL:

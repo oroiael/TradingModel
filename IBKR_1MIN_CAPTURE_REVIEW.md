@@ -218,15 +218,42 @@ fails. `RUNBOOK_WINDOWS.md` covers it in one line — *Python is invoked as
 `python` (not `python3`)* — and `band_lab/v2_dev/option_spread_probe.py` has
 carried a comment recording that this already cost someone their time once.
 
-Two things now follow from that:
+**Where the environment actually is**, from the evidence in that session:
 
-- **Use `python`, not `python3`, on Windows.** `python fas_1min_fetch.py`. If you
-  want no ambiguity at all, name the interpreter: `.\env\Scripts\python.exe`.
-- **Every IBKR entry point now says this itself.** `ibkr_env.py` prints the
-  running interpreter, `sys.prefix`, `VIRTUAL_ENV`, and which of the two cases
-  you are in, then the command that fixes it — and exits non-zero instead of
-  raising, so a `for` loop over six symbols stops rather than repeating the same
-  traceback six times.
+| | |
+|---|---|
+| virtualenv | `C:\Users\churc\documents\TradingModel\env` — `pip` reports `ib_async 2.1.0` in `.\env\Lib\site-packages` |
+| its interpreter | `.\env\Scripts\python.exe` |
+| what `python3` runs | `C:\Users\churc\AppData\Local\Python\pythoncore-3.14-64\python.exe` — Python 3.14, **outside the venv** |
+
+A Windows venv puts `python.exe` and `pythonw.exe` in `Scripts\`; activation
+prepends that folder to `PATH`, which is why `python` and `pip` reach the venv.
+There is no `python3.exe` there, so `python3` falls through `PATH` to the 3.14
+install, which has pandas but not `ib_async`. That is the whole bug.
+
+Three things now follow from that:
+
+- **Use `python`, not `python3`, on Windows.** `python fas_1min_fetch.py`. To
+  name the interpreter outright, PowerShell needs the leading `.\` and a call
+  operator — `& ".\env\Scripts\python.exe" fas_1min_fetch.py`. Written as
+  `.env\Scripts\python.exe`, PowerShell reads `.env` as a *module* and answers
+  "The module '.env' could not be loaded", which is a third, imaginary problem.
+- **Or give `python3` a home in the venv**, since the muscle memory is not going
+  away: `Copy-Item .\env\Scripts\python.exe .\env\Scripts\python3.exe`, then
+  confirm with `python3 fas_1min_fetch.py --check-env` — it should report the
+  venv as `sys.prefix`.
+- **Ask the tooling where it is.** `python fas_1min_fetch.py --check-env` prints
+  the running interpreter, the active virtualenv and its real interpreter path,
+  whether `python3.exe` exists in it at all, which of pandas / numpy / ib_async /
+  requests that Python can actually see, and a verdict. It exits 0 when the fetch
+  would run and 1 when it would not, so it works as a gate before a six-symbol
+  loop. `band_lab/live/fetch_1min.py --check-env` does the same.
+
+Every IBKR entry point also fails this way now rather than with a traceback, and
+the check happens **before** the run announces itself — the old code printed
+`FAS: 1-minute RTH bars 2019-12-31 -> 2026-09-08` and only then discovered it
+could not import a client. It exits non-zero, so a `for` loop over six symbols
+stops rather than repeating the same failure six times.
 
 ```
 ib_async is not importable from THIS interpreter (the IBKR client the current scripts use).
@@ -239,6 +266,14 @@ ib_async is not importable from THIS interpreter (the IBKR client the current sc
   -> A virtualenv is active but this is NOT its interpreter, so you
      are running the wrong Python. ...
 ```
+
+**One more source of confusion, worth knowing about.** `RUNBOOK_WINDOWS.md`
+documents the venv as `.venv-live` under `C:\TradingModel`; this machine uses
+`env` under `C:\Users\churc\documents\TradingModel`. Both work — nothing in
+the code cares what the venv is called, and `--check-env` reads `VIRTUAL_ENV`
+rather than assuming a name — but the runbook's literal
+`.\.venv-live\Scripts\Activate.ps1` will not activate anything here. `env/` is
+gitignored, so it is invisible from the repository side.
 
 The guard is wired into `fas_1min_fetch.py`, `band_lab/live/fetch_1min.py`,
 `band_lab/live/broker.py`, `check_tws.py`, `test_connection.py`,
