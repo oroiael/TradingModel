@@ -739,6 +739,77 @@ the same risk.
 f = 2.5 returns more on paper but its entire margin of safety is 2.1 percentage points
 of gap, and it is one unmeasured pre-market print away from being materially worse.
 
+## f = 2.0 with a weekly cash sweep — 75% reinvested, 25% to interest
+
+`sweep.py`. Rules, each a stated choice: the sweep fires only on **profitable** weeks;
+it is **one-way** (the reserve never funds losses back); position size is 2.0× the
+**trading** account, so sweeping shrinks the position; margin 6%/yr on the borrowed
+portion; the reserve earns an approximate short-T-bill schedule (0.05% in 2021 rising
+to 5% in 2023–24, 4% by 2026) rather than one flat number.
+
+### As specified: 25% of every profitable week
+
+| | trading | reserve | total | CAGR | max DD |
+|---|---|---|---|---|---|
+| no sweep | $3,133,839 | $0 | $3,133,839 | 87.2% | −46.0% |
+| **sweep 25% weekly** | **$278,490** | **$340,644** | **$619,134** | **39.3%** | **−31.2%** |
+| sweep 10% weekly | $1,201,955 | $355,129 | $1,557,084 | 64.8% | −39.5% |
+| sweep 50% weekly | $22,690 | $214,285 | $236,975 | 17.0% | −20.4% |
+
+103 of 288 weeks swept, median $2,269, largest $20,516, **$314,457 banked in total**.
+Rate sensitivity is small: at a flat 0% the total is $592,946, at 5% it is $625,049.
+
+| year | trading P&L | swept | trading equity | reserve | total |
+|---|---|---|---|---|---|
+| 2021 | +63,874 | 39,436 | 124,438 | 39,442 | 163,881 |
+| **2022** | **−25,166** | **11,183** | 88,089 | 51,488 | 139,576 |
+| **2023** | **−2,784** | **30,913** | **54,391** | 85,787 | 140,178 |
+| 2024 | +103,790 | 57,200 | 100,981 | 148,957 | 249,938 |
+| 2025 | +245,948 | 119,233 | 227,696 | 276,796 | 504,492 |
+| 2026 | +107,285 | 56,491 | 278,490 | 340,644 | 619,134 |
+
+### The problem the by-year table exposes
+
+**2023: gross P&L −$2,784, yet $30,913 swept out.** The trading account fell from
+$88,089 to $54,391 in a flat year. 2022 does the same on a smaller scale.
+
+A one-way sweep on every up week is a **ratchet**: profitable weeks are taxed, losing
+weeks are not refunded, so in choppy periods the account is drained by its own
+volatility. With 35% winning weeks the up-weeks alone were large enough to fund
+$42,096 of sweeps across two years in which the strategy made nothing. That is why
+total falls from $3.13M to $619k — far more than the $314k actually swept, because the
+money leaves before it can compound at 2× leverage.
+
+### The repair — sweep above a high-water mark
+
+| rule | trading | reserve | total | CAGR | max DD |
+|---|---|---|---|---|---|
+| no sweep | $3,133,839 | $0 | $3,133,839 | 87.2% | −46.0% |
+| 25% of every up week | $278,490 | $340,644 | $619,134 | 39.3% | −31.2% |
+| **25% above the high-water mark** | **$1,377,385** | **$453,407** | **$1,830,792** | **69.7%** | −40.9% |
+| 25% of the year's net profit | $1,851,269 | $399,370 | $2,250,639 | 76.2% | −40.7% |
+
+Swept by year, weekly rule vs high-water mark:
+
+| year | weekly swept | HWM swept |
+|---|---|---|
+| 2022 | $11,183 | **$0** |
+| 2023 | $30,913 | **$0** |
+
+The high-water-mark rule banks **more** in the reserve ($453,407 against $340,644)
+while leaving five times as much in the trading account, because it only takes money
+when the account is genuinely at a new peak. The annual rule banks slightly less and
+keeps more still.
+
+### What sweeping actually buys
+
+Less than it looks. Drawdown falls from −46.0% to −40.9% under the high-water rule and
+to −31.2% under the aggressive weekly one — but that is measured on the **total**, and
+the reserve only cushions once it has grown, so early drawdowns are barely affected.
+What the sweep genuinely provides is **withdrawn, non-recallable capital**: $453,407
+sitting outside the leveraged account and immune to a gap. Judge it as taking money off
+the table, not as risk control inside the strategy.
+
 ## Walk-forward: does the RV20 filter survive an honest threshold?
 
 The filter as reported used a percentile of the **whole sample** — at any night it
@@ -2171,8 +2242,9 @@ Files are tagged `up<bps>_dn<bps>` — `up500_dn200` is 5%/2%, `up400_dn150` is 
 `backtest.py`, `overnight.py` and `intraday_short.py` take an optional cost in bps
 per side; `intraday_short.py` also takes an annual borrow rate. `overnight_vol_filter.py` and
 `intraday_vol_filter.py` and `take_profit.py` and `bracket.py` and `floor_sweep.py` and `scoreboard.py` and `walkforward.py` and `regime.py` and `sizing_and_hedge.py` and `regime_switch.py` take an optional cost in bps per
-side; `regime_switch.py` and `skip_rule.py` and `skip_symmetric.py` also take capital and a position
-fraction; `skip_rule.py` additionally takes the volatility percentile. `collar.py` needs cached extracts of both put and call prints at the
+side; `regime_switch.py` and `skip_rule.py` and `skip_symmetric.py` also take capital and a position fraction; `skip_rule.py`
+additionally takes the volatility percentile and skip threshold, and `sweep.py`
+takes a sweep fraction. `collar.py` needs cached extracts of both put and call prints at the
 15:55 / 09:30 stamps. `protection_cost.py` needs the option files
 (`git lfs pull --include="raw_data/SOXL_intraday_5m_exp_*.csv"`, ~4 GB) and a cached
 extract of put prints at the 15:55 / 09:30 stamps. `independence_check.py` takes an optional lookback in bars; `tradeability.py`
