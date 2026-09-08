@@ -8,6 +8,8 @@ are the parts most likely to silently corrupt a six-hour capture:
   * the Theta response parser -- maps columns by NAME from the payload header
   * the CSV formatter -- byte-identical convention to SOXL_1min.csv
   * merge/resume -- dedupe, sort, and atomic replace across interrupted runs
+  * the IBKR contract lookup and bar-timestamp conversion -- the two things
+    that decide whether a capture is the right instrument on the right clock
 
 Run:  python3 fas_1min_selftest.py
 """
@@ -17,11 +19,15 @@ from __future__ import annotations
 import os
 import sys
 import tempfile
+from datetime import date, datetime
+from zoneinfo import ZoneInfo
 
 import pandas as pd
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from fas_1min_fetch import merge_and_write, theta_frame, to_rows  # noqa: E402
+import ibkr_env  # noqa: E402
+from fas_1min_fetch import (  # noqa: E402
+    bar_timestamp, merge_and_write, primary_exchange, theta_frame, to_rows)
 
 PASS, FAIL = [], []
 
@@ -121,6 +127,87 @@ with tempfile.TemporaryDirectory() as td:
 
     check("no .tmp left behind (atomic replace)",
           not os.path.exists(p + ".tmp"))
+
+# --------------------------------------------------------------- IBKR bars
+# The connection cannot be tested without TWS, but the two things that decide
+# whether a six-hour capture is usable can be: which contract gets qualified,
+# and how a bar's timestamp is read.
+print("\n4. IBKR contract and bar timestamps")
+check("TQQQ qualifies on NASDAQ, not ARCA", primary_exchange("TQQQ") == "NASDAQ")
+check("MUU qualifies on NASDAQ", primary_exchange("MUU") == "NASDAQ")
+check("UVXY qualifies on BATS", primary_exchange("UVXY") == "BATS")
+check("the ARCA names are unchanged",
+      all(primary_exchange(s) == "ARCA" for s in ("FAS", "SPXL", "BULZ", "TMF")))
+check("lookup is case-insensitive", primary_exchange("tqqq") == "NASDAQ")
+check("an unlisted symbol falls back to ARCA", primary_exchange("ZZZZ") == "ARCA")
+
+# ib_async's parseIBDatetime returns any of these; band_lab/live/broker.py's
+# bar_time_et documents them from that package's source.
+naive = datetime(2026, 6, 2, 9, 30)
+check("naive datetime is exchange time already",
+      bar_timestamp(naive) == pd.Timestamp("2026-06-02 09:30:00"))
+check("zone-aware ET bar keeps its wall clock",
+      bar_timestamp(naive.replace(tzinfo=ZoneInfo("America/New_York")))
+      == pd.Timestamp("2026-06-02 09:30:00"))
+check("epoch-decoded UTC bar is converted, not relabelled",
+      bar_timestamp(datetime(2026, 6, 2, 13, 30, tzinfo=ZoneInfo("UTC")))
+      == pd.Timestamp("2026-06-02 09:30:00"),
+      "this is the four-hour error the old str() path would have written")
+check("string form with the zone suffix parses",
+      bar_timestamp("20260602 09:30:00 America/New_York")
+      == pd.Timestamp("2026-06-02 09:30:00"))
+check("string form with IBKR's double space parses",
+      bar_timestamp("20260602  09:30:00") == pd.Timestamp("2026-06-02 09:30:00"))
+check("a daily bar's bare date lands on the open",
+      bar_timestamp(date(2026, 6, 2)) == pd.Timestamp("2026-06-02 09:30:00"))
+try:
+    bar_timestamp("2 June 2026")
+    check("an unparseable date raises", False)
+except ValueError:
+    check("an unparseable date raises rather than guessing", True)
+
+# Mixed aware/naive chunks in one run must still format: a tz-aware column and
+# a naive one concatenate to object dtype, where .dt.strftime raises.
+mixed = to_rows(pd.DataFrame({
+    "ts": [bar_timestamp(datetime(2026, 6, 2, 13, 30, tzinfo=ZoneInfo("UTC"))),
+           bar_timestamp("20260602  09:31:00")],
+    "Open": [1.0, 1.0], "High": [1.0, 1.0], "Low": [1.0, 1.0],
+    "Close": [1.0, 1.0], "Volume": [1.0, 1.0]}))
+check("mixed aware/naive chunks format to one convention",
+      mixed["Date"].tolist() == ["20260602 09:30:00 America/New_York",
+                                 "20260602 09:31:00 America/New_York"],
+      str(mixed["Date"].tolist()))
+
+# ------------------------------------------------------- missing IBKR client
+# The failure a user actually hits first: `python3 fas_1min_fetch.py` on a box
+# where the venv has ib_async but `python3` is not the venv's interpreter.
+print("\n5. Missing-client diagnosis")
+check("fas_1min_fetch guards the ib_async import",
+      "require_ib_async" in open(
+          os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                       "fas_1min_fetch.py"), encoding="utf-8").read())
+_argv, _venv = sys.argv, os.environ.get("VIRTUAL_ENV")
+try:
+    sys.argv = ["fas_1min_fetch.py"]
+    os.environ["VIRTUAL_ENV"] = os.path.join(os.sep, "somewhere", "else")
+    msg = ibkr_env.diagnosis("ib_async")
+    check("names the interpreter, not just the module", sys.executable in msg)
+    check("says the running Python is the wrong one", "NOT its interpreter" in msg)
+    check("names the script that failed", "fas_1min_fetch.py" in msg)
+    os.environ.pop("VIRTUAL_ENV")
+    msg = ibkr_env.diagnosis("ib_async")
+    check("without a venv, says it is genuinely not installed",
+          "not installed" in msg and "NOT its interpreter" not in msg)
+finally:
+    sys.argv = _argv
+    os.environ.pop("VIRTUAL_ENV", None)
+    if _venv is not None:
+        os.environ["VIRTUAL_ENV"] = _venv
+try:
+    ibkr_env.require("some_module_nobody_has")
+    check("require() exits rather than raising ImportError", False)
+except SystemExit:
+    check("require() exits rather than raising ImportError", True)
 
 print("\n" + "=" * 72)
 print(f"{len(PASS)} passed, {len(FAIL)} failed")

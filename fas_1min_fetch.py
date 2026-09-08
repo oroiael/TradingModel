@@ -1,6 +1,9 @@
-"""Fetch FAS 1-minute RTH bars over ~6 years, in the repository's CSV format.
+"""Fetch 1-minute RTH bars over ~6 years, in the repository's CSV format.
 
-Produces FAS_1min.csv matching SOXL_1min.csv / SOXS_1min.csv exactly:
+Written for FAS; symbol-agnostic in use -- `--symbol` takes any US equity or
+ETF, and the listing venue is looked up per symbol (see PRIMARY_EXCHANGE).
+
+Produces <SYMBOL>_1min.csv matching SOXL_1min.csv / SOXS_1min.csv exactly:
 
     Date,Open,High,Low,Close,Volume
     20191231 09:30:00 America/New_York,17.94,17.96,17.9,17.92,170640.0
@@ -15,45 +18,37 @@ Verified properties of the existing SOXL_1min.csv that this script reproduces:
 
 WHICH SOURCE
 ------------
-The repo's 5-minute files came from IBKR via ibkr_intraday_fetcher.py, and
-DATA_NOTES.md records them as RAW / unadjusted (SOXL opens at $200.01 in July
-2020, its true pre-split price).
+IBKR, by default -- the same vendor as the 5-minute ETF files.  FAS_1MIN_CAPTURE.md
+records the evidence (the two SOXL files are demonstrably the same data, 15x
+apart before the 2021-03-02 split and identical after it) and retracts an earlier
+argument in this docstring that the 1-minute files must have come from ThetaData.
+The differing price basis is a property of how a fetch is chunked, not of who
+supplied it: IBKR adjusts each request relative to its own endDateTime.
 
-The 1-minute files are on a DIFFERENT basis: SOXL_1min.csv opens at $17.94 on
-2019-12-31, when SOXL actually traded near $269 -- i.e. it is SPLIT-ADJUSTED
-(269/15 = 17.9), and a discontinuity scan over it finds no split jump at all.
-It also reaches 2019-12-31, well past what IBKR normally retains for 1-minute
-bars, and band_lab/live/PHASE2_PARITY.md states the delivered 1-minute files
-"neither needed a fetch".
-
-So the 1-minute files did not come from the IBKR path in this repo.  The most
-likely source is ThetaData: .env carries THETADATA_* credentials, several
-scripts here use it, and local_fast_fetch.py already talks to the local Theta
-Terminal REST server directly (deliberately bypassing the Python SDK).  This
-script therefore defaults to that same proven local-REST pattern, with IBKR
-available as --source ibkr for the recent years.
-
-I could not verify the ThetaData stock endpoint from the environment this was
-written in, so the response parser maps columns BY NAME from the payload's own
-header rather than by position, and --probe fetches a single day and prints the
-raw response.  Run --probe first.
+ThetaData remains available as `--source theta`.  Its stock endpoint could not be
+verified from the environment this was written in, so the response parser maps
+columns BY NAME from the payload's own header rather than by position, and
+--probe fetches a single day and prints the raw response.  Run --probe first if
+you use that path.
 
 USAGE
 -----
-    # 0. start the Theta Terminal in another shell (credentials from .env)
-    java -jar ThetaTerminalv3.jar
+    # 0. TWS or IB Gateway running, API enabled (paper = port 7497)
+    python3 check_tws.py                                  # connectivity smoke test
 
-    # 1. confirm the endpoint and payload shape before a six-year pull
-    python3 fas_1min_fetch.py --probe
+    # 1. full fetch, resumable -- safe to Ctrl-C and rerun
+    python3 fas_1min_fetch.py --symbol FAS --normalize-splits
 
-    # 2. full fetch, resumable -- safe to Ctrl-C and rerun
-    python3 fas_1min_fetch.py
+    # 2. validate the result (integrity + cross-check vs FAS_5min_6Years.csv)
+    python3 fas_1min_verify.py --symbol FAS
 
-    # 3. validate the result (integrity + cross-check vs FAS_5min_6Years.csv)
-    python3 fas_1min_verify.py
+    # the six-ETF set; the listing venue is resolved per symbol
+    for s in TQQQ FAS SPXL MUU BULZ TMF; do
+        python3 fas_1min_fetch.py --symbol $s --normalize-splits
+    done
 
-    # alternative source, if the Theta subscription does not cover stocks
-    python3 fas_1min_fetch.py --source ibkr --start 2020-08-01
+    # ThetaData instead, if an IBKR depth limit bites
+    python3 fas_1min_fetch.py --source theta --probe
 """
 
 from __future__ import annotations
@@ -62,7 +57,8 @@ import argparse
 import os
 import sys
 import time
-from datetime import date, datetime, timedelta
+from datetime import date, datetime, time as dtime, timedelta
+from zoneinfo import ZoneInfo
 
 import numpy as np
 import pandas as pd
@@ -76,14 +72,83 @@ try:
 except ImportError:                                          # pragma: no cover
     requests = None
 
+from ibkr_env import require_ib_async
+
 ROOT = os.path.dirname(os.path.abspath(__file__))
 COLUMNS = ["Date", "Open", "High", "Low", "Close", "Volume"]
 ZONE = " America/New_York"
+NY = ZoneInfo("America/New_York")
+
+# Primary listing exchange per symbol, resolved from IBKR's own contract search
+# on 2026-09-07 (conId in the comment). This matters: IBKR's documentation warns
+# that "historical data for securities which move to a new exchange will often
+# not be available prior to the time of the move ... this limitation also
+# applied to contract which specifies SMART as the exchange"
+# (TWS API/TWS Documentation - Copy Paste from Online.pdf, "Unavailable
+# Historical Data"), so the listing venue is part of the request, not decoration.
+#
+# ARCA was hard-coded here until 2026-09-07, which silently excluded every
+# NASDAQ- and BATS-listed name in this repository's own universe.
+PRIMARY_EXCHANGE = {
+    "TQQQ": "NASDAQ",   # 72539702  ProShares UltraPro QQQ
+    "MUU":  "NASDAQ",   # 734424283 Direxion Daily MU Bull 2X
+    "FAS":  "ARCA",     # 97276826  Direxion Daily Financial Bull 3X
+    "SPXL": "ARCA",     # 55679428  Direxion Daily S&P 500 Bull 3X
+    "BULZ": "ARCA",     # 593821806 MicroSectors FANG & Innovation 3X (ETN)
+    "TMF":  "ARCA",     # 665380902 Direxion Daily 20+ Year Treasury Bull 3X
+    "SOXL": "ARCA",     # matches check_tws.py, which connects successfully
+    "SOXS": "ARCA",     # 892340391
+    "UVXY": "BATS",     # 829567196 -- not ARCA, despite UVXY_1min.csv existing
+}
+DEFAULT_PRIMARY = "ARCA"
+
+
+def primary_exchange(symbol: str) -> str:
+    """The listing venue to qualify on. Unknown symbols keep the old default."""
+    return PRIMARY_EXCHANGE.get(symbol.upper(), DEFAULT_PRIMARY)
+
 
 # SOXL_1min.csv starts here; matching it keeps the two files directly
 # comparable, which is the point of having both.
 DEFAULT_START = "2019-12-31"
 THETA_BASE = "http://127.0.0.1:25520"
+
+
+# ------------------------------------------------------------- IBKR bar time
+def bar_timestamp(raw) -> pd.Timestamp:
+    """An IBKR bar timestamp as naive exchange wall-clock, whatever form it takes.
+
+    `ib_async.util.parseIBDatetime` can hand back any of four things depending on
+    the TWS version and its configured timezone -- band_lab/live/broker.py's
+    `bar_time_et` documents them from that package's source:
+
+      * a tz-aware datetime carrying an IANA zone,
+      * a tz-aware UTC datetime decoded from an epoch,
+      * a naive datetime (already exchange time, the convention the CSVs use),
+      * a bare `date`, for daily bars.
+
+    This used to be `pd.to_datetime(str(b.date).replace(" America/New_York", ""))`,
+    which is right only for the naive case. Given a UTC-decoded bar it would have
+    written 13:30 under an " America/New_York" suffix -- a four-hour error stamped
+    with the wrong zone -- and a run that mixed aware and naive chunks would put
+    an object-dtype column into `to_rows`, where `.dt.strftime` raises.
+    """
+    if isinstance(raw, date) and not isinstance(raw, datetime):
+        # A daily bar has no clock time; the session open is the only defensible
+        # reading. 1-minute requests should never produce one -- if they do, the
+        # verifier's session-grid check is what catches it.
+        return pd.Timestamp(datetime.combine(raw, dtime(9, 30)))
+    if not isinstance(raw, datetime):
+        txt = str(raw).replace(ZONE, "").strip()
+        for fmt in ("%Y%m%d %H:%M:%S", "%Y%m%d  %H:%M:%S", "%Y%m%d-%H:%M:%S"):
+            try:
+                return pd.Timestamp(datetime.strptime(txt, fmt))
+            except ValueError:
+                continue
+        raise ValueError(f"unparseable IBKR bar date {raw!r}")
+    if raw.tzinfo is not None:
+        return pd.Timestamp(raw.astimezone(NY).replace(tzinfo=None))
+    return pd.Timestamp(raw)
 
 
 # ---------------------------------------------------------------- formatting
@@ -321,26 +386,54 @@ def fetch_theta(symbol: str, start: date, end: date, path: str,
 
 # -------------------------------------------------------------------- IBKR
 def fetch_ibkr(symbol: str, start: date, path: str, host: str, port: int,
-               client_id: int, duration: str, pause: float) -> int:
+               client_id: int, duration: str, pause: float,
+               exchange: str = "SMART", primary: str | None = None) -> int:
     """Walk backwards from today. Mirrors band_lab/live/fetch_1min.py.
 
-    Note IBKR's 1-minute retention is typically far shorter than six years, and
-    IBKR returns a different price basis than the existing 1-minute files --
-    verify with fas_1min_verify.py before mixing sources in one file.
+    Depth is not something to assume. IBKR's documented "Unavailable Historical
+    Data" list caps bars of *30 seconds or less* at six months and says nothing
+    about 1-minute retention, so the loop discovers the end of history by
+    stopping after five consecutive empty responses and reports the earliest
+    session it actually reached.
+
+    IBKR also returns a price basis relative to each request's endDateTime, so a
+    chunked backward walk can differ from the existing 1-minute files -- verify
+    with fas_1min_verify.py before mixing sources in one file.
     """
-    from ib_async import IB, Stock           # imported late: not needed to probe
+    # Imported late: not needed to probe, and the guard turns a bare
+    # ModuleNotFoundError into the interpreter diagnosis that actually names
+    # the fault -- see ibkr_env.py.
+    require_ib_async()
+    from ib_async import IB, Stock
+
+    if primary is None:
+        primary = primary_exchange(symbol)
 
     ib = IB()
     print(f"source: IBKR, connecting to {host}:{port} (clientId={client_id})")
     ib.connect(host, port, clientId=client_id, timeout=20)
     try:
-        qualified = ib.qualifyContracts(Stock(symbol, "SMART", "USD",
-                                              primaryExchange="ARCA"))
+        print(f"qualifying {symbol} on {exchange}"
+              f"{f' (primary {primary})' if primary else ''}")
+        qualified = ib.qualifyContracts(Stock(symbol, exchange, "USD",
+                                              primaryExchange=primary or ""))
+        if not qualified and primary:
+            # A wrong listing venue is the likeliest cause, and it is worth one
+            # retry rather than an operator-hours round trip: let IBKR resolve
+            # the venue and print what it chose, so PRIMARY_EXCHANGE can be
+            # corrected instead of guessed at.
+            print(f"[!] {symbol} did not qualify as {primary}; "
+                  f"retrying without a primary exchange")
+            qualified = ib.qualifyContracts(Stock(symbol, exchange, "USD"))
         if not qualified:
-            print(f"[!] could not qualify {symbol}")
+            print(f"[!] could not qualify {symbol} on {exchange}")
             return 1
         contract = qualified[0]
         print(f"qualified conId={contract.conId} ({contract.primaryExchange})")
+        if primary and contract.primaryExchange and \
+                contract.primaryExchange != primary:
+            print(f"[!] IBKR resolved {symbol} to {contract.primaryExchange}, "
+                  f"not {primary} -- update PRIMARY_EXCHANGE in this file")
 
         lo, _ = existing_span(path)
         cursor = datetime.combine(lo, datetime.min.time()) if lo else datetime.now()
@@ -371,7 +464,7 @@ def fetch_ibkr(symbol: str, start: date, path: str, host: str, port: int,
                 time.sleep(pause)
                 continue
             empty = 0
-            f = pd.DataFrame([{"ts": pd.to_datetime(str(b.date).replace(ZONE, "").strip()),
+            f = pd.DataFrame([{"ts": bar_timestamp(b.date),
                                "Open": b.open, "High": b.high, "Low": b.low,
                                "Close": b.close, "Volume": b.volume} for b in bars])
             total = merge_and_write(path, to_rows(f))
@@ -432,7 +525,8 @@ def main() -> int:
     ap = argparse.ArgumentParser(
         description="Fetch FAS 1-minute RTH bars in the repo's CSV format",
         formatter_class=argparse.RawDescriptionHelpFormatter,
-        epilog="Run --probe first. Then fas_1min_verify.py to validate output.")
+        epilog="Then fas_1min_verify.py to validate the output. On --source "
+               "theta, run --probe first.")
     ap.add_argument("--symbol", default="FAS",
                     help="ticker (default FAS; works for any US equity/ETF)")
     ap.add_argument("--source", default="ibkr", choices=("ibkr", "theta"),
@@ -456,7 +550,16 @@ def main() -> int:
     ap.add_argument("--host", default="127.0.0.1")
     ap.add_argument("--port", type=int, default=7497, help="IBKR: 7497 paper")
     ap.add_argument("--client-id", type=int, default=96)
-    ap.add_argument("--duration", default="1 D", help="IBKR per-request duration")
+    ap.add_argument("--duration", default="1 D",
+                    help='IBKR per-request duration. IBKR\'s own client '
+                         'documents durations "up to one week"; "1 W" is ~5x '
+                         'faster, so try it on one symbol and verify the output')
+    ap.add_argument("--exchange", default="SMART",
+                    help="IBKR routing exchange (default SMART)")
+    ap.add_argument("--primary", default=None,
+                    help="IBKR primary listing exchange; default is looked up "
+                         "per symbol (TQQQ/MUU NASDAQ, UVXY BATS, else ARCA). "
+                         "Pass '' to let IBKR resolve it")
     args = ap.parse_args()
 
     if args.probe:
@@ -478,7 +581,8 @@ def main() -> int:
     else:
         pause = args.pause if args.pause > 5 else 11.0     # IBKR pacing floor
         rc = fetch_ibkr(args.symbol, start, out, args.host, args.port,
-                        args.client_id, args.duration, pause)
+                        args.client_id, args.duration, pause,
+                        args.exchange, args.primary)
     if rc == 0 and args.normalize_splits and os.path.exists(out):
         print("\nnormalizing split basis:")
         normalize_splits(out)

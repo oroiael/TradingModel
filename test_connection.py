@@ -1,4 +1,7 @@
 import asyncio
+from ibkr_env import require_ib_async
+
+require_ib_async()   # names the interpreter, not just the module
 from ib_async import IB, Stock
 
 async def main():
