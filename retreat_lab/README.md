@@ -469,6 +469,75 @@ second, cheaper pass over what it missed.
 Standing caveat, unchanged: both thresholds were chosen by looking at this data, and
 2022 is the only adverse regime in the sample.
 
+## Skipping after a big intraday GAIN — and a caveat on the down-skip
+
+`skip_symmetric.py`. The down-day rule came from a coarse five-bucket table. Finer
+buckets change the picture, and not in the rule's favour.
+
+### No bucket is significantly different from the rest
+
+| that day's intraday move | nights | mean overnight | sd | t vs all other nights |
+|---|---|---|---|---|
+| **below −5%** | 76 | **−0.164%** | 4.00% | **−1.09** |
+| −5% to −3% | 83 | +0.224% | 3.74% | −0.21 |
+| −3% to −1% | 132 | +0.394% | 3.03% | 0.36 |
+| −1% to +1% | 159 | +0.429% | 3.74% | 0.47 |
+| +1% to +3% | 155 | +0.301% | 2.75% | −0.02 |
+| **+3% to +5%** | 96 | **+0.436%** | 3.10% | 0.43 |
+| above +5% | 86 | +0.303% | 3.76% | −0.01 |
+
+**The largest |t| in the table is 1.09.** Nothing here is statistically distinguishable
+from anything else.
+
+It also relocates the effect. The coarse table's "below −3% is bad (+0.038%)" is really
+**"below −5% is bad (−0.164%)"** diluted with a perfectly ordinary −5%-to−3% band at
++0.224%. The −3% threshold was never where the signal lived.
+
+### Skipping after gains does not work
+
+| rule | nights | final | CAGR | max DD | Sharpe | ΔSharpe |
+|---|---|---|---|---|---|---|
+| p60 only | 787 | $297,588 | 22.0% | −15.6% | 1.08 | |
+| skip after > +2% | 534 | $219,244 | 15.4% | −12.8% | 0.93 | **−0.15** |
+| skip after > +3% | 605 | $217,634 | 15.2% | −18.7% | 0.88 | **−0.19** |
+| skip after > +4% | 657 | $218,926 | 15.3% | −26.3% | 0.86 | **−0.22** |
+| skip after > +5% | 701 | $265,160 | 19.4% | −24.5% | 1.03 | −0.05 |
+| skip after > +7% | 751 | $335,880 | 24.7% | −19.1% | 1.22 | +0.15 |
+
+Every threshold from +2% to +5% **hurts**, which is what the bucket table predicts —
+the +3% to +5% band has the *highest* mean of any bucket (+0.436%), so skipping it
+throws away good nights. Only +7% appears to help, and it removes **36 nights of 787
+(4.6%)**; a Sharpe improvement resting on 36 observations is not a finding. Its split
+is 0.050%→0.071% (t 0.46) and 0.563%→0.627% (t 3.33) — marginal in both halves.
+
+Skipping both tails adds nothing over the down side alone: |move| > 4%/5% gives Sharpe
+1.22, the same as skip < −3% by itself.
+
+### What this does to the down-skip rule
+
+Both of these remain true and they sit in tension:
+
+* The rule **did** improve out-of-sample metrics — Sharpe 1.08 → 1.22, drawdown −15.6%
+  → −13.6%, better mean in both split halves, across a −3% to −7% plateau.
+* The **mechanism it was attributed to is not established.** No single bucket is
+  significant, the effect is at −5% rather than −3%, and a plateau of thresholds over
+  one sample can be produced by the same noise that produced the buckets.
+
+The previous section presented the plateau as evidence against artifact. That was too
+strong: a plateau rules out a *knife-edge* fit, not a shared-noise fit, because
+adjacent thresholds are testing overlapping night sets and are not independent
+evidence.
+
+### The multiple-comparison bill
+
+Thresholds tested in this script: **11**. Across this lab on the same 5.5 years: **well
+over 100** — 6 retreat pairs, 4 percentiles, 3 windows, 6 down-skips, 5 up-skips, 5
+both-tail combinations, 1,024 bracket configurations, 200 take-profit configurations.
+
+At that width roughly one test in twenty clears t = 2 by chance. **A new rule now needs
+to clear it in both halves and by a wide margin to carry any weight**, and the up-side
+skip does not come close.
+
 ## Walk-forward: does the RV20 filter survive an honest threshold?
 
 The filter as reported used a percentile of the **whole sample** — at any night it
@@ -1901,7 +1970,8 @@ Files are tagged `up<bps>_dn<bps>` — `up500_dn200` is 5%/2%, `up400_dn150` is 
 `backtest.py`, `overnight.py` and `intraday_short.py` take an optional cost in bps
 per side; `intraday_short.py` also takes an annual borrow rate. `overnight_vol_filter.py` and
 `intraday_vol_filter.py` and `take_profit.py` and `bracket.py` and `floor_sweep.py` and `scoreboard.py` and `walkforward.py` and `regime.py` and `sizing_and_hedge.py` and `regime_switch.py` take an optional cost in bps per
-side; `regime_switch.py` and `skip_rule.py` also take capital and a position fraction. `collar.py` needs cached extracts of both put and call prints at the
+side; `regime_switch.py` and `skip_rule.py` and `skip_symmetric.py` also take capital and a position
+fraction; `skip_rule.py` additionally takes the volatility percentile. `collar.py` needs cached extracts of both put and call prints at the
 15:55 / 09:30 stamps. `protection_cost.py` needs the option files
 (`git lfs pull --include="raw_data/SOXL_intraday_5m_exp_*.csv"`, ~4 GB) and a cached
 extract of put prints at the 15:55 / 09:30 stamps. `independence_check.py` takes an optional lookback in bars; `tradeability.py`
