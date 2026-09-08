@@ -21,6 +21,7 @@ from retreat_timing import ROOT
 COST = float(sys.argv[1]) if len(sys.argv) > 1 else 1.0
 CAP = float(sys.argv[2]) if len(sys.argv) > 2 else 100_000.0
 F = float(sys.argv[3]) if len(sys.argv) > 3 else 0.5
+PCT = float(sys.argv[4]) if len(sys.argv) > 4 else 60.0
 BURN = 252
 OUT = os.path.join(ROOT, "retreat_lab/out")
 
@@ -71,10 +72,10 @@ def main():
     sel = []
     for i, r in live:
         h = [rv[j] for j in sorted(rv) if j < i]
-        if len(h) >= 60 and rv[i] < pctile(h, 60):
+        if len(h) >= 60 and rv[i] < pctile(h, PCT):
             sel.append((i, days[i], r, cl[days[i]] / op[days[i]] - 1))
     yrs = (days[live[-1][0]] - days[live[0][0]]).days / 365.25
-    print(f"p60 overnight, f={F:.2f}, ${CAP:,.0f}, {COST:.1f} bps/side, "
+    print(f"p{PCT:.0f} overnight, f={F:.2f}, ${CAP:,.0f}, {COST:.1f} bps/side, "
           f"{days[live[0][0]]} → {days[live[-1][0]]} ({yrs:.1f}y)\n")
 
     print("=" * 100)
@@ -83,7 +84,7 @@ def main():
     print(f"  {'rule':<26}{'nights':>8}{'skipped':>9}{'final':>13}"
           f"{'CAGR':>9}{'maxDD':>9}{'Sharpe':>8}{'t':>7}")
     base = perf([r for _, _, r, _ in sel], yrs)
-    print(f"  {'p60 only (no skip)':<26}{base['n']:>8}{0:>9}{base['final']:>12,.0f}"
+    print(f"  {f'p{PCT:.0f} only (no skip)':<26}{base['n']:>8}{0:>9}{base['final']:>12,.0f}"
           f"{base['cagr']*100:>8.1f}%{base['dd']*100:>8.1f}%{base['sh']:>8.2f}"
           f"{base['t']:>7.2f}")
     for thr in (-0.01, -0.02, -0.03, -0.04, -0.05, -0.07):
@@ -101,8 +102,8 @@ def main():
           f"{'total':>11}{'t':>7}")
     for lbl, f_ in (("first", lambda d: d <= mid), ("second", lambda d: d > mid)):
         seg = [(r, g) for _, d, r, g in sel if f_(d)]
-        for nm, rs in (("p60 only", [r for r, _ in seg]),
-                       ("p60 + skip -3%", [r for r, g in seg if g >= -0.03])):
+        for nm, rs in ((f"p{PCT:.0f} only", [r for r, _ in seg]),
+                       (f"p{PCT:.0f} + skip -3%", [r for r, g in seg if g >= -0.03])):
             y = yrs * len(seg) / len(sel)
             m = perf(rs, y)
             print(f"  {lbl:<16}{nm:<20}{m['n']:>8}{m['mean']*100:>9.3f}%"
@@ -131,13 +132,13 @@ def main():
                          week_pct=round((eq / start - 1) * 100, 3),
                          running_cagr_pct=round(((eq / CAP) ** (1 / y) - 1) * 100, 2),
                          drawdown_pct=round((eq / pk - 1) * 100, 2)))
-    path = os.path.join(OUT, f"weekly_p60_skip3_f{int(F*100)}.csv")
+    path = os.path.join(OUT, f"weekly_p{int(PCT)}_skip3_f{int(F*100)}.csv")
     with open(path, "w", newline="") as f:
         wr = csv.DictWriter(f, fieldnames=list(rows[0].keys()), lineterminator="\n")
         wr.writeheader(); wr.writerows(rows)
 
     print("\n" + "=" * 100)
-    print(f"p60 + SKIP AFTER A -3% DAY, at f={F:.2f}, week by week")
+    print(f"p{PCT:.0f} + SKIP AFTER A -3% DAY, at f={F:.2f}, week by week")
     print("=" * 100)
     pnl = [r["cash_pnl"] for r in rows]
     print(f"  final ${eq:,.0f}   total {(eq/CAP-1)*100:,.0f}%   "

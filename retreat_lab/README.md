@@ -412,6 +412,63 @@ enhancer. And the **−11.5% drawdown is measured on weekly marks**, which smoot
 intra-week troughs; the night-by-night figure in the sensitivity table above is
 **−13.6%**, and that is the honest one to plan against.
 
+## The skip rule on p80
+
+`skip_rule.py 1 100000 0.5 80`. Same rule, looser volatility gate.
+
+### It helps p80 — and does not rescue it
+
+| variant | nights | final | CAGR | max DD | Sharpe | t | 2022 cash |
+|---|---|---|---|---|---|---|---|
+| p60 | 787 | $297,588 | 22.0% | −15.6% | 1.08 | 2.53 | −$7,263 |
+| **p60 + skip −3%** | 628 | $297,324 | 21.9% | **−13.6%** | **1.22** | 2.87 | **−$352** |
+| p60 + skip −4% | 675 | **$319,261** | **23.5%** | −14.6% | **1.25** | **2.92** | −$4,061 |
+| p80 | 1,129 | $275,738 | 20.3% | −43.1% | 0.83 | 1.94 | −$36,384 |
+| p80 + skip −3% | 868 | $263,145 | 19.3% | −38.8% | 0.90 | 2.11 | −$31,793 |
+| p80 + skip −4% | 937 | $290,643 | 21.4% | −37.0% | 0.94 | 2.21 | −$30,711 |
+
+The skip lifts p80's Sharpe from 0.83 to 0.90 and trims 4 points of drawdown, so it
+is a genuine improvement there too. But **p80 + skip is still worse on every measure
+than p60 alone**, and in 2022 it loses **−$31,793 against p60 + skip's −$352**. The
+looser gate cannot be repaired by the skip rule; a −43% drawdown becomes a −39% one.
+
+Split-sample on p80 shows the same shape as p60 — the skip helps the weak half and
+costs nothing much in the strong one:
+
+| half | variant | mean/night | total | t |
+|---|---|---|---|---|
+| first | p80 only | **−0.051%** | −20% | −0.35 |
+| first | p80 + skip | **+0.020%** | −2% | 0.12 |
+| second | p80 only | 0.479% | +246% | 2.89 |
+| second | p80 + skip | 0.474% | +167% | 2.66 |
+
+### Why the skip adds less to p80 than you would expect
+
+Nights following a −3% day are **343 of 1,380 (24.9%)** in the full live set. How many
+each volatility gate has *already* removed before the skip rule is applied:
+
+| gate | nights kept | of which follow a −3% day | skip nights the vol gate already removed |
+|---|---|---|---|
+| **p60** | 787 | 159 (20.2%) | **184 of 343 — 54%** |
+| p80 | 1,129 | 261 (23.1%) | 82 of 343 — 24% |
+
+**p60 has already eliminated more than half the nights the skip rule targets**, because
+a −3% session is usually a high-volatility session and the two signals point at the
+same days. p80, being looser, lets three-quarters of them through — so the skip rule
+has more left to do there, and still cannot close the gap, because the nights p80 lets
+through that p60 blocks are bad for reasons the skip rule does not see.
+
+### The practical read
+
+**p60 + skip at −3% or −4% is the best configuration measured in this lab.** −4%
+returns more (23.5% CAGR, $319,261) and −3% protects 2022 better (−$352 vs −$4,061);
+both beat everything else on Sharpe. The two rules are complementary but heavily
+overlapping — the volatility gate does most of the work, and the skip rule is a
+second, cheaper pass over what it missed.
+
+Standing caveat, unchanged: both thresholds were chosen by looking at this data, and
+2022 is the only adverse regime in the sample.
+
 ## Walk-forward: does the RV20 filter survive an honest threshold?
 
 The filter as reported used a percentile of the **whole sample** — at any night it
