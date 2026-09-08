@@ -666,6 +666,79 @@ Reg T permits 2:1 initial margin on marginable equities, but **house requirement
 f = 1.5 marginal at many brokers. These figures assume the leverage is obtainable at
 6%; confirm both before treating the f > 1 rows as reachable.
 
+## Forced liquidation at f = 2.5 under a 3:1 portfolio-margin cap
+
+**Scope of what follows.** The thresholds are exact arithmetic from the stated 3:1
+maximum — verifiable, no IBKR knowledge involved. Anything about how IBKR actually
+computes portfolio margin on a 3× ETF, or when in the session it liquidates, is
+**inferred and unverified here**: IBKR's own documentation is egress-blocked from this
+environment, and this repo's IBKR notes cover order semantics, not margin.
+
+### The threshold is exact
+
+After an overnight move *r*, leverage becomes `L' = f(1+r) / (1 + f·r)`. A breach of
+`L' > 3` happens when `r < (f − 3) / 2f`:
+
+| f | gross exposure | liquidates at | nights breaching (675 in set) | worst kept night |
+|---|---|---|---|---|
+| 1.0 | 3.0× | −100% | 0 | −12.1% |
+| 1.5 | 4.5× | −50.0% | 0 | −12.1% |
+| **2.0** | **6.0×** | **−25.0%** | **0** | −12.1% |
+| **2.5** | **7.5×** | **−10.0%** | **3** | −12.1% |
+
+**f = 2.0 has a −25% buffer and never breaches** — not in the 675 filtered nights, and
+not in all 1,380 unfiltered live nights either (worst was −21.6%).
+
+**f = 2.5 liquidates on a −10% night, and three occurred:** 2026-03-02 (−12.1%),
+2024-07-16 (−10.3%), 2025-03-05 (−10.3%). Unfiltered, 24 of 1,380 nights would have
+breached.
+
+### Why liquidation costs this strategy less than it would most
+
+**The position is flat during the day.** It is entered at 15:59 and exited at the 09:30
+open, so a forced liquidation at the open coincides with the exit the strategy was
+making anyway. That is a genuinely unusual property — the exposure window is one
+overnight per trade, and the liquidation trigger and the planned exit are the same
+moment.
+
+Modelling the liquidation as a fill worse than the 09:30 print:
+
+| liquidation slippage | final | CAGR | max DD | liquidations |
+|---|---|---|---|---|
+| none (fills at the open) | $4,596,796 | 100.7% | −67.1% | 3 |
+| 1% worse | $4,138,783 | 96.9% | −67.1% | 3 |
+| 3% worse | $3,316,041 | 89.1% | −67.1% | 3 |
+| 5% worse | $2,610,214 | 81.1% | −67.1% | 3 |
+| 10% worse | $1,298,381 | 59.5% | −67.1% | 3 |
+
+f = 2.0 for comparison: **$3,133,839, CAGR 87.2%, −56.0% drawdown, zero liquidations.**
+
+**At roughly 4% liquidation slippage, f = 2.5 stops beating f = 2.0** — and f = 2.0
+carries a −25% buffer instead of −10%, so it is not paying for the extra return with
+the same risk.
+
+### The three things this analysis cannot settle
+
+1. **Pre-market fills.** `SOXL_1min.csv` is regular-hours only. SOXL trades from 04:00
+   ET, and a liquidation would most likely be filled there, below the 09:30 print this
+   backtest uses for every exit. **The single most important number for the f = 2.5
+   question — how far below the open a forced fill lands — is not measurable from this
+   data.**
+2. **Whether IBKR's PM requirement on a 3× ETF is really 3:1.** Portfolio margin is
+   risk-based (a stress scenario), not a fixed ratio, and leveraged ETFs commonly carry
+   a house add-on. If the effective cap is nearer 2.5:1, the f = 2.5 threshold moves
+   from −10% to about −3.3% and breaches become frequent rather than rare.
+3. **Over-liquidation and account consequences.** Whether IBKR closes only what the
+   deficit requires, and what three liquidations in five years does to account
+   standing, are not knowable from here.
+
+### What the arithmetic does support
+
+**f = 2.0 is the highest leverage this sample never puts in liquidation range**, with a
+−25% buffer against a worst observed night of −21.6% unfiltered and −12.1% filtered.
+f = 2.5 returns more on paper but its entire margin of safety is 2.1 percentage points
+of gap, and it is one unmeasured pre-market print away from being materially worse.
+
 ## Walk-forward: does the RV20 filter survive an honest threshold?
 
 The filter as reported used a percentile of the **whole sample** — at any night it
