@@ -29,6 +29,7 @@ _HERE = os.path.dirname(os.path.abspath(__file__))
 if _HERE not in sys.path:
     sys.path.insert(0, _HERE)
 
+from ibkr_env import require_ib_async                        # noqa: E402
 from strategy_core import Bar  # noqa: E402
 
 NY = ZoneInfo("America/New_York")
@@ -459,6 +460,10 @@ class IBBroker(Broker):
 
     # ---------------------------------------------------------- lifecycle
     def connect(self) -> None:
+        # A missing client here used to surface as a bare ModuleNotFoundError,
+        # which names the module and not the interpreter -- the fault is almost
+        # always the wrong Python, not an uninstalled package. See ibkr_env.py.
+        require_ib_async()
         from ib_async import IB
         if self._ib is None:
             self._ib = IB()

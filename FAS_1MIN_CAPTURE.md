@@ -45,6 +45,23 @@ Fixed two ways:
 
 Quick fix if you just want to get going: `pip install requests`.
 
+### The same trap, one layer down: which interpreter
+
+`ib_async` produces an identical-looking failure on the IBKR path, and there the
+usual cause is **not** a missing package:
+
+```
+(env) PS C:\Users\...\TradingModel> python3 fas_1min_fetch.py
+ModuleNotFoundError: No module named 'ib_async'
+```
+
+`pip` resolves to the active venv while `python3` on Windows resolves to the
+Microsoft Store shim or a system Python, so `pip install ib_async` reports
+"already satisfied" and the import still fails. Use **`python`, not `python3`**
+(`RUNBOOK_WINDOWS.md` §top). `ibkr_env.py` now prints the interpreter,
+`sys.prefix` and `VIRTUAL_ENV` and says which case you are in, instead of
+letting a traceback name the module and imply the wrong fix.
+
 ---
 
 ## Source: IBKR — correcting an earlier claim

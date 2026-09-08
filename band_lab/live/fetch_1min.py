@@ -51,6 +51,12 @@ from zoneinfo import ZoneInfo
 
 import pandas as pd
 
+_HERE = os.path.dirname(os.path.abspath(__file__))
+if _HERE not in sys.path:                    # same idiom as broker.py
+    sys.path.insert(0, _HERE)
+
+from ibkr_env import require_ib_async                        # noqa: E402
+
 NY = ZoneInfo("America/New_York")
 ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
@@ -110,7 +116,10 @@ def earliest_session(path: str):
 def fetch(symbol: str, start: datetime, path: str, host: str, port: int,
           client_id: int, duration: str, pause: float, exchange: str,
           primary: str) -> int:
-    from ib_async import IB, Stock          # imported late: not needed to test
+    # Imported late: not needed to test. The guard turns a bare
+    # ModuleNotFoundError into the interpreter diagnosis -- see ibkr_env.py.
+    require_ib_async()
+    from ib_async import IB, Stock
 
     ib = IB()
     print(f"connecting to {host}:{port} (clientId={client_id}) ...")

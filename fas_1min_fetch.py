@@ -72,6 +72,8 @@ try:
 except ImportError:                                          # pragma: no cover
     requests = None
 
+from ibkr_env import require_ib_async
+
 ROOT = os.path.dirname(os.path.abspath(__file__))
 COLUMNS = ["Date", "Open", "High", "Low", "Close", "Volume"]
 ZONE = " America/New_York"
@@ -398,7 +400,11 @@ def fetch_ibkr(symbol: str, start: date, path: str, host: str, port: int,
     chunked backward walk can differ from the existing 1-minute files -- verify
     with fas_1min_verify.py before mixing sources in one file.
     """
-    from ib_async import IB, Stock           # imported late: not needed to probe
+    # Imported late: not needed to probe, and the guard turns a bare
+    # ModuleNotFoundError into the interpreter diagnosis that actually names
+    # the fault -- see ibkr_env.py.
+    require_ib_async()
+    from ib_async import IB, Stock
 
     if primary is None:
         primary = primary_exchange(symbol)

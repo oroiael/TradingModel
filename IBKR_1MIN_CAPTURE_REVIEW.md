@@ -201,6 +201,50 @@ de-duplicated. Note that both fetchers only walk **backwards** from the earliest
 row they already have, so a rerun extends history but does **not** top up recent
 sessions. Re-fetching the tail means starting a fresh file or passing `--out`.
 
+### If it will not start
+
+The first real run failed like this, and the traceback names the wrong problem:
+
+```
+(env) PS C:\Users\churc\documents\TradingModel> python3 fas_1min_fetch.py
+ModuleNotFoundError: No module named 'ib_async'
+```
+
+That reads as "install ib_async", which is usually already done. The actual
+fault is which interpreter ran: **`pip` resolves to the active venv while
+`python3` on Windows resolves to the Microsoft Store shim or a system Python**,
+so `pip install ib_async` answers "already satisfied" and the import still
+fails. `RUNBOOK_WINDOWS.md` covers it in one line — *Python is invoked as
+`python` (not `python3`)* — and `band_lab/v2_dev/option_spread_probe.py` has
+carried a comment recording that this already cost someone their time once.
+
+Two things now follow from that:
+
+- **Use `python`, not `python3`, on Windows.** `python fas_1min_fetch.py`. If you
+  want no ambiguity at all, name the interpreter: `.\env\Scripts\python.exe`.
+- **Every IBKR entry point now says this itself.** `ibkr_env.py` prints the
+  running interpreter, `sys.prefix`, `VIRTUAL_ENV`, and which of the two cases
+  you are in, then the command that fixes it — and exits non-zero instead of
+  raising, so a `for` loop over six symbols stops rather than repeating the same
+  traceback six times.
+
+```
+ib_async is not importable from THIS interpreter (the IBKR client the current scripts use).
+
+  script      : fas_1min_fetch.py
+  interpreter : C:\Program Files\WindowsApps\...\python3.exe
+  sys.prefix  : C:\Program Files\WindowsApps\...
+  VIRTUAL_ENV : C:\Users\churc\documents\TradingModel\env
+
+  -> A virtualenv is active but this is NOT its interpreter, so you
+     are running the wrong Python. ...
+```
+
+The guard is wired into `fas_1min_fetch.py`, `band_lab/live/fetch_1min.py`,
+`band_lab/live/broker.py`, `check_tws.py`, `test_connection.py`,
+`get_option_chain.py`, `stream_market_data.py`, and the five older `ibapi`
+fetchers, which fail identically with `No module named 'ibapi'`.
+
 ### How long this takes
 
 Pacing, verified from the documentation PDF (*Pacing Violations for Small Bars*):

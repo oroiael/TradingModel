@@ -25,6 +25,7 @@ from zoneinfo import ZoneInfo
 import pandas as pd
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import ibkr_env  # noqa: E402
 from fas_1min_fetch import (  # noqa: E402
     bar_timestamp, merge_and_write, primary_exchange, theta_frame, to_rows)
 
@@ -176,6 +177,37 @@ check("mixed aware/naive chunks format to one convention",
       mixed["Date"].tolist() == ["20260602 09:30:00 America/New_York",
                                  "20260602 09:31:00 America/New_York"],
       str(mixed["Date"].tolist()))
+
+# ------------------------------------------------------- missing IBKR client
+# The failure a user actually hits first: `python3 fas_1min_fetch.py` on a box
+# where the venv has ib_async but `python3` is not the venv's interpreter.
+print("\n5. Missing-client diagnosis")
+check("fas_1min_fetch guards the ib_async import",
+      "require_ib_async" in open(
+          os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                       "fas_1min_fetch.py"), encoding="utf-8").read())
+_argv, _venv = sys.argv, os.environ.get("VIRTUAL_ENV")
+try:
+    sys.argv = ["fas_1min_fetch.py"]
+    os.environ["VIRTUAL_ENV"] = os.path.join(os.sep, "somewhere", "else")
+    msg = ibkr_env.diagnosis("ib_async")
+    check("names the interpreter, not just the module", sys.executable in msg)
+    check("says the running Python is the wrong one", "NOT its interpreter" in msg)
+    check("names the script that failed", "fas_1min_fetch.py" in msg)
+    os.environ.pop("VIRTUAL_ENV")
+    msg = ibkr_env.diagnosis("ib_async")
+    check("without a venv, says it is genuinely not installed",
+          "not installed" in msg and "NOT its interpreter" not in msg)
+finally:
+    sys.argv = _argv
+    os.environ.pop("VIRTUAL_ENV", None)
+    if _venv is not None:
+        os.environ["VIRTUAL_ENV"] = _venv
+try:
+    ibkr_env.require("some_module_nobody_has")
+    check("require() exits rather than raising ImportError", False)
+except SystemExit:
+    check("require() exits rather than raising ImportError", True)
 
 print("\n" + "=" * 72)
 print(f"{len(PASS)} passed, {len(FAIL)} failed")
