@@ -593,6 +593,79 @@ the −$151,609 week is 2026, when the account was large. As a share of equity t
 weeks are −19.5% at f = 0.5 and roughly −20% at f = 1.0 — the dollar figure grows with
 the account, the percentage does not.
 
+## Leverage: f = 1.5 and f = 2.0 with the −4% skip
+
+p60 + skip −4%, 675 nights, $100,000, 1 bp per side. **f is a multiple of equity
+committed to a 3× ETF**, so f = 1.5 is ~4.5× exposure to the semis index and f = 2.0
+is ~6×.
+
+| f | final | CAGR | max DD | worst night | effective exposure |
+|---|---|---|---|---|---|
+| 0.5 | $319,261 | 23.5% | −14.6% | −6.0% | 1.5× |
+| 1.0 | $849,145 | 47.6% | −28.6% | −12.1% | 3.0× |
+| **1.5** | **$1,885,879** | **70.7%** | −42.5% | −18.1% | 4.5× |
+| **2.0** | **$3,500,406** | **91.0%** | −55.2% | −24.1% | 6.0× |
+| 2.5 | $5,427,016 | 106.9% | −66.3% | −30.1% | 7.5× |
+
+### Charging margin — a change from the earlier runs
+
+f > 1 borrows, and none of the earlier tables charged for it. At **6%/yr on the
+borrowed portion, accrued per night held**:
+
+| f | final | CAGR | max DD | drag vs no charge |
+|---|---|---|---|---|
+| 1.0 | $849,145 | 47.6% | −28.6% | — |
+| **1.5** | **$1,784,409** | **68.9%** | −43.0% | **−5.4%** |
+| **2.0** | **$3,133,839** | **87.2%** | −56.0% | **−10.5%** |
+| 2.5 | $4,596,796 | 100.7% | −67.1% | −15.3% |
+
+Material but not decisive — the position is only held overnight, so borrow accrues on
+roughly 675 nights rather than continuously.
+
+### Year by year, with the margin charge
+
+| year | f = 1.0 | f = 1.5 | f = 2.0 |
+|---|---|---|---|
+| 2021 | 140,511 | 159,405 | 177,065 |
+| 2022 | 129,096 | 136,877 | 139,952 |
+| 2023 | 141,280 | 144,858 | 137,415 |
+| 2024 | 272,487 | 358,897 | 418,772 |
+| 2025 | 624,586 | 1,161,598 | 1,841,884 |
+| 2026 | **849,145** | **1,784,409** | **3,133,839** |
+
+2022 is still profitable at every leverage — the filters carry it.
+
+### What it costs: the worst weeks
+
+| f | worst week | second | third |
+|---|---|---|---|
+| 1.5 | 2026-03-02 **−28.5%** (−$503,029) | 2022-08-01 −17.5% | 2024-10-28 −16.1% |
+| 2.0 | 2026-03-02 **−37.0%** (−$1,169,322) | 2022-08-01 −22.9% | 2024-10-28 −21.3% |
+
+### The tail risk that does not show in these numbers
+
+The filters caught the four worst nights in the live window. That is an outcome, not a
+property — **a volatility filter cannot forecast a gap.**
+
+| night | raw | passed p60? | passed skip −4%? | at f = 1.5 | at f = 2.0 |
+|---|---|---|---|---|---|
+| 2026-06-22 | −21.6% | **no** | — | −32.4% | **−43.2%** |
+| 2024-08-02 | −19.8% | **no** | — | −29.7% | −39.6% |
+| 2025-01-24 | −15.5% | yes | **no** | −23.3% | −31.0% |
+| 2026-07-06 | −15.1% | **no** | — | −22.6% | −30.2% |
+
+Worst night that *did* pass both filters: **−12.1%** → −18.1% at f = 1.5, −24.1% at
+f = 2.0. Worst night in the window: −21.6%, which at f = 2.0 would have taken **43% of
+the account in one night.** Nothing in the method guarantees the next such gap lands on
+a night the filter excludes.
+
+### One practical constraint worth checking before acting
+
+Reg T permits 2:1 initial margin on marginable equities, but **house requirements on
+3× leveraged ETFs are commonly 75–100%**, which would make f = 2.0 unavailable and
+f = 1.5 marginal at many brokers. These figures assume the leverage is obtainable at
+6%; confirm both before treating the f > 1 rows as reachable.
+
 ## Walk-forward: does the RV20 filter survive an honest threshold?
 
 The filter as reported used a percentile of the **whole sample** — at any night it
