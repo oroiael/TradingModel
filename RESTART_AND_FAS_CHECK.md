@@ -123,58 +123,165 @@ on screen waiting for a click.
 
 ---
 
-## §3 · ThetaData terminal
+## §3 · ThetaData terminal — complete restart
 
-Only needed for `--source theta` and the `soxl_options_greeks_*.py` /
-`local_fast_fetch.py` family. The FAS 1-minute job does **not** need it unless
-IBKR's depth falls short.
+Not needed for the FAS 1-minute file (that came from IBKR and is finished). It
+*is* needed for the `soxl_options_greeks_*.py` / `tqqq_options_greeks_*.py`
+family, `local_fast_fetch.py`, and `fas_1min_fetch.py --source theta`.
+
+**Why `java -jar ThetaTerminalv3.jar` did nothing.** Four causes, in the order
+they bite. Work down the list — each step below ends in a check.
+
+| # | Cause | Tell |
+|---|---|---|
+| 1 | Java missing, or older than 21 | `'java' is not recognized`, or `UnsupportedClassVersionError` |
+| 2 | Not in the jar's directory | `Unable to access jarfile ThetaTerminalv3.jar` |
+| 3 | **No `creds.txt` beside the jar** | it starts, then exits or refuses every request. **`.env` is not read by the terminal** — that file is for the Python scripts only |
+| 4 | Right terminal, wrong port assumed after | it *is* running; your health check was pointed at 25520 |
+
+### 3.1 Java 21 or greater
+
+v3 will not run on anything older.
 
 ```powershell
-java -version                              # must answer; no Java, no terminal
+java -version
 ```
 
-Find the jar if you have lost it:
+Needs `21` or higher. If it is missing or older:
+
+```powershell
+winget install --id EclipseAdoptium.Temurin.21.JDK -e
+```
+
+Close that PowerShell window, open a new one, and check `java -version` again —
+PATH is only picked up by a new shell.
+
+### 3.2 Find or download the jar
 
 ```powershell
 Get-ChildItem -Path C:\ -Filter "ThetaTerminal*.jar" -Recurse -ErrorAction SilentlyContinue |
-    Select-Object -First 5 FullName
+    Select-Object FullName, @{n='MB';e={[math]::Round($_.Length/1MB,1)}}, LastWriteTime
 ```
 
-Start it **in its own PowerShell window and leave that window open** — it is a
-foreground server, and closing the window kills it:
+If nothing comes back, download `ThetaTerminalv3.jar` from the download link on
+ThetaData's Getting Started page (<https://docs.thetadata.us/Articles/Getting-Started/Getting-Started.html>)
+and put it in a folder of its own:
 
 ```powershell
-cd <folder containing the jar>
+New-Item -ItemType Directory -Force -Path C:\ThetaTerminal
+```
+
+The jar is self-updating, so you download it once.
+
+### 3.3 `creds.txt` — the step that most likely stopped you
+
+v3 takes credentials from a plain text file **in the same directory as the
+jar**: **email on line one, password on line two, nothing else**.
+
+```powershell
+cd C:\ThetaTerminal
+notepad creds.txt
+```
+
+The values are the ones already in `C:\TradingModel\.env`:
+
+```powershell
+Get-Content C:\TradingModel\.env
+```
+
+Paste the value after `THETADATA_USERNAME=` as line 1 and the value after
+`THETADATA_PASSWORD=` as line 2 — **the keys themselves must not appear in the
+file**. Save, then confirm it is exactly two lines:
+
+```powershell
+Get-Content C:\ThetaTerminal\creds.txt | Measure-Object -Line
+```
+
+If Notepad's encoding causes trouble, rewrite it as plain ASCII (both values are
+ASCII):
+
+```powershell
+Set-Content -Path C:\ThetaTerminal\creds.txt -Encoding ascii -Value @(
+    (Get-Content C:\TradingModel\.env | Where-Object { $_ -like 'THETADATA_USERNAME=*' }) -replace '^[^=]+=','',
+    (Get-Content C:\TradingModel\.env | Where-Object { $_ -like 'THETADATA_PASSWORD=*' }) -replace '^[^=]+=',''
+)
+Get-Content C:\ThetaTerminal\creds.txt | Measure-Object -Line
+```
+
+> `creds.txt` is a password in plaintext on disk. Keep it in the terminal's own
+> folder, **not** in the repo — `.gitignore` does not cover `C:\ThetaTerminal`,
+> and there is no rule stopping you committing it if it sits next to the code.
+
+### 3.4 Start it
+
+Its own PowerShell window, and **leave that window open** — it is a foreground
+server, so closing the window or signing out kills it:
+
+```powershell
+cd C:\ThetaTerminal
 java -jar ThetaTerminalv3.jar
 ```
 
-Credentials come from `.env` in the repo root (`THETADATA_USERNAME` /
-`THETADATA_PASSWORD`).
-
-Health check, from your normal window:
+Two variants worth knowing:
 
 ```powershell
-curl.exe -s -o NUL -w "%{http_code}`n" http://127.0.0.1:25520
+java -jar ThetaTerminalv3.jar --creds-file=creds.txt    # creds file elsewhere
+java -Xms2G -Xmx8G -jar ThetaTerminalv3.jar             # more heap for big pulls
 ```
 
-> **Port:** `fas_1min_fetch.py` and `local_fast_fetch.py` talk to **25520**; the
-> older `soxl_options_greeks_*.py` scripts carry a comment saying **25503**. The
-> v3 terminal prints the port it binds on startup — read it there rather than
-> assuming, and if it is 25503 the `--source theta` path needs `THETA_BASE` in
-> `fas_1min_fetch.py:114` changed to match.
+**Read what it prints on startup.** It reports whether the login succeeded and
+which port it bound. That printed port is the authority — everything below
+assumes it said 25503.
 
-Before any real Theta pull, probe the endpoint. The stock-OHLC route was never
-confirmed against a live terminal, which is what `--probe` exists for:
+### 3.5 Verify, from a *different* window
 
 ```powershell
+Test-NetConnection -ComputerName 127.0.0.1 -Port 25503 | Select-Object TcpTestSucceeded
+```
+
+Then ask it for actual data:
+
+```powershell
+curl.exe -s -o NUL -w "%{http_code}`n" "http://127.0.0.1:25503/v3/stock/history/ohlc?symbol=SOXL&start_date=20260701&end_date=20260701&interval=1m"
+```
+
+| Result | Means |
+|---|---|
+| `200` | working |
+| `401` / `403` | credentials wrong, or the subscription does not cover **stock** data (options-only plans fail exactly here) |
+| nothing / connection refused | the terminal is not up, or bound to a different port |
+
+Finally, the repo's own probe — it prints the raw payload and says which route
+the terminal answers on:
+
+```powershell
+cd C:\TradingModel
 python fas_1min_fetch.py --symbol FAS --source theta --probe
 ```
 
-It tries `/v2/hist/stock/ohlc` and `/v3/hist/stock/ohlc`, prints the raw payload
-and tells you which one works. Expect ~390 rows for a full RTH session. A 401 or
-403 means the subscription is options-only and does not cover stock data.
+### 3.6 The port and route were wrong in this repo — now fixed
 
----
+`fas_1min_fetch.py` had `THETA_BASE = http://127.0.0.1:25520` and probed
+`/v2/hist/stock/ohlc` and `/v3/hist/stock/ohlc`. Against a v3 terminal all three
+are wrong, which is why a health check could report "no local Theta Terminal"
+while the terminal was running fine. Corrected to:
+
+- **port 25503** by default (25504 is ThetaData's staging environment), with
+  `--theta-port` and a `THETA_PORT` environment variable to override;
+- a route table that tries **`/v3/stock/history/ohlc`** with v3's parameter names
+  (`symbol`, `interval=1m`) and falls back to the v2 route with v2's names
+  (`root`, `ivl=60000`) — whichever the terminal actually answers.
+
+`fas_1min_selftest.py` now pins that selection against a loopback stub in both
+directions (47 tests, all passing). What is still *not* verified from here is the
+real payload shape behind the v3 route — ThetaData's docs are unreachable from
+the environment this was written in, which is exactly what `--probe` is for.
+Run it before any full Theta pull.
+
+The older `soxl_options_greeks_*.py` scripts use the `thetadata` Python package
+rather than raw REST, and their comments say port 25503 — consistent with v3.
+`local_fast_fetch.py` still hard-codes 25520 and will need the same correction
+before it works; it was not touched here.
 
 ## §4 · Did the FAS 1-minute capture finish?
 
@@ -283,7 +390,103 @@ python fas_1min_verify.py --symbol SOXL
 
 ---
 
-## §5 · Resume an unfinished capture
+## §5 · Push `FAS_1min.csv` up to GitHub
+
+The file is ~40 MB. Line 1 of `.gitattributes` is
+`*.csv filter=lfs diff=lfs merge=lfs -text`, so it goes to **Git LFS
+automatically** — *provided LFS is initialised on this machine*. If it is not,
+git commits a 40 MB blob into the repository permanently, and nothing you do
+afterwards removes it from history. Check before committing, not after.
+
+### 5.1 Pre-flight — two lines that decide everything
+
+```powershell
+cd C:\TradingModel
+git lfs install                          # once per machine; harmless to repeat
+git check-attr filter -- FAS_1min.csv
+```
+
+The second must print exactly:
+
+```
+FAS_1min.csv: filter: lfs
+```
+
+If it says `unspecified`, **stop** — the file would go in as a raw blob.
+
+### 5.2 Put it on its own branch
+
+PR #59 is the docs change. A 40 MB data file does not belong in it.
+
+```powershell
+git checkout main
+git pull
+git checkout -b data/fas-1min
+```
+
+### 5.3 Stage, confirm LFS took it, then commit
+
+```powershell
+git add FAS_1min.csv
+git lfs status
+```
+
+`FAS_1min.csv` must appear under **"Objects to be committed"** with an `(LFS:
+<oid>)` marker. If it is listed as `(Git: ...)` instead, LFS did not take it —
+go back to 5.1 rather than pushing.
+
+```powershell
+git commit -m "Add FAS 1-minute RTH bars, 2019-12-31 onward"
+git push -u origin data/fas-1min
+```
+
+The push uploads the LFS object first, then the pointer commit. Expect it to sit
+on `Uploading LFS objects: 100% (1/1), 40 MB` for a while on a slow uplink; if it
+drops, just run the same push again — LFS resumes rather than restarting.
+
+### 5.4 Confirm what actually landed
+
+```powershell
+git lfs ls-files | Select-String FAS_1min
+git show HEAD:FAS_1min.csv | Select-Object -First 3
+```
+
+The second command should print a **pointer**, not CSV rows:
+
+```
+version https://git-lfs.github.com/spec/v1
+oid sha256:...
+size 42...
+```
+
+That is the correct result. The pointer is what lives in the commit; the bytes
+live in LFS, and GitHub will label the file "Stored with Git LFS". Anyone
+cloning gets it with `git lfs pull` (§1).
+
+### 5.5 If it went in as a raw blob
+
+You will have caught it at 5.3. Undo it **before** pushing:
+
+```powershell
+git reset HEAD~1
+git lfs install
+git add FAS_1min.csv
+git lfs status                           # must now say LFS
+```
+
+Once pushed, rewriting history is the only remedy — which is the whole reason
+§5.1 exists.
+
+### Quota
+
+LFS storage and bandwidth are metered per account, and this repo already holds
+`SOXL_1min.csv` (41 MB), `SOXS_1min.csv`, `UVXY_1min.csv` and the 5-minute
+files. FAS adds another ~40 MB against the same allowance. `git lfs env` shows
+which endpoint and repo it is billing against.
+
+---
+
+## §6 · Resume an unfinished capture
 
 Re-run the identical command. It reads the earliest row already on disk and
 keeps walking back from there — nothing already fetched is re-requested.
@@ -342,7 +545,7 @@ python fas_1min_fetch.py --symbol FAS --normalize-splits --client-id 94
 
 ---
 
-## §6 · Make the next run survive the night
+## §7 · Make the next run survive the night
 
 Log the run, so "did it finish" is answerable from the transcript instead of
 inferred from the file. `logs\` is gitignored — session output carries account
@@ -394,7 +597,13 @@ python3 -c "import sys; print(sys.executable)"
 pip install -r band_lab/live/requirements.txt
 
 python3 check_tws.py
-java -jar ThetaTerminalv3.jar          # separate terminal, leave it open
+
+cd ~/ThetaTerminal                     # creds.txt beside the jar: email, then password
+java -jar ThetaTerminalv3.jar          # separate terminal, leave it open — Java 21+
+curl -s -o /dev/null -w "%{http_code}\n" \
+  "http://127.0.0.1:25503/v3/stock/history/ohlc?symbol=SOXL&start_date=20260701&end_date=20260701&interval=1m"
+
+cd ~/TradingModel
 
 python3 fas_1min_fetch.py --symbol FAS --normalize-splits
 python3 fas_1min_verify.py --symbol FAS ; echo "exit=$?"

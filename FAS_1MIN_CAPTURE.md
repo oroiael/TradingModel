@@ -19,7 +19,9 @@ python3 check_tws.py                                 # connectivity smoke test
 python3 fas_1min_fetch.py --normalize-splits         # resumable; safe to Ctrl-C
 python3 fas_1min_verify.py                           # integrity + cross-check
 
-# ThetaData remains available if IBKR's 1-minute depth falls short:
+# ThetaData remains available if IBKR's 1-minute depth falls short.  The
+# terminal needs Java 21+ and a creds.txt beside the jar (email line one,
+# password line two); it serves on port 25503.  See RESTART_AND_FAS_CHECK.md §3.
 #   pip install -r band_lab/live/requirements.txt
 #   java -jar ThetaTerminalv3.jar
 #   python3 fas_1min_fetch.py --source theta --probe
@@ -237,6 +239,21 @@ the raw payload, and tells you which one works. **Run it before the full pull.**
 If the payload shape differs from what the parser expects, it maps by name from
 the response's own header, so it should adapt; if it cannot, it raises rather
 than silently guessing column positions.
+
+## Correction: the Theta port and route were wrong
+
+`THETA_BASE` was `http://127.0.0.1:25520` and the probe tried
+`/v2/hist/stock/ohlc` and `/v3/hist/stock/ohlc`. Against a Theta Terminal v3 all
+three are wrong — v3 serves **25503** (25504 is staging) and its stock route is
+**`/v3/stock/history/ohlc`**, taking `symbol` and `interval=1m` where v2 took
+`root` and `ivl=60000`. The practical cost was a health check reporting "no
+local Theta Terminal" against a terminal that was running.
+
+Now: 25503 by default with `--theta-port` / `THETA_PORT` to override, and a
+route table that tries v3 first and falls back to v2, using each generation's
+own parameter names. `fas_1min_selftest.py` pins the selection in both
+directions against a loopback stub. The real payload shape behind the v3 route
+is still unverified from here — `--probe` remains the thing to run first.
 
 ## One thing to fix separately
 

@@ -1,11 +1,15 @@
 """Offline self-test for fas_1min_fetch.py.
 
-The network paths (Theta Terminal, IBKR/TWS) cannot run without a broker or a
-local terminal, so they are not exercised here.  Everything that does NOT need
-a network is tested against the real SOXL_1min.csv conventions, because those
-are the parts most likely to silently corrupt a six-hour capture:
+The IBKR path cannot run without a broker, so it is not exercised here.  The
+Theta path is, against a loopback stub that answers one route and refuses the
+other -- picking the wrong generation's route and parameter names is how that
+path failed in practice, and it costs nothing to pin.  Everything else is
+tested against the real SOXL_1min.csv conventions, because those are the parts
+most likely to silently corrupt a six-hour capture:
 
   * the Theta response parser -- maps columns by NAME from the payload header
+  * Theta route selection -- v3 (symbol/interval) vs v2 (root/ivl), and the
+    fallback when a terminal answers only one of them
   * the CSV formatter -- byte-identical convention to SOXL_1min.csv
   * merge/resume -- dedupe, sort, and atomic replace across interrupted runs
   * the IBKR contract lookup and bar-timestamp conversion -- the two things
@@ -26,6 +30,7 @@ import pandas as pd
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import ibkr_env  # noqa: E402
+import fas_1min_fetch as fetch  # noqa: E402
 from fas_1min_fetch import (  # noqa: E402
     bar_timestamp, merge_and_write, primary_exchange, theta_frame, to_rows)
 
@@ -209,12 +214,99 @@ try:
 except SystemExit:
     check("require() exits rather than raising ImportError", True)
 
+# ------------------------------------------------------- Theta route selection
+print("\n6. Theta route selection (loopback stub, not a real terminal)")
+
+import json  # noqa: E402
+import threading  # noqa: E402
+from http.server import BaseHTTPRequestHandler, HTTPServer  # noqa: E402
+from urllib.parse import parse_qs, urlparse  # noqa: E402
+
+_BARS = [[20260701, 34_200_000, 10.0, 10.2, 9.8, 10.1, 1000]]
+_FORMAT = ["date", "ms_of_day", "open", "high", "low", "close", "volume"]
+
+
+def _stub(answers: str):
+    """A terminal that serves exactly one route. Returns (server, port, seen)."""
+    seen = {}
+
+    class H(BaseHTTPRequestHandler):
+        def log_message(self, *a):
+            pass
+
+        def do_GET(self):
+            u = urlparse(self.path)
+            seen[u.path] = parse_qs(u.query)
+            if u.path == answers:
+                b = json.dumps({"header": {"format": _FORMAT},
+                                "response": _BARS}).encode()
+                self.send_response(200)
+                self.send_header("Content-Type", "application/json")
+                self.send_header("Content-Length", str(len(b)))
+                self.end_headers()
+                self.wfile.write(b)
+            else:
+                self.send_response(404)
+                self.end_headers()
+                self.wfile.write(b"no such route")
+
+    # port 0: never collide with a real terminal on this machine
+    srv = HTTPServer(("127.0.0.1", 0), H)
+    threading.Thread(target=srv.serve_forever, daemon=True).start()
+    return srv, srv.server_port, seen
+
+
+_saved_port = fetch.THETA_PORT
+try:
+    # -- a v3 terminal
+    srv, port, seen = _stub("/v3/stock/history/ohlc")
+    fetch.set_theta_port(port)
+    check("set_theta_port rewrites THETA_BASE",
+          fetch.THETA_BASE == f"http://127.0.0.1:{port}", fetch.THETA_BASE)
+    route = fetch.theta_route("FAS")
+    check("a v3 terminal resolves to the v3 route",
+          route is not None and route[0] == "/v3/stock/history/ohlc",
+          route[0] if route else "None")
+    q = seen.get("/v3/stock/history/ohlc", {})
+    check("v3 request uses symbol/interval, not root/ivl",
+          "symbol" in q and "interval" in q and "root" not in q and "ivl" not in q,
+          str({k: v[0] for k, v in q.items()}))
+    srv.shutdown()
+
+    # -- an older v2 terminal: the fallback must still work
+    srv, port, seen = _stub("/v2/hist/stock/ohlc")
+    fetch.set_theta_port(port)
+    route = fetch.theta_route("FAS")
+    check("a v2 terminal falls back to the v2 route",
+          route is not None and route[0] == "/v2/hist/stock/ohlc",
+          route[0] if route else "None")
+    q = seen.get("/v2/hist/stock/ohlc", {})
+    check("v2 request uses root/ivl",
+          q.get("root", [""])[0] == "FAS" and "ivl" in q,
+          str({k: v[0] for k, v in q.items()}))
+    srv.shutdown()
+
+    # -- a terminal that answers neither: report, do not guess
+    srv, port, seen = _stub("/nothing/here")
+    fetch.set_theta_port(port)
+    check("a terminal answering no known route returns None",
+          fetch.theta_route("FAS") is None)
+    check("both known routes were actually tried",
+          set(seen) == {r for r, _ in fetch.THETA_ROUTES}, str(sorted(seen)))
+    srv.shutdown()
+finally:
+    fetch.set_theta_port(_saved_port)
+
+check("the default port is v3's 25503", _saved_port == 25503, str(_saved_port))
+
+
 print("\n" + "=" * 72)
 print(f"{len(PASS)} passed, {len(FAIL)} failed")
 if FAIL:
     for f_ in FAIL:
         print(f"  FAILED: {f_}")
-print("\nNot covered here (needs a live source): the Theta HTTP endpoint path and\n"
-      "pagination, and the IBKR/TWS connection. Use --probe for the first and a\n"
-      "short --start window for the second before committing to a full run.")
+print("\nNot covered here (needs a live source): the Theta pagination header, the\n"
+      "real payload shape behind each route, and the IBKR/TWS connection. Use\n"
+      "--probe for the first two and a short --start window for the third\n"
+      "before committing to a full run.")
 raise SystemExit(1 if FAIL else 0)
