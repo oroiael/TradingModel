@@ -47,7 +47,9 @@ USAGE
         python3 fas_1min_fetch.py --symbol $s --normalize-splits
     done
 
-    # ThetaData instead, if an IBKR depth limit bites
+    # ThetaData instead, if an IBKR depth limit bites.  Start the terminal
+    # first (Java 21+, creds.txt beside the jar), then probe before committing
+    # to a full pull -- it reports which route the terminal answers on.
     python3 fas_1min_fetch.py --source theta --probe
 """
 
@@ -111,7 +113,44 @@ def primary_exchange(symbol: str) -> str:
 # SOXL_1min.csv starts here; matching it keeps the two files directly
 # comparable, which is the point of having both.
 DEFAULT_START = "2019-12-31"
-THETA_BASE = "http://127.0.0.1:25520"
+
+# Theta Terminal v3 serves on 25503 (25504 is the staging environment). This
+# file carried 25520 until 2026-09-09, so every health check reported "no local
+# Theta Terminal" against a terminal that was in fact running. Override with
+# --theta-port, or the THETA_PORT environment variable.
+THETA_PORT = int(os.environ.get("THETA_PORT", "25503"))
+THETA_BASE = f"http://127.0.0.1:{THETA_PORT}"
+
+
+def set_theta_port(port: int) -> None:
+    """Point this module at a different terminal. Called from main()."""
+    global THETA_PORT, THETA_BASE
+    THETA_PORT = port
+    THETA_BASE = f"http://127.0.0.1:{port}"
+
+
+# Route and parameter shape per terminal generation. theta_frame() resolves
+# response columns BY NAME from the payload's own header, so only the REQUEST
+# differs between these: v3 renamed `root` to `symbol` and replaced the
+# millisecond `ivl` with `interval`.
+#
+# Neither shape can be exercised from the environment this was written in --
+# ThetaData's documentation is egress-blocked here -- so theta_route() tries
+# each in turn against a single day and uses whichever answers, and --probe
+# prints the raw payload rather than assuming. v3 caps a multi-day request at
+# one month, which is what --chunk-days 30 already respects.
+def _v3_params(symbol: str, start: str, end: str) -> dict:
+    return {"symbol": symbol, "start_date": start, "end_date": end,
+            "interval": "1m", "rth": "true"}
+
+
+def _v2_params(symbol: str, start: str, end: str) -> dict:
+    return {"root": symbol, "start_date": start, "end_date": end,
+            "ivl": 60_000, "rth": "true"}
+
+
+THETA_ROUTES = [("/v3/stock/history/ohlc", _v3_params),
+                ("/v2/hist/stock/ohlc", _v2_params)]
 
 
 # ------------------------------------------------------------- IBKR bar time
@@ -327,6 +366,31 @@ def theta_frame(pages) -> pd.DataFrame:
     return out[~dead].sort_values("ts").reset_index(drop=True)
 
 
+def theta_route(symbol: str, probe_day: str = "20260701"):
+    """Which (path, params-builder) pair this terminal actually answers on.
+
+    Tries each shape in THETA_ROUTES once against a single day and returns the
+    first that comes back 200 with a usable header. Returns None having printed
+    what each one said -- an options-only subscription 401s or 403s here.
+    """
+    for path, build in THETA_ROUTES:
+        try:
+            r = requests.get(f"{THETA_BASE}{path}",
+                             params=build(symbol, probe_day, probe_day),
+                             timeout=30)
+        except Exception as exc:                                  # noqa: BLE001
+            print(f"  {path}: {exc}")
+            continue
+        if r.status_code == 200:
+            try:
+                if (r.json().get("header") or {}).get("format"):
+                    return path, build
+            except ValueError:
+                pass
+        print(f"  {path}: HTTP {r.status_code}  {r.text[:160]}")
+    return None
+
+
 def fetch_theta(symbol: str, start: date, end: date, path: str,
                 pause: float, chunk_days: int) -> int:
     if not require_requests():
@@ -340,6 +404,18 @@ def fetch_theta(symbol: str, start: date, end: date, path: str,
               "    (credentials come from .env: THETADATA_USERNAME / _PASSWORD)")
         return 1
 
+    print("resolving the terminal's stock OHLC route:")
+    route = theta_route(symbol)
+    if route is None:
+        print("[!] this terminal answered none of the known stock OHLC routes.\n"
+              f"    Tried: {', '.join(r for r, _ in THETA_ROUTES)}\n"
+              "    Check the subscription covers STOCK data (options-only plans\n"
+              "    401/403 here), and that --theta-port matches the port the\n"
+              "    terminal printed on startup.")
+        return 1
+    route_path, build_params = route
+    print(f"  using {route_path}\n")
+
     have_lo, have_hi = existing_span(path)
     if have_lo:
         print(f"resuming: {path} already covers {have_lo} -> {have_hi}")
@@ -351,13 +427,10 @@ def fetch_theta(symbol: str, start: date, end: date, path: str,
         if have_lo and have_lo <= cursor and chunk_end <= have_hi:
             cursor = chunk_end + timedelta(days=1)
             continue
-        params = {"root": symbol,
-                  "start_date": cursor.strftime("%Y%m%d"),
-                  "end_date": chunk_end.strftime("%Y%m%d"),
-                  "ivl": 60_000,          # 1 minute, in milliseconds
-                  "rth": "true"}
+        params = build_params(symbol, cursor.strftime("%Y%m%d"),
+                              chunk_end.strftime("%Y%m%d"))
         try:
-            pages = theta_get("/v2/hist/stock/ohlc", params)
+            pages = theta_get(route_path, params)
             frame = theta_frame(pages)
         except Exception as exc:                                  # noqa: BLE001
             print(f"  {cursor} .. {chunk_end}: FAILED ({exc})")
@@ -493,12 +566,15 @@ def probe(symbol: str) -> int:
     try:
         requests.get(THETA_BASE, timeout=4)
     except requests.exceptions.RequestException:
-        print(f"[!] no local Theta Terminal at {THETA_BASE}. "
-              f"Start it:  java -jar ThetaTerminalv3.jar")
+        print(f"[!] no local Theta Terminal at {THETA_BASE}.\n"
+              "    Start it:  java -jar ThetaTerminalv3.jar\n"
+              "    (needs Java 21+, and creds.txt beside the jar: email on line\n"
+              "     one, password on line two)\n"
+              "    v3 serves on 25503; if yours printed a different port on\n"
+              "    startup, pass --theta-port.")
         return 1
-    for path in ("/v2/hist/stock/ohlc", "/v3/hist/stock/ohlc"):
-        params = {"root": symbol, "start_date": day, "end_date": day,
-                  "ivl": 60_000, "rth": "true"}
+    for path, build in THETA_ROUTES:
+        params = build(symbol, day, day)
         try:
             r = requests.get(f"{THETA_BASE}{path}", params=params, timeout=30)
             print(f"--- {path} -> HTTP {r.status_code}")
@@ -516,8 +592,9 @@ def probe(symbol: str) -> int:
         except Exception as exc:                                  # noqa: BLE001
             print(f"--- {path} -> {exc}")
         print()
-    print("[!] neither endpoint returned a usable payload. Check the Theta "
-          "subscription covers STOCK data (options-only plans will 401/403 here).")
+    print("[!] no known route returned a usable payload. Check the Theta "
+          "subscription covers STOCK data (options-only plans will 401/403 "
+          "here), and that --theta-port matches the terminal's port.")
     return 1
 
 
@@ -547,6 +624,9 @@ def main() -> int:
                          "split era so it matches SOXL_1min.csv's convention")
     ap.add_argument("--probe", action="store_true",
                     help="fetch one day, print the raw payload, exit")
+    ap.add_argument("--theta-port", type=int, default=None,
+                    help=f"ThetaData terminal port (default {THETA_PORT}; v3 "
+                         f"serves 25503, 25504 is staging)")
     ap.add_argument("--host", default="127.0.0.1")
     ap.add_argument("--port", type=int, default=7497, help="IBKR: 7497 paper")
     ap.add_argument("--client-id", type=int, default=96)
@@ -562,6 +642,8 @@ def main() -> int:
                          "Pass '' to let IBKR resolve it")
     args = ap.parse_args()
 
+    if args.theta_port:
+        set_theta_port(args.theta_port)
     if args.probe:
         return probe(args.symbol)
 
