@@ -810,6 +810,70 @@ What the sweep genuinely provides is **withdrawn, non-recallable capital**: $453
 sitting outside the leveraged account and immune to a gap. Judge it as taking money off
 the table, not as risk control inside the strategy.
 
+## Programming the high-water mark
+
+`hwm.py`. The mark is the **highest trading-account equity ever recorded at a weekly
+mark**. Each week: trade, then sweep `pct × max(0, equity − hwm)`, then set
+`hwm = max(hwm, equity after the sweep)`. Three lines, no history, no lookback window
+— one number carried forward.
+
+Note the mark is set **after** the sweep, so it ratchets by the retained 75% only. If
+it were set before, the swept dollars would be permanently exempt and the next new high
+would sweep nothing.
+
+### Which balance carries the mark
+
+| rule | trading | reserve | total | CAGR | max DD | weeks swept |
+|---|---|---|---|---|---|---|
+| none (all reinvested) | $3,133,839 | $0 | $3,133,839 | 87.2% | −46.0% | 0/288 |
+| every profitable week | $278,490 | $340,644 | $619,134 | 39.3% | −31.2% | 103/288 |
+| **HWM on trading equity** | **$1,377,385** | **$453,407** | **$1,830,792** | **69.7%** | −40.9% | **41/288** |
+| HWM on trading + reserve | $1,366,495 | $455,170 | $1,821,664 | 69.6% | −40.9% | 53/288 |
+
+The two are nearly identical here, but they are not the same rule and the difference
+grows with the reserve: marking the **total** means the reserve's own interest lifts
+the bar, so eventually the strategy must out-earn its own T-bill balance to sweep at
+all. Mark the **trading** account.
+
+### The 2022 window, week by week
+
+| week | after trading | HWM | above? | swept | HWM after |
+|---|---|---|---|---|---|
+| 2022-07-25 | 152,523 | 154,008 | −1,486 | **0** | 154,008 |
+| 2022-08-01 | 117,607 | 154,008 | −36,401 | **0** | 154,008 |
+| 2022-09-26 | 102,808 | 154,008 | −51,200 | **0** | 154,008 |
+| 2022-10-03 | 121,173 | 154,008 | −32,835 | **0** | 154,008 |
+
+2022-09-26 and 2022-10-03 are **profitable** weeks — +$1,038 and +$18,365. The weekly
+rule banks 25% of each; the high-water rule banks nothing, because the account is still
+$33k below a peak set in July. That is the entire difference between the two rules.
+
+### The operational consequence nobody plans for
+
+**41 of 288 weeks swept. The longest stretch with no sweep at all was 109 weeks —
+2021-12-20 through 2024-01-15, just over two years.** A high-water rule is not an
+income schedule. If the reserve is meant to pay for anything on a calendar, this rule
+will not fund it.
+
+### Minimum transfer size
+
+| floor | weeks swept | banked | total equity |
+|---|---|---|---|
+| $0 | 41 | $429,890 | $1,830,792 |
+| $250 | 39 | $430,062 | $1,831,693 |
+| $1,000 | 35 | $434,897 | $1,859,881 |
+| $5,000 | 20 | $483,447 | $2,193,965 |
+
+Skipping dust transfers costs nothing and ends up banking *more*, because the skipped
+dollars stay at 2× and are swept later at a higher level. Median sweep is $3,427,
+largest $69,115.
+
+### Reconciling banked against reserve
+
+Total swept is **$429,890**; the reserve ends at **$453,407**. The $23,517 gap is
+interest accrued on the reserve, not a discrepancy — the sweep column sums principal,
+the reserve column includes its own carry.
+
 ## Walk-forward: does the RV20 filter survive an honest threshold?
 
 The filter as reported used a percentile of the **whole sample** — at any night it
@@ -2244,7 +2308,7 @@ per side; `intraday_short.py` also takes an annual borrow rate. `overnight_vol_f
 `intraday_vol_filter.py` and `take_profit.py` and `bracket.py` and `floor_sweep.py` and `scoreboard.py` and `walkforward.py` and `regime.py` and `sizing_and_hedge.py` and `regime_switch.py` take an optional cost in bps per
 side; `regime_switch.py` and `skip_rule.py` and `skip_symmetric.py` also take capital and a position fraction; `skip_rule.py`
 additionally takes the volatility percentile and skip threshold, and `sweep.py`
-takes a sweep fraction. `collar.py` needs cached extracts of both put and call prints at the
+and `hwm.py` take a sweep fraction (`hwm.py` also writes `out/weekly_hwm25_f20.csv`). `collar.py` needs cached extracts of both put and call prints at the
 15:55 / 09:30 stamps. `protection_cost.py` needs the option files
 (`git lfs pull --include="raw_data/SOXL_intraday_5m_exp_*.csv"`, ~4 GB) and a cached
 extract of put prints at the 15:55 / 09:30 stamps. `independence_check.py` takes an optional lookback in bars; `tradeability.py`
