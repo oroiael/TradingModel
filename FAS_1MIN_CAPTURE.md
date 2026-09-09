@@ -1,5 +1,9 @@
 # FAS 1-minute capture — scripts and provenance notes
 
+For a cold start after a reboot — activating the venv, bringing TWS and the
+ThetaData terminal back up, and checking whether an interrupted capture actually
+finished — see [`RESTART_AND_FAS_CHECK.md`](RESTART_AND_FAS_CHECK.md).
+
 Three scripts, matching what exists for SOXL:
 
 | script | purpose |
