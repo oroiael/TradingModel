@@ -18,14 +18,14 @@ from decimal import Decimal
 from statistics import median, mean, stdev
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from retreat_timing import CONFIGS, bl, tag, ROOT, pct
+from retreat_timing import CONFIGS, bl, tag, ROOT, pct, BARS, SYMBOL
 
 H = (15, 30, 60, 390)
 
 
 def load():
     close, ts, idx = [], [], {}
-    with open(os.path.join(ROOT, "SOXL_1min.csv")) as f:
+    with open(os.path.join(ROOT, BARS)) as f:
         r = csv.reader(f); next(r)
         for a in r:
             t = dt.datetime.strptime(

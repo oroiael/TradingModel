@@ -24,7 +24,7 @@ from decimal import Decimal
 from statistics import mean, stdev
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from retreat_timing import ROOT
+from retreat_timing import ROOT, BARS, SYMBOL
 
 COST = float(sys.argv[1]) if len(sys.argv) > 1 else 1.0
 DOW = ["Mon", "Tue", "Wed", "Thu", "Fri"]
@@ -33,7 +33,7 @@ DOW = ["Mon", "Tue", "Wed", "Thu", "Fri"]
 def load():
     """-> sessions: list of dicts with per-minute arrays for one session."""
     rows = []
-    with open(os.path.join(ROOT, "SOXL_1min.csv")) as f:
+    with open(os.path.join(ROOT, BARS)) as f:
         r = csv.reader(f); next(r)
         for a in r:
             t = dt.datetime.strptime(
@@ -95,7 +95,7 @@ def main():
     ses = load()
     yrs = (ses[-1]["date"] - ses[0]["date"]).days / 365.25
     c = COST / 10000.0
-    print(f"SOXL, {ses[0]['date']} → {ses[-1]['date']}, {len(ses)} sessions, "
+    print(f"{SYMBOL}, {ses[0]['date']} → {ses[-1]['date']}, {len(ses)} sessions, "
           f"{COST:.1f} bps/side")
     print("target detected on the bar HIGH (a resting limit fills on a trade)\n")
     hdr = (f"  {'config':<24}{'n':>6}{'hit%':>8}{'mean':>9}{'median':>9}"

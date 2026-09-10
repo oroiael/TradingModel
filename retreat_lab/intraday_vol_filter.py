@@ -11,7 +11,7 @@ sigma. If the arithmetic mean survives the filter, the geometric mean can flip
 positive and the intraday long becomes viable. If the mean shrinks with the vol,
 it cannot.
 
-Conditioner is RV20 -- SOXL's own trailing 20-session realised vol through the
+Conditioner is RV20 -- the instrument's own trailing 20-session realised vol through the
 close of day D-1, applied to day D, so there is no look-ahead. (Note this differs
 from the overnight test, which used RV through day D for the night D->D+1; here
 day D's own move must not inform its own filter.) VXX/MA60 is reported alongside.
@@ -23,14 +23,14 @@ from decimal import Decimal
 from statistics import mean, stdev
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from retreat_timing import ROOT
+from retreat_timing import ROOT, BARS, SYMBOL
 
 COST = float(sys.argv[1]) if len(sys.argv) > 1 else 1.0
 
 
 def soxl():
     o, c, d = {}, {}, []
-    with open(os.path.join(ROOT, "SOXL_1min.csv")) as f:
+    with open(os.path.join(ROOT, BARS)) as f:
         r = csv.reader(f); next(r)
         for a in r:
             t = dt.datetime.strptime(
@@ -102,12 +102,12 @@ def main():
         g = cl[D] / op[D] - 1
         rows.append(dict(D=D, lo=g - 2 * c, sh=-g - 2 * c,
                          rv=rv.get(D), vr=vr.get(D)))
-    print(f"SOXL intraday, {days[0]} → {days[-1]}, {len(rows)} sessions, "
+    print(f"{SYMBOL} intraday, {days[0]} → {days[-1]}, {len(rows)} sessions, "
           f"{COST:.1f} bps/side\n")
     hdr = (f"  {'bucket':<26}{'n':>6}{'total':>11}{'CAGR':>9}{'arith':>9}{'geo':>9}"
            f"{'drag':>8}{'sd':>7}{'maxDD':>9}{'t':>7}")
 
-    for key, kl in (("rv", "SOXL realised vol (RV20)"), ("vr", "VXX / its 60d average")):
+    for key, kl in (("rv", f"{SYMBOL} realised vol (RV20)"), ("vr", "VXX / its 60d average")):
         have = [r for r in rows if r[key] is not None]
         vals = sorted(r[key] for r in have)
         qs = [vals[int(len(vals) * q)] for q in (0.2, 0.4, 0.6, 0.8)]

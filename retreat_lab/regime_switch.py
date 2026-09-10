@@ -22,7 +22,7 @@ from decimal import Decimal
 from statistics import mean, stdev, median
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from retreat_timing import ROOT
+from retreat_timing import ROOT, BARS, SYMBOL, SUF
 
 COST = float(sys.argv[1]) if len(sys.argv) > 1 else 1.0
 CAP = float(sys.argv[2]) if len(sys.argv) > 2 else 100_000.0
@@ -63,7 +63,7 @@ def perf(rets, yrs, cap=CAP, f=F):
 
 
 def main():
-    days, op, cl = daily("SOXL_1min.csv")
+    days, op, cl = daily(BARS)
     xd, xo, xc = daily("SOXX_5min_6Years.csv")
     c = COST / 10000.0
     dret = [cl[days[i]] / cl[days[i - 1]] - 1 for i in range(1, len(days))]
@@ -111,7 +111,7 @@ def main():
                          week_pct=round((eq / start - 1) * 100, 3),
                          running_cagr_pct=round(((eq / CAP) ** (1 / y) - 1) * 100, 2),
                          drawdown_pct=round((eq / pk - 1) * 100, 2)))
-    path = os.path.join(OUT, f"weekly_p60_f{int(F*100)}.csv")
+    path = os.path.join(OUT, f"weekly_p60_f{int(F*100)}{SUF}.csv")
     with open(path, "w", newline="") as f:
         wr = csv.DictWriter(f, fieldnames=list(rows[0].keys()), lineterminator="\n")
         wr.writeheader(); wr.writerows(rows)

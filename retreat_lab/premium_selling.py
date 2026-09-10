@@ -23,14 +23,14 @@ from statistics import mean, median, stdev
 from collections import defaultdict, Counter
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from retreat_timing import ROOT, pct, CONFIGS, bl, tag
+from retreat_timing import ROOT, pct, CONFIGS, bl, tag, BARS, SYMBOL
 
 CACHE = "/tmp/claude-0/-home-user-TradingModel/50ac25d8-892f-559b-b09e-cc99c4333d8d/scratchpad/puts.json"
 
 
 def underlying():
     close, opn = {}, {}
-    with open(os.path.join(ROOT, "SOXL_1min.csv")) as f:
+    with open(os.path.join(ROOT, BARS)) as f:
         r = csv.reader(f); next(r)
         for a in r:
             t = dt.datetime.strptime(
@@ -145,7 +145,7 @@ def main():
 
     # ---- does the retreat study help pick nights to sell?
     print("\nCONDITIONING — sell only on nights with NO open episode?")
-    rows = list(csv.reader(open(os.path.join(ROOT, "SOXL_1min.csv"))))[1:]
+    rows = list(csv.reader(open(os.path.join(ROOT, BARS))))[1:]
     dates, idx = [], {}
     for i, a in enumerate(rows):
         t = dt.datetime.strptime(

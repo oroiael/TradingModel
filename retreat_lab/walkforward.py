@@ -24,7 +24,7 @@ from decimal import Decimal
 from statistics import mean, stdev
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from retreat_timing import ROOT
+from retreat_timing import ROOT, BARS, SYMBOL
 
 COST = float(sys.argv[1]) if len(sys.argv) > 1 else 1.0
 BURN = 252
@@ -32,7 +32,7 @@ BURN = 252
 
 def load():
     o, c, d = {}, {}, []
-    with open(os.path.join(ROOT, "SOXL_1min.csv")) as f:
+    with open(os.path.join(ROOT, BARS)) as f:
         r = csv.reader(f); next(r)
         for a in r:
             t = dt.datetime.strptime(
@@ -82,7 +82,7 @@ def main():
     first = nights[0][0]
     live = [(i, r) for i, r in nights if i >= first + BURN]
     yrs = (days[live[-1][0]] - days[live[0][0]]).days / 365.25
-    print(f"SOXL overnight, walk-forward threshold, {COST:.1f} bps/side")
+    print(f"{SYMBOL} overnight, walk-forward threshold, {COST:.1f} bps/side")
     print(f"burn-in {BURN} sessions; live window {days[live[0][0]]} → "
           f"{days[live[-1][0]]} ({yrs:.1f}y, {len(live)} nights)\n")
     hdr = (f"  {'strategy':<34}{'n':>7}{'total':>12}{'CAGR':>9}{'maxDD':>9}"

@@ -20,7 +20,7 @@ from decimal import Decimal
 from statistics import mean, stdev
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from retreat_timing import ROOT, pct
+from retreat_timing import ROOT, pct, BARS, SYMBOL
 
 COST = float(sys.argv[1]) if len(sys.argv) > 1 else 1.0
 BORROW = float(sys.argv[2]) if len(sys.argv) > 2 else 0.0     # % / yr while short
@@ -28,7 +28,7 @@ BORROW = float(sys.argv[2]) if len(sys.argv) > 2 else 0.0     # % / yr while sho
 
 def load():
     bars = []
-    with open(os.path.join(ROOT, "SOXL_1min.csv")) as f:
+    with open(os.path.join(ROOT, BARS)) as f:
         r = csv.reader(f); next(r)
         for a in r:
             t = dt.datetime.strptime(
@@ -73,7 +73,7 @@ def main():
     c = COST / 10000.0
     # borrow accrues only while the position is open: ~6.5h of a 24h day
     bday = BORROW / 100.0 / 252.0 * (6.5 / 24.0) if BORROW else 0.0
-    print(f"SOXL 1-min, {bars[0][0]:%Y-%m-%d} → {bars[-1][0]:%Y-%m-%d} "
+    print(f"{SYMBOL} 1-min, {bars[0][0]:%Y-%m-%d} → {bars[-1][0]:%Y-%m-%d} "
           f"({yrs:.1f}y, {len(ses)} sessions)")
     print(f"costs {COST:.1f} bps/side ({len(ses)/yrs*2*COST/100:.1f}%/yr), "
           f"borrow {BORROW:.1f}%/yr charged only while short\n")

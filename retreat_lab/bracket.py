@@ -25,7 +25,7 @@ from decimal import Decimal
 from statistics import mean, stdev, median
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from retreat_timing import ROOT
+from retreat_timing import ROOT, BARS, SYMBOL
 
 COST = float(sys.argv[1]) if len(sys.argv) > 1 else 1.0
 LOOKBACK = 126          # ~6 months of sessions
@@ -34,7 +34,7 @@ DEFAULT_LIMIT = 30      # minutes, used until history exists
 
 def load():
     rows = []
-    with open(os.path.join(ROOT, "SOXL_1min.csv")) as f:
+    with open(os.path.join(ROOT, BARS)) as f:
         r = csv.reader(f); next(r)
         for a in r:
             t = dt.datetime.strptime(
@@ -113,7 +113,7 @@ def main():
     ses = load()
     yrs = (ses[-1]["date"] - ses[0]["date"]).days / 365.25
     c = COST / 10000.0
-    print(f"SOXL, {ses[0]['date']} → {ses[-1]['date']}, {len(ses)} sessions, "
+    print(f"{SYMBOL}, {ses[0]['date']} → {ses[-1]['date']}, {len(ses)} sessions, "
           f"{COST:.1f} bps/side")
     print("same-minute target+stop resolved as STOP FIRST (pessimistic); "
           "stops fill at trigger (optimistic by the 24-30bp measured earlier)\n")

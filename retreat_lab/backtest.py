@@ -21,7 +21,7 @@ from decimal import Decimal
 from statistics import mean, stdev
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from retreat_timing import ROOT, tag
+from retreat_timing import ROOT, tag, BARS, SYMBOL
 
 BPS = 10000
 COST = float(sys.argv[1]) if len(sys.argv) > 1 else 1.0     # bps per side
@@ -29,7 +29,7 @@ COST = float(sys.argv[1]) if len(sys.argv) > 1 else 1.0     # bps per side
 
 def load():
     close, ts, idx = [], [], {}
-    with open(os.path.join(ROOT, "SOXL_1min.csv")) as f:
+    with open(os.path.join(ROOT, BARS)) as f:
         r = csv.reader(f); next(r)
         for a in r:
             t = dt.datetime.strptime(
@@ -105,7 +105,7 @@ def main():
     ent = triggers(idx)
     yrs = (ts[-1] - ts[0]).days / 365.25
     bh = close[-1] / close[0] - 1
-    print(f"SOXL 1-min, {ts[0]:%Y-%m-%d} → {ts[-1]:%Y-%m-%d} ({yrs:.1f}y), "
+    print(f"{SYMBOL} 1-min, {ts[0]:%Y-%m-%d} → {ts[-1]:%Y-%m-%d} ({yrs:.1f}y), "
           f"{len(ent):,} triggers")
     print(f"costs: {COST:.1f} bps per side, {COST*2:.1f} bps round trip\n")
 

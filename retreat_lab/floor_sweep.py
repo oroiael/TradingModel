@@ -23,7 +23,7 @@ from decimal import Decimal
 from statistics import mean, stdev
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from retreat_timing import ROOT
+from retreat_timing import ROOT, BARS, SYMBOL
 
 COST = float(sys.argv[1]) if len(sys.argv) > 1 else 1.0
 TARGET = 0.01
@@ -31,7 +31,7 @@ TARGET = 0.01
 
 def load():
     rows = []
-    with open(os.path.join(ROOT, "SOXL_1min.csv")) as f:
+    with open(os.path.join(ROOT, BARS)) as f:
         r = csv.reader(f); next(r)
         for a in r:
             t = dt.datetime.strptime(
@@ -91,7 +91,7 @@ def main():
     ses = load()
     c = COST / 10000.0
     widths = [0.0025, 0.005, 0.0075, 0.01, 0.015, 0.02, 0.03, 0.05]
-    print(f"SOXL {ses[0]['date']} → {ses[-1]['date']}, {len(ses)} sessions, "
+    print(f"{SYMBOL} {ses[0]['date']} → {ses[-1]['date']}, {len(ses)} sessions, "
           f"target +1%, INTRADAY ONLY, {COST:.1f} bps/side\n")
 
     print("=" * 104)

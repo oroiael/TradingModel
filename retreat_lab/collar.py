@@ -26,14 +26,14 @@ from statistics import mean, median, stdev
 from collections import defaultdict
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from retreat_timing import ROOT, pct
+from retreat_timing import ROOT, pct, BARS, SYMBOL
 
 SCRATCH = "/tmp/claude-0/-home-user-TradingModel/50ac25d8-892f-559b-b09e-cc99c4333d8d/scratchpad"
 
 
 def underlying():
     close, opn = {}, {}
-    with open(os.path.join(ROOT, "SOXL_1min.csv")) as f:
+    with open(os.path.join(ROOT, BARS)) as f:
         r = csv.reader(f); next(r)
         for a in r:
             t = dt.datetime.strptime(
@@ -200,7 +200,7 @@ def headtohead(pb, cb, close, opn, nxt):
           f"   {len(dn)} down nights {mean([r['call'] for r in dn]):>6.1f}bp")
     print(f"    put  leg: {len(up)} up nights {mean([r['put'] for r in up]):>7.1f}bp"
           f"   {len(dn)} down nights {mean([r['put'] for r in dn]):>6.1f}bp")
-    print(f"\n  NOTE: SOXL's overnight drift over this sample is "
+    print(f"\n  NOTE: {SYMBOL}'s overnight drift over this sample is "
           f"{mean([r['gap']*1e4 for r in rows]):.1f} bp/night "
           f"(~{mean([r['gap'] for r in rows])*252*100:.0f}%/yr from gaps alone).")
     print("  A short call is structurally punished in that regime, so the call-leg")

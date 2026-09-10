@@ -15,7 +15,7 @@ from decimal import Decimal
 from statistics import mean, stdev, median
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from retreat_timing import ROOT
+from retreat_timing import ROOT, BARS, SYMBOL, SUF
 
 COST = float(sys.argv[1]) if len(sys.argv) > 1 else 1.0
 CAP = float(sys.argv[2]) if len(sys.argv) > 2 else 100_000.0
@@ -25,7 +25,7 @@ OUT = os.path.join(ROOT, "retreat_lab/out")
 
 def load():
     o, c, d = {}, {}, []
-    with open(os.path.join(ROOT, "SOXL_1min.csv")) as f:
+    with open(os.path.join(ROOT, BARS)) as f:
         r = csv.reader(f); next(r)
         for a in r:
             t = dt.datetime.strptime(
@@ -98,7 +98,7 @@ def main():
         rows.append(rec)
 
     os.makedirs(OUT, exist_ok=True)
-    path = os.path.join(OUT, "weekly_cashflow.csv")
+    path = os.path.join(OUT, f"weekly_cashflow{SUF}.csv")
     with open(path, "w", newline="") as f:
         wr = csv.DictWriter(f, fieldnames=list(rows[0].keys()), lineterminator="\n")
         wr.writeheader(); wr.writerows(rows)

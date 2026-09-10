@@ -23,14 +23,14 @@ from collections import deque
 from decimal import Decimal
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from retreat_timing import BPS, CONFIGS, bl, ROOT, pct
+from retreat_timing import BPS, CONFIGS, bl, ROOT, pct, BARS, SYMBOL
 
 L = int(sys.argv[1]) if len(sys.argv) > 1 else 390     # 390 bars = one session
 
 
 def load():
     close, ts = [], []
-    with open(os.path.join(ROOT, "SOXL_1min.csv")) as f:
+    with open(os.path.join(ROOT, BARS)) as f:
         r = csv.reader(f); next(r)
         for a in r:
             ts.append(dt.datetime.strptime(

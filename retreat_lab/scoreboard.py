@@ -11,14 +11,14 @@ from decimal import Decimal
 from statistics import mean, stdev
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from retreat_timing import ROOT, tag
+from retreat_timing import ROOT, tag, BARS, SYMBOL
 
 COST = float(sys.argv[1]) if len(sys.argv) > 1 else 1.0
 
 
 def load():
     bars, idx = [], {}
-    with open(os.path.join(ROOT, "SOXL_1min.csv")) as f:
+    with open(os.path.join(ROOT, BARS)) as f:
         r = csv.reader(f); next(r)
         for a in r:
             t = dt.datetime.strptime(
@@ -122,7 +122,7 @@ def main():
     rows.append(("2%/0.5% retreat momentum", metrics(tr, yrs, 0.122)))
 
     rows.sort(key=lambda r: -r[1]["total"])
-    print(f"SOXL {bars[0][0]:%Y-%m-%d} → {bars[-1][0]:%Y-%m-%d} ({yrs:.1f}y), "
+    print(f"{SYMBOL} {bars[0][0]:%Y-%m-%d} → {bars[-1][0]:%Y-%m-%d} ({yrs:.1f}y), "
           f"{COST:.1f} bps per side\n")
     print(f"  {'strategy':<36}{'total':>12}{'CAGR':>9}{'maxDD':>9}{'Sharpe':>8}"
           f"{'trades':>8}{'t':>7}")

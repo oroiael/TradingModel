@@ -21,14 +21,14 @@ from decimal import Decimal
 from statistics import mean, stdev
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from retreat_timing import ROOT, pct
+from retreat_timing import ROOT, pct, BARS, SYMBOL
 
 COST = float(sys.argv[1]) if len(sys.argv) > 1 else 1.0
 
 
 def load():
     bars = []
-    with open(os.path.join(ROOT, "SOXL_1min.csv")) as f:
+    with open(os.path.join(ROOT, BARS)) as f:
         r = csv.reader(f); next(r)
         for a in r:
             t = dt.datetime.strptime(
@@ -69,7 +69,7 @@ def main():
     ses = sessions(bars)
     yrs = (bars[-1][0] - bars[0][0]).days / 365.25
     c = COST / 10000.0
-    print(f"SOXL 1-min, {bars[0][0]:%Y-%m-%d} → {bars[-1][0]:%Y-%m-%d} "
+    print(f"{SYMBOL} 1-min, {bars[0][0]:%Y-%m-%d} → {bars[-1][0]:%Y-%m-%d} "
           f"({yrs:.1f}y, {len(ses)} sessions)")
     print(f"costs: {COST:.1f} bps per side, {COST*2:.1f} bps round trip, "
           f"{len(ses)/yrs:.0f} round trips/yr = {len(ses)/yrs*2*COST/100:.1f}%/yr friction\n")

@@ -1,10 +1,10 @@
-"""How long SOXL holds an upswing before giving back a fraction of it.
+"""How long an instrument holds an upswing before giving back a fraction of it.
 
 Runs any (upswing, retreat) threshold pair; CONFIGS below holds the ones asked
 for -- 2%/0.5% and 1%/0.25%.
 
-Measured from SOXL_1min.csv (1-min OHLCV, 2019-12-31 -> 2026-07-30, 1,653
-sessions, complete grid, split-adjusted). Cross-checked on SOXL_5min_6Years.csv.
+Reads <SYMBOL>_1min.csv (1-min OHLCV, RTH grid, split-adjusted); SYMBOL comes
+from the environment and defaults to SOXL. Cross-checked on <SYMBOL>_5min_6Years.csv.
 
 Event definition (the question as asked):
   1. ANCHOR   running trough of the series while we are not in an episode.
@@ -28,6 +28,15 @@ from collections import Counter, OrderedDict
 ROOT = "/home/user/TradingModel"
 OUT = os.path.join(ROOT, "retreat_lab/out")
 
+# Which instrument. Everything in retreat_lab reads these three names, so one
+# env var switches the whole lab:  SYMBOL=FAS python3 retreat_lab/overnight.py
+# SUF keeps SOXL's output filenames exactly as they were committed, so verify.py
+# still checks the existing ledgers, while any other symbol is namespaced.
+SYMBOL = os.environ.get("SYMBOL", "SOXL").upper()
+BARS = f"{SYMBOL}_1min.csv"
+BARS5 = f"{SYMBOL}_5min_6Years.csv"
+SUF = "" if SYMBOL == "SOXL" else f"_{SYMBOL}"
+
 # Thresholds are carried in BASIS POINTS as integers, and every price in both
 # files is exactly 2 decimals, so prices are carried as integer cents and both
 # tests are exact integer comparisons: px*10000 >= trough*(10000+up_bps) and
@@ -46,7 +55,7 @@ def bl(bps):
 
 
 def tag(up_bps, dn_bps):
-    return f"up{up_bps}_dn{dn_bps}"
+    return f"up{up_bps}_dn{dn_bps}{SUF}"
 
 
 # ---------------------------------------------------------------- data
@@ -360,7 +369,7 @@ def run(m1, m5, up_bps, dn_bps):
 def main():
     os.makedirs(OUT, exist_ok=True)
     cfgs = [(int(sys.argv[1]), int(sys.argv[2]))] if len(sys.argv) > 2 else CONFIGS
-    m1 = load("SOXL_1min.csv")
+    m1 = load(BARS)
     m5 = load("SOXL_5min_6Years.csv")
     for up_bps, dn_bps in cfgs:
         run(m1, m5, up_bps, dn_bps)

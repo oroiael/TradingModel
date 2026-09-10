@@ -5,12 +5,132 @@ git lfs pull                                # SOXL_1min.csv, SOXL_5min_6Years.cs
 python3 retreat_lab/retreat_timing.py       # all five configs -> retreat_lab/out/
 python3 retreat_lab/retreat_timing.py 150 40   # or any (up_bps, dn_bps) pair
 python3 retreat_lab/verify.py               # re-checks every episode against raw bars
+
+SYMBOL=FAS python3 retreat_lab/overnight.py 1   # any symbol with a <SYM>_1min.csv
 ```
+
+`SYMBOL` (default `SOXL`) selects the instrument for every script in this directory.
+SOXL's output filenames are unchanged; any other symbol is namespaced with a suffix,
+so the two never collide. See "FAS — the port, and it does not carry" below.
 
 Stdlib only. Measured from `SOXL_1min.csv` — 1-min OHLCV, **2019-12-31 → 2026-07-30,
 642,510 bars, 1,653 sessions**, complete minute grid (zero missing minutes), no OHLC
 inconsistencies, split-adjusted (largest overnight moves are real events — COVID
 March-2020, 2024-08-05 — not basis breaks). Cross-checked on `SOXL_5min_6Years.csv`.
+
+## FAS — the port, and it does not carry
+
+Run as P0/P1/P2 of `FAS_PORT_PLAN.md`. `SYMBOL=FAS` switches the whole lab;
+SOXL remains the default and its outputs are unchanged.
+
+### P1 — the overnight leg exists, and it is a third of SOXL's
+
+`SYMBOL=FAS python3 retreat_lab/overnight.py 1` — 1,680 sessions, 2019-12-31 →
+2026-09-08.
+
+| bp/side | FAS total | FAS CAGR | Sharpe | SOXL CAGR |
+|---|---|---|---|---|
+| 0 | +214% | 18.7% | 0.61 | 61.5% |
+| **1** | **+125%** | **12.9%** | **0.50** | 53.6% |
+| 2 | +61% | 7.3% | 0.39 | 46.1% |
+| 3 | +15% | 2.1% | 0.28 | 39.0% |
+| 5 | −41% | −7.7% | 0.05 | 25.7% |
+
+FAS buy-and-hold is 9.9%/yr, so **the unfiltered overnight trade stops beating
+buy-and-hold somewhere between 1 and 2 bp per side** and is negative by 5. Max
+drawdown −75.3%.
+
+The by-year table is the real finding:
+
+| year | overnight | buy & hold | intraday |
+|---|---|---|---|
+| 2020 | **+44.3%** | −38.9% | −57.5% |
+| 2021 | **+120.7%** | +118.7% | −6.6% |
+| 2022 | −21.2% | −44.3% | −32.3% |
+| 2023 | **−23.1%** | +11.3% | **+34.2%** |
+| 2024 | +64.8% | +84.0% | +8.5% |
+| 2025 | **−18.8%** | +10.9% | **+29.3%** |
+| 2026 | **−13.8%** | +3.4% | **+18.8%** |
+
+**The FAS overnight premium is 2020–2021 and nothing else. It has been negative
+in four of the last five years, and in 2023, 2025 and 2026 the relationship
+inverts outright** — overnight negative while intraday is positive. On SOXL the
+overnight leg beat the intraday leg in every one of seven years.
+
+### P2 — the RV20 filter fails, and fails in the diagnostic direction
+
+`SYMBOL=FAS python3 retreat_lab/overnight_vol_filter.py 1`:
+
+| filter | nights | total | CAGR | maxDD | Sharpe |
+|---|---|---|---|---|---|
+| all nights | 1,659 | +137% | 13.8% | −75.3% | 0.52 |
+| **below p60** | 995 | **+93%** | **10.4%** | −41.3% | 0.60 |
+| below p80 | 1,327 | +139% | 13.9% | −50.4% | 0.61 |
+| below p20 | 331 | **−4%** | **−0.6%** | −23.5% | −0.03 |
+
+On SOXL, p60 took +1,586% to +2,248% and cut drawdown from −78% to −29.5%. **On
+FAS p60 takes +137% down to +93%.** And the quintile detail inverts the
+mechanism: FAS's *lowest*-volatility quintile is its **worst** (−0.6%/yr), the
+middle quintile its best (+9.8%/yr). That is the same shape as SOXL's VXX proxy,
+which was already on record here as the SOXL result's biggest unexplained
+caveat. On FAS the instrument's own RV20 behaves the way SOXL's proxy did.
+
+### The walk-forward: nothing on FAS is significant
+
+`SYMBOL=FAS python3 retreat_lab/walkforward.py 1` — live window 2021-01-29 →
+2026-09-04, 1,407 nights.
+
+| strategy | n | total | CAGR | Sharpe | t |
+|---|---|---|---|---|---|
+| hold every night | 1,407 | +52% | 7.8% | 0.39 | 0.93 |
+| walk-fwd expanding p60 | 1,117 | +46% | 7.0% | 0.40 | 0.94 |
+| walk-fwd expanding p80 | 1,350 | +30% | 4.9% | 0.31 | 0.73 |
+| walk-fwd rolling 504, p60 | 907 | +94% | 12.6% | 0.66 | **1.56** |
+| walk-fwd rolling 252, p80 | 1,125 | +80% | 11.0% | 0.53 | 1.25 |
+
+**Every t-stat is below 1.6.** SOXL's walk-forward expanding p60 was t = 2.53.
+And the *ordering* inverts: on SOXL expanding worked and rolling failed — the
+result the "it is absolute, not relative" conclusion rests on. On FAS rolling-504
+is the best cell and expanding-p80 among the worst. A mechanism does not reverse
+its own sign across instruments; noise does.
+
+The mechanical reason is in the split: **FAS's threshold does not transfer.**
+First-half p60 = 64%, second-half p60 = 42%. SOXL's were 109% and 107%.
+
+### Absolute or relative? The port answers it, and the answer is "neither, on FAS"
+
+`abs_threshold.py` runs both parameterizations on both instruments.
+
+| symbol | p20 | p40 | p50 | p60 | p80 | max | SOXL's p60 ranks at |
+|---|---|---|---|---|---|---|---|
+| SOXL | 73.1 | 89.7 | 99.5 | **107.5** | 131.3 | 333.3 | 60.0% |
+| FAS | 36.6 | 43.8 | 48.6 | 55.5 | 71.3 | 316.5 | **94.2%** |
+
+| FAS rule | n | kept | total | CAGR | maxDD | Sharpe | t |
+|---|---|---|---|---|---|---|---|
+| hold every night | 1,659 | 100% | +137% | 14.0% | −75.3% | 0.52 | 1.34 |
+| ABSOLUTE: RV20 < 107.5% (SOXL's cut) | 1,562 | **94.2%** | +207% | 18.5% | −55.1% | 0.67 | 1.72 |
+| RELATIVE: RV20 < own p60 (55.5%) | 995 | 60.0% | +93% | 10.5% | −41.3% | 0.60 | 1.55 |
+
+(On SOXL the two rows are identical by construction — its p60 *is* the absolute
+cut.)
+
+**SOXL's absolute threshold sits at FAS's 94th percentile.** Ported unchanged it
+keeps 94.2% of FAS nights, so it is not a filter on FAS at all — it is "skip the
+6% most violent nights." That version does help: 18.5%/yr against 14.0%, and
+drawdown −55.1% against −75.3%. But t = 1.72 is not significant, it is one cut
+chosen after seeing the data, and the honest reading is that the absolute
+formulation makes **no discriminating prediction** for an instrument whose whole
+distribution lies beneath it.
+
+### Verdict on FAS
+
+**No.** The overnight anomaly is present and directionally the same, but it is a
+third the size, gone by 2 bp of cost, negative in four of the last five years,
+and the one filter that rescued SOXL actively hurts here while its own
+walk-forward produces nothing significant. Tiers 2 and 3 of the port plan are not
+worth running against this. The port's real value was as an out-of-sample test of
+the SOXL conclusion — and it does not confirm it.
 
 ## Scoreboard — what actually works on this instrument
 
@@ -2308,7 +2428,7 @@ per side; `intraday_short.py` also takes an annual borrow rate. `overnight_vol_f
 `intraday_vol_filter.py` and `take_profit.py` and `bracket.py` and `floor_sweep.py` and `scoreboard.py` and `walkforward.py` and `regime.py` and `sizing_and_hedge.py` and `regime_switch.py` take an optional cost in bps per
 side; `regime_switch.py` and `skip_rule.py` and `skip_symmetric.py` also take capital and a position fraction; `skip_rule.py`
 additionally takes the volatility percentile and skip threshold, and `sweep.py`
-and `hwm.py` take a sweep fraction (`hwm.py` also writes `out/weekly_hwm25_f20.csv`). `collar.py` needs cached extracts of both put and call prints at the
+and `hwm.py` take a sweep fraction; `abs_threshold.py` takes a cost in bps per side (`hwm.py` also writes `out/weekly_hwm25_f20.csv`). `collar.py` needs cached extracts of both put and call prints at the
 15:55 / 09:30 stamps. `protection_cost.py` needs the option files
 (`git lfs pull --include="raw_data/SOXL_intraday_5m_exp_*.csv"`, ~4 GB) and a cached
 extract of put prints at the 15:55 / 09:30 stamps. `independence_check.py` takes an optional lookback in bars; `tradeability.py`

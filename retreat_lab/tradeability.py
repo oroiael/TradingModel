@@ -20,14 +20,14 @@ from decimal import Decimal
 from statistics import median
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from retreat_timing import CONFIGS, bl, tag, ROOT, pct
+from retreat_timing import CONFIGS, bl, tag, ROOT, pct, BARS, SYMBOL
 
 COST = float(sys.argv[1]) if len(sys.argv) > 1 else 0.0     # bps per side
 
 
 def load():
     close, ts, idx = [], [], {}
-    with open(os.path.join(ROOT, "SOXL_1min.csv")) as f:
+    with open(os.path.join(ROOT, BARS)) as f:
         r = csv.reader(f); next(r)
         for a in r:
             t = dt.datetime.strptime(

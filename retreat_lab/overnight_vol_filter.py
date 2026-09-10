@@ -8,9 +8,9 @@ DATA NOTE — the VIX index itself was not obtainable here: it is absent from th
 repo, and IBKR returns "Details currently unavailable" for contract 13455763
 (index data subscription). Two substitutes are used and reported side by side:
 
-  RV20   SOXL's own trailing 20-session close-to-close realised volatility,
+  RV20   the instrument's own trailing 20-session close-to-close realised vol,
          annualised. Computed from the 1-min file, exact, complete, and more
-         directly relevant to a SOXL strategy than S&P implied vol.
+         more directly relevant to the traded instrument than S&P implied vol.
   VXXr   VXX divided by its own 60-day moving average. VXX's LEVEL is useless
          across time -- roll decay and reverse splits put 2026's maximum below
          2020's minimum -- but the ratio to its own recent average detrends that
@@ -26,14 +26,14 @@ from decimal import Decimal
 from statistics import mean, stdev
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from retreat_timing import ROOT, pct
+from retreat_timing import ROOT, pct, BARS, SYMBOL
 
 COST = float(sys.argv[1]) if len(sys.argv) > 1 else 1.0
 
 
 def soxl():
     o, c, d = {}, {}, []
-    with open(os.path.join(ROOT, "SOXL_1min.csv")) as f:
+    with open(os.path.join(ROOT, BARS)) as f:
         r = csv.reader(f); next(r)
         for a in r:
             t = dt.datetime.strptime(
@@ -93,7 +93,7 @@ def main():
     c = COST / 10000.0
     yrs = (days[-1] - days[0]).days / 365.25
 
-    # trailing 20-session realised vol of SOXL, through the close of day D
+    # trailing 20-session realised vol of the instrument, through day D's close
     dret = [cl[days[i]] / cl[days[i - 1]] - 1 for i in range(1, len(days))]
     rv = {}
     for i in range(20, len(days)):
@@ -111,14 +111,14 @@ def main():
         D, D2 = days[i], days[i + 1]
         nights.append(dict(D=D, r=(op[D2] / cl[D] - 1) - 2 * c,
                            rv=rv.get(D), vr=vr.get(D)))
-    print(f"SOXL overnight, {days[0]} → {days[-1]}, {len(nights)} nights, "
+    print(f"{SYMBOL} overnight, {days[0]} → {days[-1]}, {len(nights)} nights, "
           f"{COST:.1f} bps/side")
     print(f"RV20 available on {sum(1 for n in nights if n['rv'] is not None)} nights, "
           f"VXX ratio on {sum(1 for n in nights if n['vr'] is not None)}\n")
 
     hdr = (f"  {'filter':<26}{'nights':>7}{'total':>12}{'CAGR':>9}{'maxDD':>9}"
            f"{'Sharpe':>8}{'win':>7}{'worst':>9}{'mean/nt':>9}")
-    for key, lbl, cuts in (("rv", "SOXL realised vol (RV20)", None),
+    for key, lbl, cuts in (("rv", f"{SYMBOL} realised vol (RV20)", None),
                            ("vr", "VXX / its 60d average", None)):
         have = [n for n in nights if n[key] is not None]
         vals = sorted(n[key] for n in have)

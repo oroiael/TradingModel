@@ -22,7 +22,7 @@ from decimal import Decimal
 from statistics import mean, stdev
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from retreat_timing import ROOT
+from retreat_timing import ROOT, BARS, SYMBOL
 
 COST = float(sys.argv[1]) if len(sys.argv) > 1 else 1.0
 CAP = float(sys.argv[2]) if len(sys.argv) > 2 else 100_000.0
@@ -32,7 +32,7 @@ SCRATCH = "/tmp/claude-0/-home-user-TradingModel/50ac25d8-892f-559b-b09e-cc99c43
 
 def load():
     o, c, d = {}, {}, []
-    with open(os.path.join(ROOT, "SOXL_1min.csv")) as f:
+    with open(os.path.join(ROOT, BARS)) as f:
         r = csv.reader(f); next(r)
         for a in r:
             t = dt.datetime.strptime(
