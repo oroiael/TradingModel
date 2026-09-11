@@ -18,6 +18,100 @@ Stdlib only. Measured from `SOXL_1min.csv` — 1-min OHLCV, **2019-12-31 → 202
 inconsistencies, split-adjusted (largest overnight moves are real events — COVID
 March-2020, 2024-08-05 — not basis breaks). Cross-checked on `SOXL_5min_6Years.csv`.
 
+## Mitigating the drawdown — seven candidates, and what survives
+
+`drawdown.py`. The −29.5% drawdown on the p60 strategy is a **tail, not a
+grind**: the deepest episode (2023-07-31 → 2023-10-25) runs 61 nights, and its
+**worst 5 nights are 88% of it**. Across all 979 nights only 13 are worse than
+−8%.
+
+| removing the … | total becomes |
+|---|---|
+| — | +2,248% |
+| 1 worst night | +2,679% |
+| 5 worst nights | +4,459% |
+| 10 worst nights | +7,316% |
+
+### The sizing frontier — what every candidate has to beat
+
+| size | CAGR | max DD | Sharpe |
+|---|---|---|---|
+| 0.25× | 14.8% | −8.0% | **1.39** |
+| 0.50× | 30.3% | −15.6% | **1.39** |
+| 1.00× | 62.7% | −29.5% | **1.39** |
+| 2.00× | 122.7% | −56.8% | **1.39** |
+
+Sharpe is flat to four positions. Any hedge worth adding has to raise it.
+
+### None of them does
+
+| candidate | CAGR | max DD | Sharpe | verdict |
+|---|---|---|---|---|
+| baseline (p60, 1.0×) | 62.7% | −29.5% | **1.39** | — |
+| vol-target 60% inside the filter | 45.3% | −24.2% | 1.40 | de-levering with extra steps |
+| **SOXS 25% overlay** | 46.4% | −22.9% | 1.39 | ≡ holding 75% SOXL (46.5% / −22.8% / 1.39) |
+| UVXY 10% overlay | 57.6% | −28.2% | 1.39 | −5.1pp CAGR buys −1.3pp of drawdown |
+| weekend size 0% | 50.0% | **−29.7%** | 1.32 | drawdown *unchanged* |
+| 70/30 SOXL+FAS | 47.1% | −28.6% | 1.38 | corr +0.35, tails coincide |
+| put overlay (real prints) | see below | | | dead above 0% spread |
+
+**The SOXS result is the clean one.** SOXL 100% + SOXS 25% and "just hold 75%
+SOXL" produce 46.4% / −22.9% / 1.39 and 46.5% / −22.8% / 1.39. The mirror hedge
+is an exactly redundant, slightly more expensive way to hold less.
+
+**UVXY does work on the tail and still loses.** On SOXL's 10 worst nights UVXY
+averaged **+10.95%** against SOXL's −10.82% — a near 1:1 offset. But it decays
+−0.280%/night, so you pay for 979 nights to be right on 10.
+
+### The put overlay, priced from real prints rather than modelled
+
+This is where a payoff model misleads. `(entry − exit)/S` from actual
+15:55 → 09:30 prints is the **complete** hedge P&L — it already nets the tail
+payoffs against the premium. Modelling a payoff on top of a measured net cost
+double-counts the benefit, and that error makes the overlay look excellent.
+Measured properly, on the same nights:
+
+| 3–7% OTM, 3–7 DTE | CAGR | max DD | Sharpe | effective cost |
+|---|---|---|---|---|
+| unhedged | 12.1% | −53.5% | 0.53 | — |
+| **hedged, 0% spread** | 10.8% | **−41.6%** | **0.59** | 4.5 bp/night |
+| hedged, 5% spread | 1.7% | −53.5% | 0.18 | 15.4 bp/night |
+| hedged, 10% spread | −6.6% | −65.3% | −0.23 | 26.3 bp/night |
+
+**It works only at a spread of zero.** SOXL weeklies cross at 5–15% of premium.
+The hedge is not mispriced — it is correctly priced and you cannot reach it.
+
+### The one thing that is not ruled out
+
+`SOXX` (1× semis) tracks SOXL almost perfectly overnight — **beta 2.964,
+correlation 0.9982** over 1,506 shared nights — so 3× SOXX is the same trade.
+
+| | mean/night | compounded |
+|---|---|---|
+| SOXL | +0.282% | +1,805% |
+| 3× SOXX | **+0.318%** | **+3,065%** |
+
+A **3.55 bp/night** gap in SOXX's favour, which is SOXL's embedded expense and
+financing. Against it you must set your own margin cost on the 2× borrowed
+portion, for the hours actually held — that comparison is not made here and
+decides whether the switch pays on its own.
+
+What it does change regardless is **hedgeability**. The put overlay fails on
+spread, not on premium, and spread-as-a-fraction-of-premium on SOXX — a
+$500, mega-liquid, ~30%-vol ETF — is a fraction of SOXL's weeklies. A hedge
+that is 3 points underwater at SOXL's spreads could clear at SOXX's. **There is
+no SOXX option data in this repo**, so this is an argument, not a result, and
+the measurement needed to settle it is one file of SOXX option prints.
+
+### The honest summary
+
+Everything testable here moves along a single risk-return line. The only tool
+that reliably reduces drawdown is **size**, and the clever versions of it —
+mirror overlays, vol targeting, cross-sector diversification — are size in
+disguise, several of them with extra cost attached. The one intervention in
+this repo that ever raised Sharpe was the filter itself (0.96 → 1.38), which is
+sitting on the sidelines.
+
 ## What the filter is actually selecting — SOXS settles it
 
 `mechanism.py`. The FAS failure raised a question it could not answer on its
