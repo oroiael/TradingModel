@@ -18,6 +18,96 @@ Stdlib only. Measured from `SOXL_1min.csv` — 1-min OHLCV, **2019-12-31 → 202
 inconsistencies, split-adjusted (largest overnight moves are real events — COVID
 March-2020, 2024-08-05 — not basis breaks). Cross-checked on `SOXL_5min_6Years.csv`.
 
+## What the filter is actually selecting — SOXS settles it
+
+`mechanism.py`. The FAS failure raised a question it could not answer on its
+own: is the SOXL result a volatility mechanism, a leveraged-ETF structural
+effect, or directional exposure to semiconductors? **SOXS answers it.** SOXS is
+−3× the *same* underlying as SOXL. A structural close-to-open effect must show
+the **same** sign on both. Directional exposure must show the **mirror**.
+
+| symbol | overnight | intraday | overnight mean/night | t |
+|---|---|---|---|---|
+| SOXL (+3× semis) | +2,092% | −71% | **+0.291%** | +2.63 |
+| SOXS (−3× semis) | −100% | −100% | **−0.266%** | −2.39 |
+| FAS (+3× financials) | +230% | −47% | +0.113% | +1.63 |
+
+Overnight mean per night, by each instrument's own RV20 quintile:
+
+| symbol | Q1 (lowest vol) | Q2 | Q3 | Q4 | Q5 (highest) |
+|---|---|---|---|---|---|
+| SOXL | **+0.334%** | +0.470% | +0.393% | +0.177% | +0.080% |
+| SOXS | **−0.302%** | −0.333% | −0.390% | −0.163% | −0.145% |
+| FAS | −0.011% | +0.087% | +0.222% | +0.118% | +0.151% |
+
+**SOXL and SOXS mirror each other in every bucket.** Their overnight means sum
+to +0.024%/night — they cancel. A structural effect would have added.
+
+**So the "overnight edge" is not an overnight effect and not a leveraged-ETF
+effect. It is long exposure to semiconductors, collected overnight.** And the
+vol filter is not selecting calm nights, it is selecting nights when semis went
+up: on SOXS the *same* filter concentrates the position into its **worst**
+nights (kept −0.362%/night against excluded −0.174%).
+
+### And RV20 is a trend conditioner in disguise
+
+| symbol | corr(RV20, trailing 20d return) | corr(RV20, drawdown from 60d high) |
+|---|---|---|
+| SOXL | −0.249 | **−0.648** |
+| FAS | −0.350 | **−0.741** |
+
+Low RV20 means *near the recent high*. Substituting trend for volatility as the
+conditioner, keeping 60% of nights either way:
+
+| conditioner | SOXL total | CAGR | Sharpe | arith/night | FAS total | CAGR | Sharpe |
+|---|---|---|---|---|---|---|---|
+| no filter | +1,482% | 53.2% | 0.96 | 0.2707% | +137% | 14.0% | 0.52 |
+| **LOW RV20** (published) | **+2,248%** | 62.8% | 1.39 | **0.3791%** | **+93%** | 10.5% | 0.60 |
+| HIGH trailing 20d return | +1,808% | 57.7% | 1.19 | **0.3777%** | **+201%** | **18.2%** | **0.77** |
+| SMALL drawdown from 60d high | +631% | 36.0% | 0.91 | 0.2705% | +88% | 10.1% | 0.55 |
+
+On SOXL the momentum conditioner produces an **almost identical arithmetic mean**
+— 0.3777% against 0.3791% — because it is picking essentially the same nights.
+RV20's extra total return over momentum is variance reduction, not selection.
+
+And on FAS, where the vol version fails, **the momentum version works** (+201%
+against +137%, Sharpe 0.77). The conditioner that ports across both instruments
+is trend, not volatility. (In-sample on both, and now the third conditioner
+tested on the same data — the multiple-comparison budget is being spent.)
+
+### Restating the SOXL result honestly
+
+Before: *a volatility-conditioned overnight anomaly, Sharpe 1.38, t 3.53.*
+
+After: **a leveraged long position in semiconductors, held only overnight, and
+only while the sector is in an uptrend, measured over a period in which the
+sector rose 5.4×.**
+
+What survives as general, confirmed on both instruments and on both signs of the
+semis trade:
+
+* **The overnight/intraday decomposition is real and structural.** Overnight
+  carries the directional drift; the intraday session is variance drag. The drag
+  is sign-independent — it is negative on SOXL (−71%), SOXS (−100%) and FAS
+  (−47%) alike, which is what a ½σ² effect must do.
+
+What does not survive as general:
+
+* **"Low volatility predicts better overnight returns."** It is a trend proxy,
+  it inverts on SOXS, and it fails on FAS.
+* **Any reading of the p60 threshold as a mechanism.** It is a fitted cut on a
+  conditioner that a cruder rule captures nearly as well.
+
+### What this changes in practice
+
+Size it as a **levered sector bet with a trend overlay**, not as a market-neutral
+anomaly with Sharpe 1.38. Its risk is the sector's risk; the −29.5% drawdown is
+conditional on the sample containing only one trending bear year (2022). The
+f = 2.0 work compounds this — 2× on top of 3× is **6× semiconductor exposure**
+gated by a trend filter. And the honest benchmark is not buy-and-hold SOXL but
+*SOXL with any trend filter*, which the table above shows is a much lower bar to
+clear than the README's earlier framing implied.
+
 ## FAS — the port, and it does not carry
 
 Run as P0/P1/P2 of `FAS_PORT_PLAN.md`. `SYMBOL=FAS` switches the whole lab;
