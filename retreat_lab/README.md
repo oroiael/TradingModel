@@ -18,6 +18,70 @@ Stdlib only. Measured from `SOXL_1min.csv` — 1-min OHLCV, **2019-12-31 → 202
 inconsistencies, split-adjusted (largest overnight moves are real events — COVID
 March-2020, 2024-08-05 — not basis breaks). Cross-checked on `SOXL_5min_6Years.csv`.
 
+## Pricing the 3x SOXX carry against a real IBKR margin rate
+
+`carry.py`. The earlier 3.55 bp/night advantage of 3× SOXX over SOXL was
+measured **over all nights and gross of everything**. Priced properly against
+IBKR's actual rates, on the nights the strategy actually holds, **it disappears
+and then goes negative.**
+
+Three corrections, each of which shrinks it:
+
+**1. Match on realised beta, not a nominal 3.0.** Overnight beta of SOXL to SOXX
+on the filtered set is **2.9701**. A flat 3.000× shows +4.48 bp/night, but 10%
+of that is simply holding more exposure than SOXL gives. Beta-matched: **+4.03
+bp/night**.
+
+**2. The SOXX route trades ~3× the notional for the same exposure**, so it pays
+~3× the dollar friction. This term is bigger than the advantage it chases:
+
+| term (bp/night, per unit of equity) | equal bp cost | SOXX at half the bp cost |
+|---|---|---|
+| gross SOXX advantage | +4.03 | +4.03 |
+| SOXL trading cost (1× notional) | −2.00 | −2.00 |
+| SOXX trading cost (2.97× notional) | **−5.94** | −2.97 |
+| **= net before financing** | **+0.09** | **+3.06** |
+
+**3. Interest is charged per calendar DAY, not per night.** 903 nights held over
+5.8 years carry **1,315 interest-days** — 1.46 days/night, because 188 of them
+are weekend or holiday gaps. That is **227 interest-days a year** on a 1.97×
+debit.
+
+### The breakeven, and the answer
+
+| assumption | breakeven margin rate |
+|---|---|
+| SOXX costs the same bp/side as SOXL | **0.11% / yr** |
+| SOXX costs half the bp/side (generous) | **3.89% / yr** |
+
+IBKR Pro Tier 1 is **5.12%** as of 2026-09 (benchmark ≈ Fed Funds 3.62% + 1.5%);
+higher tiers narrow the spread toward ~4.4%.
+
+| your margin rate | interest / yr | net vs SOXL | net CAGR | vs SOXL |
+|---|---|---|---|---|
+| 4.37% | 5.36% | −3.35 bp/night | 60.0% | **−8.5 pp** |
+| 4.62% | 5.67% | −3.54 bp/night | 59.5% | **−9.0 pp** |
+| 5.12% | 6.28% | −3.94 bp/night | 58.6% | **−9.9 pp** |
+
+**SOXL wins on carry at every rate IBKR charges**, by 8.5–9.9 pp of CAGR. Even
+on the generous assumption that SOXX trades at half SOXL's bp cost, breakeven is
+3.89% — still below Tier 1, and roughly a wash at the best tier.
+
+### And the margin footprint kills it independently
+
+| route | notional / equity | leverage used |
+|---|---|---|
+| 1× SOXL at 3× semis | 1.0× | 1.0 : 1 |
+| ~3× SOXX at 3× semis | 3.0× | 3.0 : 1 |
+| 1× SOXL at f = 2.0 (6× semis) | 2.0× | 2.0 : 1 |
+| ~3× SOXX at f = 2.0 (6× semis) | **6.0×** | **6.0 : 1** |
+
+Identical economics, 3× the gross notional. Against the 3:1 portfolio-margin cap,
+SOXL at f = 2.0 fits and the SOXX route does not exist.
+
+**Verdict: stay in SOXL.** The embedded financing you are paying is cheaper than
+the financing you can buy, and the leverage is cheaper in margin capacity too.
+
 ## The SOXX hedge, tested — the argument was wrong
 
 `soxx_hedge.py`, quotes in `out/option_quotes_20260911.csv`, pulled from IBKR on
@@ -77,9 +141,9 @@ breakeven. No plausible quote-timing error closes a gap of that size.
 ### Verdict
 
 The put overlay is dead in both expressions, and SOXX is the worse of the two.
-The separate finding that **3× SOXX beats SOXL on carry by 3.55 bp/night**
-stands on its own and is unaffected by this — it is an argument about expense
-and financing, not about hedging. Options as a drawdown tool on this strategy
+The separate 3.55 bp/night carry gap is priced in "Pricing the 3x SOXX carry"
+above and does **not** survive: beta-matching, 3x the trading friction and real
+margin interest turn it into a 8.5-9.9 pp/yr disadvantage. Options as a drawdown tool on this strategy
 are now closed.
 
 ## Mitigating the drawdown — seven candidates, and what survives
