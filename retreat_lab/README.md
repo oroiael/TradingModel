@@ -18,6 +18,70 @@ Stdlib only. Measured from `SOXL_1min.csv` — 1-min OHLCV, **2019-12-31 → 202
 inconsistencies, split-adjusted (largest overnight moves are real events — COVID
 March-2020, 2024-08-05 — not basis breaks). Cross-checked on `SOXL_5min_6Years.csv`.
 
+## The SOXX hedge, tested — the argument was wrong
+
+`soxx_hedge.py`, quotes in `out/option_quotes_20260911.csv`, pulled from IBKR on
+2026-09-11 (7 DTE, expiry 2026-09-18, matching the historical test's tenor band).
+
+The claim to test: the SOXL put overlay fails on **spread**, not premium, so
+expressing the trade in SOXX — a $500, mega-liquid, ~38%-IV ETF — should make
+the hedge affordable. **It does not. SOXX is worse on both legs.**
+
+Two things had to be got right, and the first is easy to get wrong:
+
+1. **Moneyness matches in underlying-move terms, not strike terms.** SOXL moves
+   3× SOXX, so a k% OTM SOXL put corresponds to a **(k/3)%** OTM SOXX put.
+   Comparing "5% OTM" on both compares a 5% SOXL move against a 15% one.
+2. **Notional matches at 3× for SOXX.** This does *not* by itself penalise SOXX:
+   its premium per unit notional is ~1/3 of SOXL's because its vol is ~1/3, so
+   3× notional costs about the same premium. Only the spread *percentage*
+   differs, and that is what the comparison isolates.
+
+| SOXL-equiv strike | SOXL premium | SOXX premium | SOXL spread | SOXX spread | ratio |
+|---|---|---|---|---|---|
+| ~ −3% | 539 bp | 565 bp | 13.7% | 21.5% | 1.6× |
+| ~ −4.5% | 464 bp | 510 bp | 3.7% | 18.2% | 4.9× |
+| ~ −7% | 379 bp | 406 bp | 14.9% | 25.7% | 1.7× |
+| ATM | 643 bp | 655 bp | 8.8% | 28.3% | 3.2× |
+
+Premiums are within 2–10% of each other, as the vol ratio predicts. **Spread as
+a fraction of premium is 2.3× worse on SOXX** (median 25.7% against 11.2%).
+
+**Why the argument failed.** It confused *underlying* liquidity with *option*
+liquidity. SOXX the ETF is far bigger and calmer than SOXL; SOXX **options** are
+thin. Open interest at the same 7-DTE expiry, away from round strikes: SOXL 141
+and 91, SOXX 31 and 23. SOXL is one of the most heavily optioned ETFs in the
+market — the speculative flow that makes it violent is also what makes its
+weeklies tight.
+
+### The breakeven, and why the margin makes the caveats irrelevant
+
+Sweeping the spread through the historical overlay (real 15:55 → 09:30 prints,
+397 covered nights):
+
+| round-trip spread | CAGR | max DD | Sharpe |
+|---|---|---|---|
+| unhedged | 12.1% | −53.5% | 0.527 |
+| 0% | 10.8% | **−41.6%** | **0.592** |
+| **1%** | 8.9% | −44.2% | **0.510 — falls below unhedged** |
+| 5% | 1.7% | −53.5% | 0.184 |
+| 10% | −6.6% | −65.3% | −0.225 |
+
+**The overlay stops helping at about a 1% round-trip spread.** Measured: SOXL
+11.2% (**11× breakeven**), SOXX 25.7% (**26× breakeven**).
+
+The quotes are FROZEN — pulled after Friday's close, so wider than intraday for
+both names. It does not matter: halve both and they are still **6×** and **13×**
+breakeven. No plausible quote-timing error closes a gap of that size.
+
+### Verdict
+
+The put overlay is dead in both expressions, and SOXX is the worse of the two.
+The separate finding that **3× SOXX beats SOXL on carry by 3.55 bp/night**
+stands on its own and is unaffected by this — it is an argument about expense
+and financing, not about hedging. Options as a drawdown tool on this strategy
+are now closed.
+
 ## Mitigating the drawdown — seven candidates, and what survives
 
 `drawdown.py`. The −29.5% drawdown on the p60 strategy is a **tail, not a
@@ -99,9 +163,8 @@ decides whether the switch pays on its own.
 What it does change regardless is **hedgeability**. The put overlay fails on
 spread, not on premium, and spread-as-a-fraction-of-premium on SOXX — a
 $500, mega-liquid, ~30%-vol ETF — is a fraction of SOXL's weeklies. A hedge
-that is 3 points underwater at SOXL's spreads could clear at SOXX's. **There is
-no SOXX option data in this repo**, so this is an argument, not a result, and
-the measurement needed to settle it is one file of SOXX option prints.
+that is 3 points underwater at SOXL's spreads could clear at SOXX's. **Tested and refuted** — see "The SOXX hedge, tested" above: SOXX option spreads are
+2.3x SOXL's, because SOXX *options* are thin even though the ETF is not.
 
 ### The honest summary
 
