@@ -18,6 +18,96 @@ Stdlib only. Measured from `SOXL_1min.csv` — 1-min OHLCV, **2019-12-31 → 202
 inconsistencies, split-adjusted (largest overnight moves are real events — COVID
 March-2020, 2024-08-05 — not basis breaks). Cross-checked on `SOXL_5min_6Years.csv`.
 
+## The SOXL + TQQQ + SPXL basket — it does not help
+
+`basket.py`. Walk-forward p60 per leg, backtest from 2023 (the estimator is
+allowed the 2021-22 history that precedes it — a warm start, not look-ahead),
+1 bp/side. The 2022-inclusive window is printed alongside so the cost of
+excluding it is visible rather than assumed.
+
+### The three legs are nearly the same trade
+
+Correlation of the filtered overnight streams, eligible nights only:
+
+| | SOXL | TQQQ | SPXL |
+|---|---|---|---|
+| **SOXL** | 1.00 | 0.87 | 0.79 |
+| **TQQQ** | 0.87 | 1.00 | **0.95** |
+| **SPXL** | 0.79 | 0.95 | 1.00 |
+
+TQQQ and SPXL at **0.95** are not two assets. There is very little to diversify.
+
+### From 2023 (889 sessions, 3.5y)
+
+| policy | total | CAGR | max DD | Sharpe | t |
+|---|---|---|---|---|---|
+| **SOXL alone (filtered)** | **531%** | **68.1%** | −29.5% | **1.38** | 2.60 |
+| TQQQ alone | 186% | 34.5% | −27.0% | 1.17 | 2.21 |
+| SPXL alone | 65% | 15.2% | −26.2% | 0.78 | 1.46 |
+| 1. fixed 1/3, **no** filter | 304% | 48.3% | −51.4% | 1.12 | 2.11 |
+| 2. fixed 1/3, gated | 225% | 39.4% | **−23.2%** | 1.30 | 2.45 |
+| **3. renormalised across eligible** | 286% | 46.4% | −26.7% | **1.32** | 2.49 |
+| 4. inverse-vol across eligible | 223% | 39.2% | −24.7% | 1.25 | 2.36 |
+| 5. breadth ≥ 2 legs | 249% | 42.3% | −26.7% | 1.31 | 2.47 |
+| 6. concentrate in lowest RV20 | 127% | 26.0% | −26.2% | 1.06 | 1.99 |
+
+**No allocation policy beats SOXL alone on Sharpe, and none comes close on
+return.** The pattern is mechanical: every "sophisticated" rule shifts weight
+*away* from SOXL, which is the only leg carrying an edge. Inverse-vol
+systematically underweights the highest-vol leg; concentrating in the lowest
+RV20 name picks SPXL or TQQQ most nights and is the worst policy of the six.
+
+The textbook condition says it all — adding an asset helps only if its Sharpe
+exceeds correlation × the existing Sharpe:
+
+| leg | needs Sharpe > | has | verdict |
+|---|---|---|---|
+| TQQQ | 0.87 × 1.38 = **1.20** | 1.17 | a wash |
+| SPXL | 0.79 × 1.38 = **1.09** | 0.78 | dilutes |
+
+### The SOXL tilt — a flat ridge
+
+| SOXL weight | CAGR (from 2023) | max DD | Sharpe | CAGR (incl. 2022) | Sharpe |
+|---|---|---|---|---|---|
+| 33% | 46.3% | −26.7% | 1.32 | 37.2% | 1.13 |
+| 50% | 52.5% | −28.5% | 1.35 | 40.8% | 1.14 |
+| 70% | 59.5% | −30.6% | 1.36 | 45.0% | 1.15 |
+| 80% | 63.0% | −31.6% | 1.36 | 47.0% | 1.15 |
+| **100%** | **68.1%** | −29.5% | **1.38** | **51.1%** | **1.20** |
+
+Sharpe is flat from 33% to 100% and the return rises monotonically with the SOXL
+weight. On these numbers there is no interior optimum.
+
+### But the Sharpe differences are not measurable
+
+| window | SOXL alone | best basket | gap | SE of one Sharpe |
+|---|---|---|---|---|
+| from 2023 (n=889) | 1.38 | 1.32 | 0.06 | **~0.75** |
+| incl. 2022 (n=1,197) | 1.20 | 1.13 | 0.07 | **~0.60** |
+
+The gap is a tenth of the standard error. **The backtest cannot tell these
+apart**, so "SOXL alone wins" is a statement about point estimates, not a
+measured superiority.
+
+### What excluding 2022 is worth
+
+| | incl. 2022 | from 2023 | difference |
+|---|---|---|---|
+| SOXL alone, filtered | 51.1% CAGR, Sharpe 1.20 | 68.1%, 1.38 | **+17 pp CAGR** |
+| fixed 1/3, no filter | 16.2% CAGR, −68.0% DD | 48.3%, −51.4% | **+32 pp CAGR** |
+
+The filtered strategy loses far less to 2022 than the unfiltered basket does —
+which is itself evidence the filter works — but 17 points of CAGR is the
+premium being assumed away.
+
+### The answer on allocation
+
+**Neither a fixed split nor an indicator-driven one adds anything.** The
+eligibility filter is already the dynamic allocation, and it is the only part
+that pays. Given eligibility, split evenly across whichever legs qualify —
+renormalised beat every alternative in *both* windows (1.32 and 1.13). Do not
+inverse-vol weight, do not add a breadth condition, do not concentrate.
+
 ## TQQQ and SPXL — the replication, and two corrections it forces
 
 `replicate.py`. FAS was the only external test and it failed; that is n=1. TQQQ
