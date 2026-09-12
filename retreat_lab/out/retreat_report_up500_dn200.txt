@@ -1,0 +1,258 @@
+====================================================================================================
+PRIMARY — SOXL 1-min bar CLOSES  (+5% upswing, then 2% off the peak)
+====================================================================================================
+Window 2019-12-31 -> 2026-07-30   642,510 bars   episodes=1518
+
+MARKET MINUTES (tradeable bars elapsed)
+  Leg A  5% trigger -> peak   n=1518  min=     0 p25=      3 med=     17 p75=     68 p90=    196 p99=     476 max=    1005 mean=    64.4 min
+  Leg B  peak -> 2% retreat   n=1518  min=     1 p25=      6 med=     15 p75=     34 p90=     73 p99=     223 max=     423 mean=    30.8 min
+  Total  trigger -> retreat   n=1518  min=     1 p25=     15 med=     41 p75=    115 p90=    276 p99=     608 max=    1101 mean=    95.3 min
+
+WALL-CLOCK MINUTES (calendar time, includes closed hours)
+  Leg A  5% trigger -> peak   n=1518  min=     0 p25=      3 med=     18 p75=     86 p90=   1118 p99=    4395 max=    7354 mean=   306.3 min
+  Leg B  peak -> 2% retreat   n=1518  min=     1 p25=      7 med=     18 p75=     48 p90=   1051 p99=    3967 max=    5734 mean=   198.0 min
+  Total  trigger -> retreat   n=1518  min=     1 p25=     16 med=     50 p75=    243 p90=   1402 p99=    5423 max=    7460 mean=   504.3 min
+
+HEADLINE
+  Median time from the 5% trigger to the 2% retreat   : 41 min of market time
+  Median time from the 5% trigger to the peak         : 17 min
+  Median time from the peak to the 2% retreat         : 15 min
+  Peak IS the trigger bar (no further run-up)         : 199/1518 = 13.1%
+  Run-up past the 5% line before the peak             : med 1.54%   p90 6.49%   max 28.8%
+  Full upswing anchor -> peak                         : med 7.33%   p90 13.23%   max 36.8%
+
+SURVIVAL — share of episodes still un-retreated after N market minutes
+  >     1 min                 1506 / 1518  =  99.2%
+  >     2 min                 1488 / 1518  =  98.0%
+  >     5 min                 1401 / 1518  =  92.3%
+  >    10 min                 1245 / 1518  =  82.0%
+  >    15 min                 1130 / 1518  =  74.4%
+  >    30 min                  878 / 1518  =  57.8%
+  >    60 min                  612 / 1518  =  40.3%
+  >   120 min                  360 / 1518  =  23.7%
+  >   195 min (half session)   225 / 1518  =  14.8%
+  >   390 min (1 session)       74 / 1518  =   4.9%
+  >   780 min (2 sessions)       7 / 1518  =   0.5%
+  >  1950 min (1 week)           0 / 1518  =   0.0%
+
+OVERNIGHT / WEEKEND — episodes whose trigger->retreat window spans a close
+  intraday      1173 / 1518  =  77.3%
+  overnight      269 / 1518  =  17.7%
+  holiday          4 / 1518  =   0.3%
+  weekend         72 / 1518  =   4.7%
+  ANY close      345 / 1518  =  22.7%   (crossed 370 session boundaries in total)
+
+  ...of which the RETREAT ITSELF happened across the gap (peak one session,
+     2% breach in a later one — un-actionable while the market was shut):
+     peak -> retreat crossed a close : 163 / 1518 = 10.7%   (overnight 135, weekend 25, holiday 3)
+     breached on the very first bar back (gap-down did it) : 110   (overnight 91, weekend 18, holiday 1)
+
+  ...and the run-up leg spanning a close (5% hit, kept climbing past the bell):
+     trigger -> peak crossed a close : 193 / 1518 = 12.7%   (overnight 145, weekend 47, holiday 1)
+
+BY TRIGGER TIME OF DAY — a late trigger is what pushes an episode past the bell
+  trigger window        n  med min    p90       spans close   gap did the retreat
+  09:30-10:00         538       29    383        59 (11.0%)            16 ( 3.0%)
+  10:00-11:00         267       39    327        29 (10.9%)             9 ( 3.4%)
+  11:00-12:00         166       75    281        27 (16.3%)            11 ( 6.6%)
+  12:00-13:00         119       69    223        21 (17.6%)             6 ( 5.0%)
+  13:00-14:00         111       76    200        31 (27.9%)             7 ( 6.3%)
+  14:00-15:00         146       65    133        58 (39.7%)            17 (11.6%)
+  15:00-15:30          80       41     79        45 (56.2%)            15 (18.8%)
+  15:30-16:00          91       16    116        75 (82.4%)            29 (31.9%)
+
+BY YEAR (market minutes, trigger -> retreat)
+  year       n      med      mean       p90        max   spans close   wknd
+  2020     271       28      92.0       279       1101       58 ( 21%)     12
+  2021     156       83     160.9       402        862       54 ( 35%)     12
+  2022     312       35      60.8       144        420       60 ( 19%)     13
+  2023     144      100     143.7       377        573       55 ( 38%)     15
+  2024     196       44      93.1       257        957       34 ( 17%)      6
+  2025     225       47     107.2       376        748       57 ( 25%)     10
+  2026     214       27      58.6       163        418       27 ( 13%)      4
+
+TEN LONGEST HOLDS (5% trigger -> 2% retreat, by market minutes)
+  trigger           peak              retreat                A      B   total   runup      span
+  2020-12-04 10:39  2020-12-08 14:24  2020-12-09 09:30   1005     96    1101   7.2%   weekend
+  2020-01-16 09:41  2020-01-21 12:15  2020-01-21 14:01    934    106    1040   3.9%   weekend
+  2024-05-14 10:27  2024-05-16 11:57  2024-05-16 13:24    870     87     957  12.7% overnight
+  2021-10-18 11:56  2021-10-20 10:34  2021-10-20 13:18    698    164     862   5.2% overnight
+  2021-11-11 09:30  2021-11-15 09:34  2021-11-15 10:40    784     66     850   6.8%   weekend
+  2021-04-23 09:37  2021-04-27 09:38  2021-04-27 09:46    781      8     789   9.1%   weekend
+  2021-12-23 09:32  2021-12-28 09:30  2021-12-28 09:33    778      3     781  10.2%   weekend
+  2025-10-01 10:32  2025-10-03 09:40  2025-10-03 10:00    728     20     748  13.3% overnight
+  2021-05-27 10:35  2021-06-01 09:42  2021-06-01 09:56    727     14     741   5.9%   weekend
+  2020-09-25 11:22  2020-09-29 10:09  2020-09-29 10:35    707     26     733  15.3%   weekend
+
+====================================================================================================
+SENSITIVITY A — SOXL 1-min INTRABAR (trigger/peak on High, retreat on Low)  [5% / 2%]
+====================================================================================================
+Window 2019-12-31 -> 2026-07-30   642,510 bars   episodes=1869
+
+MARKET MINUTES (tradeable bars elapsed)
+  Leg A  5% trigger -> peak   n=1869  min=     0 p25=      1 med=     10 p75=     45 p90=    141 p99=     399 max=     934 mean=    45.7 min
+  Leg B  peak -> 2% retreat   n=1869  min=     0 p25=      3 med=      8 p75=     23 p90=     56 p99=     188 max=     360 mean=    21.7 min
+  Total  trigger -> retreat   n=1869  min=     1 p25=      6 med=     25 p75=     76 p90=    193 p99=     446 max=    1039 mean=    67.4 min
+
+WALL-CLOCK MINUTES (calendar time, includes closed hours)
+  Leg A  5% trigger -> peak   n=1869  min=     0 p25=      1 med=     10 p75=     49 p90=    311 p99=    4227 max=    7354 mean=   219.3 min
+  Leg B  peak -> 2% retreat   n=1869  min=     0 p25=      3 med=      9 p75=     30 p90=    106 p99=    3932 max=    5404 mean=   125.7 min
+  Total  trigger -> retreat   n=1869  min=     1 p25=      7 med=     29 p75=    114 p90=   1186 p99=    4330 max=    7459 mean=   345.0 min
+
+HEADLINE
+  Median time from the 5% trigger to the 2% retreat   : 25 min of market time
+  Median time from the 5% trigger to the peak         : 10 min
+  Median time from the peak to the 2% retreat         : 8 min
+  Peak IS the trigger bar (no further run-up)         : 300/1869 = 16.1%
+  Run-up past the 5% line before the peak             : med 1.12%   p90 5.02%   max 21.3%
+  Full upswing anchor -> peak                         : med 6.92%   p90 11.90%   max 28.3%
+
+SURVIVAL — share of episodes still un-retreated after N market minutes
+  >     1 min                 1748 / 1869  =  93.5%
+  >     2 min                 1670 / 1869  =  89.4%
+  >     5 min                 1463 / 1869  =  78.3%
+  >    10 min                 1260 / 1869  =  67.4%
+  >    15 min                 1117 / 1869  =  59.8%
+  >    30 min                  857 / 1869  =  45.9%
+  >    60 min                  558 / 1869  =  29.9%
+  >   120 min                  312 / 1869  =  16.7%
+  >   195 min (half session)   186 / 1869  =  10.0%
+  >   390 min (1 session)       43 / 1869  =   2.3%
+  >   780 min (2 sessions)       3 / 1869  =   0.2%
+  >  1950 min (1 week)           0 / 1869  =   0.0%
+
+OVERNIGHT / WEEKEND — episodes whose trigger->retreat window spans a close
+  intraday      1567 / 1869  =  83.8%
+  overnight      239 / 1869  =  12.8%
+  holiday          2 / 1869  =   0.1%
+  weekend         61 / 1869  =   3.3%
+  ANY close      302 / 1869  =  16.2%   (crossed 310 session boundaries in total)
+
+  ...of which the RETREAT ITSELF happened across the gap (peak one session,
+     2% breach in a later one — un-actionable while the market was shut):
+     peak -> retreat crossed a close : 126 / 1869 = 6.7%   (overnight 106, weekend 20, holiday 0)
+     breached on the very first bar back (gap-down did it) : 106   (overnight 89, weekend 17, holiday 0)
+
+  ...and the run-up leg spanning a close (5% hit, kept climbing past the bell):
+     trigger -> peak crossed a close : 178 / 1869 = 9.5%   (overnight 135, weekend 41, holiday 2)
+
+BY TRIGGER TIME OF DAY — a late trigger is what pushes an episode past the bell
+  trigger window        n  med min    p90       spans close   gap did the retreat
+  09:30-10:00         663       13    197        39 ( 5.9%)             9 ( 1.4%)
+  10:00-11:00         351       26    218        21 ( 6.0%)             6 ( 1.7%)
+  11:00-12:00         209       55    280        29 (13.9%)            11 ( 5.3%)
+  12:00-13:00         131       51    197        19 (14.5%)             7 ( 5.3%)
+  13:00-14:00         149       53    177        37 (24.8%)            11 ( 7.4%)
+  14:00-15:00         180       56    115        52 (28.9%)            22 (12.2%)
+  15:00-15:30          86       37     58        39 (45.3%)             9 (10.5%)
+  15:30-16:00         100        8     35        66 (66.0%)            31 (31.0%)
+
+BY YEAR (market minutes, trigger -> retreat)
+  year       n      med      mean       p90        max   spans close   wknd
+  2020     325       19      67.9       218       1039       55 ( 17%)     10
+  2021     180       50     118.9       354        881       48 ( 27%)      9
+  2022     384       19      40.9        96        420       47 ( 12%)     10
+  2023     177       60     110.3       316        503       50 ( 28%)     13
+  2024     226       34      74.3       206        622       31 ( 14%)      6
+  2025     299       19      67.3       217        624       43 ( 14%)      8
+  2026     278       12      37.6       102        395       28 ( 10%)      5
+
+TEN LONGEST HOLDS (5% trigger -> 2% retreat, by market minutes)
+  trigger           peak              retreat                A      B   total   runup      span
+  2020-01-16 09:41  2020-01-21 12:15  2020-01-21 14:00    934    105    1039   3.9%   weekend
+  2021-10-18 11:35  2021-10-20 10:34  2021-10-20 13:16    719    162     881   5.3% overnight
+  2021-04-23 09:36  2021-04-27 09:39  2021-04-27 09:45    783      6     789   9.5%   weekend
+  2020-08-03 09:30  2020-08-04 10:59  2020-08-04 14:32    479    213     692   6.2% overnight
+  2021-06-24 09:30  2021-06-25 09:39  2021-06-25 13:29    399    230     629   3.8% overnight
+  2025-09-22 09:31  2025-09-23 10:20  2025-09-23 13:25    439    185     624   4.4% overnight
+  2024-05-15 09:30  2024-05-16 11:58  2024-05-16 13:22    538     84     622   7.4% overnight
+  2020-11-19 12:01  2020-11-20 10:27  2020-11-20 15:13    296    286     582   4.9% overnight
+  2025-06-23 13:24  2025-06-25 09:34  2025-06-25 09:50    550     16     566  15.2% overnight
+  2025-08-08 10:06  2025-08-11 09:48  2025-08-11 12:43    372    175     547   4.3%   weekend
+
+====================================================================================================
+SENSITIVITY B — SOXL 5-min bar CLOSES (independent file, 2020-07 -> 2026-07)  [5% / 2%]
+====================================================================================================
+Window 2020-07-16 -> 2026-07-21   117,348 bars   episodes=1027
+
+MARKET MINUTES (tradeable bars elapsed)
+  Leg A  5% trigger -> peak   n=1027  min=     0 p25=      5 med=     40 p75=    145 p90=    350 p99=     765 max=    1190 mean=   109.4 min
+  Leg B  peak -> 2% retreat   n=1027  min=     5 p25=     15 med=     30 p75=     55 p90=    110 p99=     275 max=     390 mean=    46.6 min
+  Total  trigger -> retreat   n=1027  min=     5 p25=     35 med=     85 p75=    215 p90=    390 p99=     830 max=    1245 mean=   156.0 min
+
+WALL-CLOCK MINUTES (calendar time, includes closed hours)
+  Leg A  5% trigger -> peak   n=1027  min=     0 p25=      5 med=     40 p75=    220 p90=   1435 p99=    5612 max=    7220 mean=   473.2 min
+  Leg B  peak -> 2% retreat   n=1027  min=     5 p25=     15 med=     35 p75=     85 p90=   1070 p99=    4082 max=    5710 mean=   296.4 min
+  Total  trigger -> retreat   n=1027  min=     5 p25=     38 med=    115 p75=   1178 p90=   1587 p99=    5802 max=    8480 mean=   769.6 min
+
+HEADLINE
+  Median time from the 5% trigger to the 2% retreat   : 85 min of market time
+  Median time from the 5% trigger to the peak         : 40 min
+  Median time from the peak to the 2% retreat         : 30 min
+  Peak IS the trigger bar (no further run-up)         : 177/1027 = 17.2%
+  Run-up past the 5% line before the peak             : med 1.90%   p90 7.69%   max 32.0%
+  Full upswing anchor -> peak                         : med 7.96%   p90 14.90%   max 38.9%
+
+SURVIVAL — share of episodes still un-retreated after N market minutes
+  >     1 min                 1027 / 1027  = 100.0%
+  >     2 min                 1027 / 1027  = 100.0%
+  >     5 min                  999 / 1027  =  97.3%
+  >    10 min                  953 / 1027  =  92.8%
+  >    15 min                  898 / 1027  =  87.4%
+  >    30 min                  779 / 1027  =  75.9%
+  >    60 min                  611 / 1027  =  59.5%
+  >   120 min                  401 / 1027  =  39.0%
+  >   195 min (half session)   279 / 1027  =  27.2%
+  >   390 min (1 session)      101 / 1027  =   9.8%
+  >   780 min (2 sessions)      14 / 1027  =   1.4%
+  >  1950 min (1 week)           0 / 1027  =   0.0%
+
+OVERNIGHT / WEEKEND — episodes whose trigger->retreat window spans a close
+  intraday       693 / 1027  =  67.5%
+  overnight      256 / 1027  =  24.9%
+  holiday          4 / 1027  =   0.4%
+  weekend         74 / 1027  =   7.2%
+  ANY close      334 / 1027  =  32.5%   (crossed 376 session boundaries in total)
+
+  ...of which the RETREAT ITSELF happened across the gap (peak one session,
+     2% breach in a later one — un-actionable while the market was shut):
+     peak -> retreat crossed a close : 160 / 1027 = 15.6%   (overnight 130, weekend 27, holiday 3)
+     breached on the very first bar back (gap-down did it) : 115   (overnight 95, weekend 18, holiday 2)
+
+  ...and the run-up leg spanning a close (5% hit, kept climbing past the bell):
+     trigger -> peak crossed a close : 193 / 1027 = 18.8%   (overnight 145, weekend 47, holiday 1)
+
+BY TRIGGER TIME OF DAY — a late trigger is what pushes an episode past the bell
+  trigger window        n  med min    p90       spans close   gap did the retreat
+  09:30-10:00         390       85    420        87 (22.3%)            28 ( 7.2%)
+  10:00-11:00         167       85    360        30 (18.0%)             7 ( 4.2%)
+  11:00-12:00         117      120    297        30 (25.6%)            16 (13.7%)
+  12:00-13:00          77       90    371        22 (28.6%)             6 ( 7.8%)
+  13:00-14:00          74      112    208        30 (40.5%)             9 (12.2%)
+  14:00-15:00          96       80    148        50 (52.1%)            24 (25.0%)
+  15:00-15:30          52       55    251        38 (73.1%)            10 (19.2%)
+  15:30-16:00          54       22    262        47 (87.0%)            15 (27.8%)
+
+BY YEAR (market minutes, trigger -> retreat)
+  year       n      med      mean       p90        max   spans close   wknd
+  2020      60      205     241.0       428       1105       28 ( 47%)      5
+  2021     121      160     245.6       630       1210       52 ( 43%)     13
+  2022     242       60      90.7       210        760       58 ( 24%)     15
+  2023     126      130     188.8       400       1225       54 ( 43%)     13
+  2024     158       85     153.7       400        955       48 ( 30%)      7
+  2025     168       92     176.0       443       1245       61 ( 36%)     14
+  2026     152       55     108.1       295        780       33 ( 22%)      7
+
+TEN LONGEST HOLDS (5% trigger -> 2% retreat, by market minutes)
+  trigger           peak              retreat                A      B   total   runup      span
+  2025-10-22 15:05  2025-10-27 11:10  2025-10-28 09:50    935    310    1245  24.4%   weekend
+  2023-12-26 09:35  2023-12-28 10:35  2023-12-29 10:30    840    385    1225   3.6% overnight
+  2021-10-28 09:30  2021-11-02 09:50  2021-11-02 10:10   1190     20    1210  11.7%   weekend
+  2021-08-23 09:30  2021-08-25 14:05  2021-08-26 09:30   1055    115    1170   7.3% overnight
+  2020-12-04 10:35  2020-12-08 14:20  2020-12-09 09:30   1005    100    1105   7.2%   weekend
+  2023-12-11 09:30  2023-12-13 10:15  2023-12-13 13:00    825    165     990  10.0% overnight
+  2024-05-14 10:25  2024-05-16 11:55  2024-05-16 13:20    870     85     955  12.5% overnight
+  2025-10-01 10:30  2025-10-03 09:35  2025-10-03 13:00    725    205     930  12.2% overnight
+  2021-10-18 12:05  2021-10-20 10:30  2021-10-20 13:15    685    165     850   5.3% overnight
+  2021-11-11 09:45  2021-11-15 09:30  2021-11-15 10:40    765     70     835   7.6%   weekend
+
