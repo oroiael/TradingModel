@@ -128,6 +128,13 @@ def main():
                     w[s] = 1 / len(ok)
             elif policy == "concentrate" and ok:
                 w[min(ok, key=lambda s: D[s][d]["rv"])] = 1.0
+            elif policy.startswith("w:") and ok:
+                a, b, c = (float(x) / 100.0 for x in policy[2:].split("/"))
+                base = {"SOXL": a, "TQQQ": b, "SPXL": c}
+                tt = sum(base[s] for s in ok)
+                if tt > 0:
+                    for s in ok:
+                        w[s] = base[s] / tt
             elif policy.startswith("tilt") and ok:
                 a = float(policy[4:]) / 100.0           # SOXL target weight
                 base = {"SOXL": a, "TQQQ": (1 - a) / 2, "SPXL": (1 - a) / 2}
@@ -183,10 +190,27 @@ def main():
                           ("renorm", "3. renormalised across eligible"),
                           ("invvol", "4. inverse-vol across eligible"),
                           ("breadth2", "5. breadth >= 2 legs"),
-                          ("concentrate", "6. concentrate in lowest RV20")):
+                          ("concentrate", "6. concentrate in lowest RV20"),
+                          ("w:60/30/10", "7. 60/30/10 SOXL/TQQQ/SPXL")):
             (g, cg, dd, sh, t), dep, _ = run(pol, days)
             print(f"  {name:<34}{g:>9.0f}%{cg:>7.1f}%{dd:>7.1f}%{sh:>8.2f}{t:>7.2f}"
                   f"{dep*100:>13.0f}%")
+        if days is W:
+            pols = [("w:60/30/10", "60/30/10"), ("w:100/0/0", "SOXL only"),
+                    ("renorm", "equal 1/3"), ("ungated", "1/3 no filter")]
+            print(f"\n  YEAR BY YEAR — % return (2026 is partial, to {days[-1]})")
+            ser = yearly(run, syms, D, elig, days, pols)
+            print(f"\n  {'policy':<16}{'worst DD in year':>60}")
+            print(f"  {'':<16}" + "".join(f"{y:>10}" for y in
+                                          sorted({d.year for d in days})))
+            for pol, n in pols:
+                _, _, by = drawdowns(ser, days, n)
+                print(f"  {n:<16}" + "".join(
+                    f"{by.get(y,0)*100:>9.1f}%" for y in sorted({d.year for d in days})))
+            print(f"\n  {'policy':<16}{'nights with each leg on (60/30/10 weights)':>50}")
+            for s_ in syms:
+                print(f"    {s_:<6}{sum(1 for d in days if elig[s_][d])/len(days)*100:>5.0f}%"
+                      f" of nights eligible")
         print(f"  {'-'*92}")
         print(f"  SOXL TILT (renormalised over eligible legs)")
         for a in (33, 50, 60, 70, 80, 100):
@@ -194,6 +218,45 @@ def main():
             star = "  <-- best Sharpe of the tilts" if False else ""
             print(f"  {f'   {a}% SOXL / {(100-a)//2}% each other':<34}{g:>9.0f}%{cg:>7.1f}%"
                   f"{dd:>7.1f}%{sh:>8.2f}{t:>7.2f}{dep*100:>13.0f}%{star}")
+
+
+def yearly(run, syms, D, elig, days, policies):
+    """Year-by-year return for each policy, plus per-leg contribution."""
+    import itertools
+    yrs = sorted({d.year for d in days})
+    series = {}
+    for pol, name in policies:
+        _, _, rets = run(pol, days)
+        series[name] = dict(zip(days, rets))
+    print(f"\n  {'year':<6}{'sessions':>10}" +
+          "".join(f"{n.split('.')[0][:14]:>16}" for _, n in policies))
+    for y in yrs:
+        dd = [d for d in days if d.year == y]
+        row = f"  {y:<6}{len(dd):>10}"
+        for _, n in policies:
+            g = math.prod(1 + series[n][d] for d in dd) - 1
+            row += f"{g*100:>15.1f}%"
+        print(row)
+    print(f"  {'-'*(16+len(policies)*16)}")
+    row = f"  {'ALL':<6}{len(days):>10}"
+    for _, n in policies:
+        g = math.prod(1 + series[n][d] for d in days) - 1
+        row += f"{g*100:>15.1f}%"
+    print(row)
+    return series
+
+
+def drawdowns(series, days, name):
+    eq = pk = 1.0; dd = 0.0; worst = None
+    by = {}
+    for d in days:
+        eq *= 1 + series[name][d]
+        pk = max(pk, eq)
+        x = eq / pk - 1
+        if x < dd:
+            dd = x; worst = d
+        by[d.year] = min(by.get(d.year, 0.0), x)
+    return dd, worst, by
 
 
 if __name__ == "__main__":

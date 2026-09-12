@@ -100,6 +100,62 @@ The filtered strategy loses far less to 2022 than the unfiltered basket does —
 which is itself evidence the filter works — but 17 points of CAGR is the
 premium being assumed away.
 
+### The 60/30/10 tilt, year by year
+
+`python3 retreat_lab/basket.py 1 2023`. Weights are SOXL 60 / TQQQ 30 / SPXL 10,
+renormalised over whichever legs are eligible that night.
+
+| policy | total | CAGR | max DD | Sharpe | t | avg deployed |
+|---|---|---|---|---|---|---|
+| SOXL alone (filtered) | 531% | 68.1% | −29.5% | **1.38** | 2.60 | 65% |
+| **60/30/10** | **408%** | **58.2%** | −30.4% | **1.37** | 2.57 | 88% |
+| equal 1/3 renormalised | 286% | 46.4% | −26.7% | 1.32 | 2.49 | 88% |
+| fixed 1/3, no filter | 304% | 48.3% | −51.4% | 1.12 | 2.11 | 100% |
+
+**60/30/10 recovers essentially all of SOXL-alone's Sharpe (1.37 vs 1.38) while
+holding only 60% of it**, and deploys 88% of capital against SOXL-alone's 65%.
+
+| year | sessions | 60/30/10 | SOXL only | equal 1/3 | 1/3 no filter |
+|---|---|---|---|---|---|
+| 2023 | 250 | **−0.4%** | **+7.1%** | −0.1% | +1.2% |
+| 2024 | 252 | **+135.5%** | +121.4% | +103.1% | +117.4% |
+| 2025 | 250 | **+119.9%** | +104.2% | +102.7% | +31.3% |
+| 2026 (to 07-21) | 137 | **−1.5%** | **+30.2%** | −6.1% | +39.9% |
+| **all** | 889 | **+408.5%** | +530.6% | +286.3% | +304.3% |
+
+Worst drawdown reached within each year:
+
+| policy | 2023 | 2024 | 2025 | 2026 |
+|---|---|---|---|---|
+| 60/30/10 | −27.2% | −16.4% | −21.6% | −30.4% |
+| SOXL only | −29.5% | −17.8% | −23.7% | −25.0% |
+| equal 1/3 | −24.3% | −13.5% | −20.6% | −26.7% |
+| 1/3 no filter | −25.6% | −23.5% | −51.4% | −27.6% |
+
+**The whole result is 2024 and 2025.** 2023 was flat and 2026 to date is
+slightly negative, against a −30.4% intra-year drawdown. Two good years out of
+three and a half is the shape of this strategy, and any live allocation has to
+survive a year like 2023 — flat, while semiconductors themselves rose sharply —
+without being abandoned.
+
+**60/30/10 beat SOXL-alone in 2024 and 2025 and lost badly in 2026** (−1.5%
+against +30.2%). The diversification is real but it cuts both ways, and over
+3.5 years it costs 10 pp of CAGR for a Sharpe that is identical to within noise.
+
+Return concentration, 60/30/10:
+
+| | removing the best | removing the worst |
+|---|---|---|
+| 5 nights | +408% → **+199%** | → +725% |
+| 10 nights | → +115% | → +1,058% |
+| 20 nights | → **+22%** | → +1,855% |
+
+Twenty nights out of 889 are the entire return. Worst night −13.1%
+(2025-01-24, the DeepSeek weekend); best +19.9% (2025-05-09).
+
+Contribution by leg over the window: SOXL +149.5%, TQQQ +47.3%, SPXL +8.6% of
+summed weighted return — SPXL earns close to nothing for its 10%.
+
 ### The answer on allocation
 
 **Neither a fixed split nor an indicator-driven one adds anything.** The
