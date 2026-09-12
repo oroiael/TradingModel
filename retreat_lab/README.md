@@ -18,6 +18,87 @@ Stdlib only. Measured from `SOXL_1min.csv` — 1-min OHLCV, **2019-12-31 → 202
 inconsistencies, split-adjusted (largest overnight moves are real events — COVID
 March-2020, 2024-08-05 — not basis breaks). Cross-checked on `SOXL_5min_6Years.csv`.
 
+## XLU fill quality — measured, and the answer is "use the auctions"
+
+`fills.py`, quotes in `out/fill_quality_20260912.csv`. The XLU cover leg is
+cost-fragile — 3× notional means ~3× the friction and the edge is gone by 5 bp
+per side — so the whole result hangs on what it actually costs to trade.
+
+### Verified from the repo's TWS API 10.39.01 source, not from memory
+
+| what | where |
+|---|---|
+| `MOC` is a real order type | `source/JavaClient/com/ib/client/OrderType.java:25` — `MOC( Arrays.asList("MOC", "MKT CLS", "MKTCLS") )` |
+| MarketOnClose | `samples/Python/Testbed/OrderSamples.py:100` — `orderType = "MOC"` |
+| MarketOnOpen | `samples/Python/Testbed/OrderSamples.py:117` — `orderType = "MKT"`, `tif = "OPG"` |
+
+**Not verifiable here and therefore not asserted:** the MOC submission cutoff
+time, and whether IBKR routes MOC/MOO to the primary listing auction.
+interactivebrokers.com and ibkrcampus.com are egress-blocked and the local
+131-page PDF does not extract. Confirm both live before sizing on them.
+
+### The measured numbers
+
+| sym | last | AUM | 90d $ volume/day | **one tick** | notional needed |
+|---|---|---|---|---|---|
+| SOXL | $122.28 | — | $7,568M | **0.82 bp** | 1.0× |
+| XLU | $42.38 | $21.8B | $852M | **2.36 bp** | 3.0× |
+| UTSL | $36.28 | **$43M** | **$5M** | 2.76 bp | 1.0× |
+
+**XLU's spread is tick-constrained and cannot be tighter than 2.36 bp** — nearly
+3× SOXL's 0.82 bp, purely because the share price is a third as high. That is a
+structural disadvantage no amount of liquidity fixes.
+
+**UTSL's $43M AUM settles it.** At 2% of a $5M daily tape that is ~$100k a night.
+It is not a candidate at any serious size, whatever its backtest says.
+
+Auction depth in XLU, measured from 1-minute bars:
+
+| bar | share of daily volume | dollars | 1-min high-low |
+|---|---|---|---|
+| 09:30 | 1.8–2.1% | $10–16M | **31.4 bp** |
+| 15:59 | 4.6–4.9% | $26–38M | 10.6 bp |
+
+(RTH-only bars, so the 16:00 closing-auction print is *additional* to the 15:59
+figure.) The opening minute's 31 bp range is the reason execution method matters:
+a market order sent at 09:30:00 lands somewhere inside that.
+
+### Cost, and what it does to the result
+
+| route | commission | half-spread | bp/side | **bp of equity, round trip** |
+|---|---|---|---|---|
+| SOXL leg — auction | 0.29 | — | 0.29 | 0.58 |
+| SOXL leg — marketable | 0.29 | 0.41 | 0.70 | 1.40 |
+| XLU leg — auction | 0.83 | — | 0.83 | **4.98** |
+| XLU leg — marketable | 0.83 | 1.18 | 2.01 | **12.06** |
+
+| execution | total | CAGR | max DD | Sharpe | t |
+|---|---|---|---|---|---|
+| SOXL alone, no cover | 531% | 67.6% | −29.5% | 1.37 | 2.60 |
+| **+ XLU cover, MOC/MOO auction** | **1,023%** | **97.0%** | **−28.9%** | **1.71** | **3.22** |
+| + XLU cover, marketable | 826% | 86.6% | −30.6% | 1.59 | 3.00 |
+
+**It clears comfortably either way** — 1.71 on auctions, 1.59 crossing the
+spread, against 1.37 with no cover and 1.34 at the 5 bp cliff. The execution
+method is worth 0.12 of Sharpe and 10 pp of CAGR, so it is worth getting right,
+but the trade is not balanced on a knife edge.
+
+### The look-ahead this exposed — and it was not load-bearing
+
+An MOC order must be submitted before the close, so day D's close is **not known**
+when the decision is made — yet RV20 uses it. Re-running with RV20 through
+**D−1** only, which is strictly implementable:
+
+| signal | SOXL alone | + XLU cover @ 1 bp |
+|---|---|---|
+| RV20 through D (as backtested) | 1.37 | 1.64 |
+| **RV20 through D−1 (implementable)** | **1.54** | **1.79** |
+
+The implementable version scores *higher*. Treat that as "the look-ahead was not
+load-bearing", not as "the lag improves it" — it is a different signal and the
+gain is most likely sample luck. What matters is that nothing here depends on
+knowing the close you are trading into.
+
 ## What covers SOXL's off-nights — utilities, and it is not close
 
 `coverage.py`. The p60 rule benches SOXL on ~35% of nights, and basket.py showed

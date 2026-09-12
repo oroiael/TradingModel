@@ -1,0 +1,4 @@
+symbol,last_price,aum_usd,avg_90d_usd_volume,tick_bp,notional_multiple,commission_bp_per_side,half_spread_bp_per_side,source
+SOXL,122.28,,7568205058,0.82,1.0,0.29,0.41,IBKR snapshot 2026-09-12 (FROZEN)
+XLU,42.38,21836874730,851880321,2.36,3.0,0.83,1.18,IBKR snapshot 2026-09-12 (FROZEN)
+UTSL,36.28,43011917,5113711,2.76,1.0,0.96,1.38,IBKR snapshot 2026-09-12 (FROZEN)
