@@ -18,6 +18,89 @@ Stdlib only. Measured from `SOXL_1min.csv` — 1-min OHLCV, **2019-12-31 → 202
 inconsistencies, split-adjusted (largest overnight moves are real events — COVID
 March-2020, 2024-08-05 — not basis breaks). Cross-checked on `SOXL_5min_6Years.csv`.
 
+## TQQQ and SPXL — the replication, and two corrections it forces
+
+`replicate.py`. FAS was the only external test and it failed; that is n=1. TQQQ
+(3× Nasdaq-100, IBKR daily bars 2021-09 →) and SPXL (3× S&P 500, 5-min 2020-07 →)
+make it four instruments. **The headline result replicates. Two things I
+concluded from SOXL and FAS alone do not.**
+
+**Control first.** TQQQ is daily-sourced, so SOXL was run from daily bars against
+SOXL from 1-minute bars over 1,204 shared sessions: overnight-return correlation
+**0.99921**, mean overnight difference **−1.82 bp/night** (daily slightly
+understates the overnight leg). Daily-sourced figures are readable on the same
+footing, and if anything are conservative.
+
+### Correction 1 — "the intraday leg is variance drag" is not general
+
+| symbol | buy & hold | overnight | intraday |
+|---|---|---|---|
+| SOXL | +532% | +2,092% | **−71%** |
+| FAS | +76% | +230% | **−47%** |
+| SPXL | +397% | +223% | **+54%** |
+| TQQQ | +130% | +85% | **+24%** |
+
+On SPXL and TQQQ the intraday leg is **positive**. Variance drag is ½σ², so it
+only *dominates* where vol is high enough — semis and financials — not as a law.
+"Go flat intraday, it is free" is right for SOXL and is **not** a general claim.
+
+### Correction 2 — the conditioner is NOT merely a trend proxy
+
+`mechanism.py` concluded RV20 was a trend signal in disguise, from SOXL (where
+the two agree) and FAS (where trend worked and vol did not). The two new
+instruments separate them, and they go the other way:
+
+| symbol | hold every night | **RV20 < p60** | trailing-20d-return |
+|---|---|---|---|
+| SOXL | 0.96 | **1.39** (t 3.53) | 1.19 (t 3.02) |
+| FAS | 0.52 | 0.60 (t 1.55) | **0.77** (t 1.98) |
+| SPXL | 0.64 | **0.97** (t 2.37) | 0.33 (t 0.81) |
+| TQQQ | 0.39 | **1.24** (t 2.74) | 0.37 (t 0.81) |
+
+(Sharpe, 60% of nights kept either way.) The two rules select 68–75% of the same
+nights, and correlate −0.25 to −0.39 — overlapping but not the same signal, and
+the quarter that differs favours **volatility** on three of four names. The
+trend-proxy reading was over-generalised from two instruments. **The SOXS mirror
+finding is untouched** — the *return* is still directional sector beta, not an
+overnight structural premium. What is refuted is that the *conditioner* is only
+trend.
+
+### On the same sessions, 2021-10-12 → 2026-07-21 (1,197 nights)
+
+| symbol | overnight | intraday | RV20<p60 CAGR | Sharpe | t | trend CAGR | Sharpe | t |
+|---|---|---|---|---|---|---|---|---|
+| SOXL | +423% | −17% | 50.3% | 1.14 | **2.50** | 33.2% | 0.81 | 1.77 |
+| TQQQ | +71% | +34% | 28.9% | 1.21 | **2.65** | 6.5% | 0.38 | 0.82 |
+| SPXL | +45% | +70% | 17.9% | 1.04 | **2.26** | 4.3% | 0.32 | 0.70 |
+| FAS | +13% | +18% | 2.0% | 0.20 | 0.43 | −2.2% | 0.00 | 0.00 |
+
+### Walk-forward — the sober version
+
+Expanding-window threshold, 252-session burn-in, no forward information:
+
+| symbol | hold every night | walk-fwd p60 | walk-fwd p80 |
+|---|---|---|---|
+| SOXL | 0.80 (t 1.88) | **1.08 (t 2.53)** | 0.83 (t 1.94) |
+| TQQQ | 0.94 (t 1.86) | **1.09 (t 2.15)** | 1.08 (t 2.13) |
+| SPXL | 0.28 (t 0.62) | 0.62 (t 1.37) | 0.85 (t 1.89) |
+| FAS | 0.39 (t 0.93) | 0.40 (t 0.94) | 0.31 (t 0.73) |
+
+**Two of four clear t = 2 walk-forward.** SPXL is directionally right but not
+significant; FAS is nothing. And the TQQQ walk-forward window begins ~2022-10,
+so **the 2022 bear market falls in its burn-in** — the same blind spot SOXL's
+has. The in-sample TQQQ run (t 2.74) *does* include 2022; the walk-forward does
+not. Read them together, not as one number.
+
+**No instrument is monotone in RV20 quintiles**, SOXL included. The cut works by
+excluding the top two quintiles, not by a clean gradient.
+
+### What this changes
+
+The filter is **not SOXL-specific**. It has independent support on TQQQ and
+partial support on SPXL, which is the evidence that was missing. It remains a
+fitted cut on a non-monotone relationship, failing outright on one of four
+instruments, and the return underneath it is still levered sector beta.
+
 ## Pricing the 3x SOXX carry against a real IBKR margin rate
 
 `carry.py`. The earlier 3.55 bp/night advantage of 3× SOXX over SOXL was
@@ -307,15 +390,19 @@ sector rose 5.4×.**
 What survives as general, confirmed on both instruments and on both signs of the
 semis trade:
 
-* **The overnight/intraday decomposition is real and structural.** Overnight
-  carries the directional drift; the intraday session is variance drag. The drag
-  is sign-independent — it is negative on SOXL (−71%), SOXS (−100%) and FAS
-  (−47%) alike, which is what a ½σ² effect must do.
+* **The overnight/intraday decomposition is real** on SOXL, SOXS and FAS —
+  negative intraday on all three, which is what a ½σ² effect must do.
+  **But see "TQQQ and SPXL" above: it does NOT generalise.** Intraday is
+  *positive* on SPXL (+54%) and TQQQ (+24%). The drag dominates only where vol
+  is high enough.
 
 What does not survive as general:
 
-* **"Low volatility predicts better overnight returns."** It is a trend proxy,
-  it inverts on SOXS, and it fails on FAS.
+* ~~**"Low volatility predicts better overnight returns."** It is a trend proxy.~~
+  **Superseded** — see "TQQQ and SPXL" above. Trend fails on SPXL and TQQQ
+  exactly where the vol cut works, so the two are not the same signal. The
+  conditioner survives; it still fails on FAS, and the SOXS mirror still shows
+  the *return* is directional beta.
 * **Any reading of the p60 threshold as a mechanism.** It is a fitted cut on a
   conditioner that a cruder rule captures nearly as well.
 
