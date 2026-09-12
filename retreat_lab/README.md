@@ -18,6 +18,135 @@ Stdlib only. Measured from `SOXL_1min.csv` — 1-min OHLCV, **2019-12-31 → 202
 inconsistencies, split-adjusted (largest overnight moves are real events — COVID
 March-2020, 2024-08-05 — not basis breaks). Cross-checked on `SOXL_5min_6Years.csv`.
 
+## What covers SOXL's off-nights — utilities, and it is not close
+
+`coverage.py`. The p60 rule benches SOXL on ~35% of nights, and basket.py showed
+TQQQ's contribution is **coverage of those nights**, not diversification on the
+shared ones. So the question becomes: what earns money specifically on the
+nights SOXL is benched? Sixteen candidates — 3x and 2x equity, inverse, and
+debt — from IBKR daily bars, all walk-forward gated.
+
+### As a position, on SOXL's 316 off-nights (from 2023)
+
+| sym | what | mean/night | t | corr w/ SOXL | SWITCH Sharpe |
+|---|---|---|---|---|---|
+| **UTSL** | **3x utilities** | **+0.201%** | **2.80** | **0.26** | **1.63** |
+| QLD | 2x Nasdaq-100 | +0.049% | 0.43 | 0.89 | 1.42 |
+| TQQQ | 3x Nasdaq-100 | +0.066% | 0.39 | 0.89 | 1.41 |
+| TECL | 3x technology | +0.066% | 0.31 | 0.92 | 1.40 |
+| SPXL | 3x S&P 500 | +0.014% | 0.11 | 0.80 | 1.38 |
+| HYG | high-yield credit | −0.017% | −1.03 | 0.59 | 1.29 |
+| TLT | 1x 20y Treasury | −0.018% | −0.55 | **0.08** | 1.29 |
+| TYD | 3x 7-10y Treasury | −0.008% | −0.16 | **0.05** | 1.28 |
+| UBT | 2x 20y Treasury | −0.042% | −0.63 | 0.08 | 1.25 |
+| FAS | 3x financials | −0.055% | −0.45 | 0.50 | 1.22 |
+| TNA | 3x small cap | −0.054% | −0.32 | 0.71 | 1.18 |
+| TMF | 3x 20y Treasury | −0.056% | −0.56 | 0.08 | 1.16 |
+| SQQQ | −3x Nasdaq-100 | −0.064% | −0.37 | −0.89 | 1.13 |
+| LABU | 3x biotech | −0.055% | −0.35 | 0.62 | 0.91 |
+
+SWITCH = SOXL when eligible, else the candidate when its own walk-forward p60
+says go. SOXL alone is Sharpe 1.37.
+
+**Only utilities works, and nothing else is even positive at t > 1.**
+
+**The debt result answers the question directly and negatively.** Treasuries are
+**uncorrelated, not negatively correlated** — TLT 0.08, TYD 0.05, TMF 0.08. That
+is exactly what was hoped for. But every one of them has a *negative* mean on
+SOXL's off-nights, none significant. Zero correlation with zero return is worth
+nothing. There is no overnight premium in treasuries to harvest, so they cannot
+cover anything. SQQQ and SOXS are worse still — inverse exposure earns the
+negative of a positive drift.
+
+### It is "utilities", not "UTSL" — and XLU is 231x more tradeable
+
+| | mean/night on off-nights | t | corr w/ SOXL | median daily $ volume |
+|---|---|---|---|---|
+| UTSL (3x) | +0.201% | 2.80 | 0.26 | **$3.2M** |
+| **XLU (1x)** | +0.085% | **3.25** | **0.21** | **$743.5M** |
+
+XLU carries the signal **more cleanly than the leveraged wrapper** — higher
+t, lower correlation — and trades 231× the volume. UTSL's realised beta to XLU
+is 2.52, not 3.0, the usual leverage decay.
+
+**UTSL is untradeable at size.** $3.2M median daily volume, p10 $1.6M. At 2% of
+ADV that is ~$64k a night, which caps the whole strategy near six figures.
+
+### The trade-off: UTSL is cheap to trade but illiquid; XLU is liquid but needs 3x notional
+
+| cover leg | bp/side | total | CAGR | max DD | Sharpe | t |
+|---|---|---|---|---|---|---|
+| none (SOXL alone) | — | 531% | 67.6% | −29.5% | 1.37 | 2.60 |
+| XLU 3x notional | 1 | **913%** | **91.4%** | −30.2% | **1.64** | **3.10** |
+| XLU 3x notional | 2 | 796% | 84.9% | −31.2% | 1.57 | 2.96 |
+| XLU 3x notional | 3 | 692% | 78.6% | −32.3% | 1.49 | 2.82 |
+| XLU 3x notional | 5 | 520% | 66.7% | −34.3% | 1.34 | 2.53 |
+| UTSL 1x | 10 | 572% | 70.5% | −29.5% | 1.40 | 2.64 |
+| UTSL 1x | 20 | 343% | 51.8% | −32.2% | 1.14 | 2.15 |
+
+XLU at 3x notional pays 3× the friction, so it is **cost-fragile**: the edge is
+gone by 5 bp/side. XLU is one of the most liquid ETFs in existence (~1 bp
+spread), so 1–2 bp/side is realistic and the trade works — but there is no
+margin for error.
+
+### Two things that temper it
+
+**The longer window makes the drawdown worse, not better.** Over 2021-10 →
+2026-07, XLU cover at 1 bp gives Sharpe 1.36 against SOXL-alone's 1.20, but
+max DD goes from −32.2% to **−42.1%**. Three-times utilities had its own tail in
+the 2022 rate shock.
+
+**Year by year it is not free** (XLU 3x @ 2 bp/side):
+
+| year | SOXL alone | + XLU cover | nights covered |
+|---|---|---|---|
+| 2023 | +7.1% | **−1.6%** | 26 |
+| 2024 | +121.4% | **+174.2%** | 63 |
+| 2025 | +104.2% | +117.6% | 62 |
+| 2026 (to 07-29) | +30.2% | **+52.6%** | 54 |
+
+Deployment: SOXL 65% of nights, XLU 23%, flat 12% — they are mutually exclusive,
+so gross notional is 1.0× on SOXL nights and 3.0× on XLU nights, never both.
+
+### Debt as an INDICATOR rather than a position — the one part that half-works
+
+Treasuries cannot cover SOXL's off-nights, but rate volatility may still say
+something about whether tonight is safe. Signals tested: TLT trailing 20d
+momentum, TLT RV20 (a MOVE-index proxy), and HYG-minus-TLT relative strength
+(a credit-spread proxy).
+
+| rule | n | total | CAGR | max DD | Sharpe | t |
+|---|---|---|---|---|---|---|
+| SOXL RV20 < p60 (the published rule) | 579 | 531% | 67.6% | −29.5% | **1.37** | 2.60 |
+| **TLT RV20 < p60 (rate vol), alone** | **798** | **689%** | **78.4%** | −57.0% | 1.19 | 2.24 |
+| TLT RV20 **and** SOXL RV20 < p60 | 501 | 431% | 59.6% | **−25.3%** | 1.30 | 2.46 |
+| TLT 20d momentum > p40, alone | 671 | 205% | 36.7% | −61.4% | 0.82 | 1.55 |
+| TLT momentum **and** SOXL RV20 < p60 | 420 | 281% | 45.5% | −27.3% | 1.19 | 2.25 |
+| HYG−TLT credit spread > p40, alone | 520 | 349% | 52.4% | −36.9% | 1.04 | 1.96 |
+| HYG−TLT **and** SOXL RV20 < p60 | 346 | 93% | 20.3% | −33.4% | 0.69 | 1.30 |
+
+**Rate volatility is a real standalone signal.** TLT RV20 alone keeps 798 nights
+— more than SOXL's own rule keeps — and returns *more* in total (689% vs 531%)
+at t 2.24. But its drawdown is −57.0% against −29.5%, so it is a worse rule on
+every risk-adjusted measure.
+
+Combining the two tightens risk and costs return: −25.3% max DD, the best of any
+variant, at Sharpe 1.30 against 1.37. **A drawdown-reduction tool, not a return
+improvement.**
+
+**The credit-spread signal actively hurts** — adding it to SOXL's rule takes
+Sharpe from 1.37 to 0.69. Worth recording as a clean negative: credit stress is
+not the thing that makes an overnight semis position dangerous.
+
+### The caveat that matters most
+
+**UTSL was the best of sixteen candidates.** A t of 2.80–3.25 selected from
+sixteen searches is not a t of 2.80–3.25 found in advance; Bonferroni puts it
+around p = 0.02, still significant but far less impressive than it looks. What
+raises confidence is that **XLU confirms it with a different wrapper of the same
+sector and a higher t** — that rules out a UTSL-specific artifact, though not the
+broader selection effect, since both are the same sector over the same nights.
+
 ## The SOXL + TQQQ + SPXL basket — it does not help
 
 `basket.py`. Walk-forward p60 per leg, backtest from 2023 (the estimator is
