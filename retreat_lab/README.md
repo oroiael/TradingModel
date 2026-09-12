@@ -156,6 +156,67 @@ Twenty nights out of 889 are the entire return. Worst night −13.1%
 Contribution by leg over the window: SOXL +149.5%, TQQQ +47.3%, SPXL +8.6% of
 summed weighted return — SPXL earns close to nothing for its 10%.
 
+### 65/35 SOXL/TQQQ — dropping SPXL helps, and the reason is coverage
+
+On the **same 889-session window**, so it is directly comparable to the tilts
+above:
+
+| policy | total | CAGR | max DD | Sharpe | t | deployed |
+|---|---|---|---|---|---|---|
+| SOXL alone | 531% | 68.1% | −29.5% | 1.38 | 2.60 | 65% |
+| 60/30/10 | 408% | 58.2% | −30.4% | 1.37 | 2.57 | 88% |
+| **65/35 SOXL/TQQQ** | **460%** | **62.6%** | −31.8% | **1.39** | **2.62** | 86% |
+
+**65/35 is the best Sharpe of all eight policies tested**, and it beats 60/30/10
+on return *and* Sharpe. Including 2022 it wins there too (Sharpe 1.21, t 2.64,
+against 1.17 for 60/30/10 and 1.20 for SOXL alone) — the only policy that leads
+in both windows.
+
+Dropping SPXL also un-caps the window: SPXL's file ended 2026-07-21 and was
+truncating every table above. SOXL + TQQQ run to 2026-07-29.
+
+| two-leg window, 895 sessions, 3.6y | total | CAGR | max DD | Sharpe | t |
+|---|---|---|---|---|---|
+| SOXL only (flat when ineligible) | 531% | 67.6% | −29.5% | 1.37 | 2.59 |
+| **SWITCH: SOXL if on, else TQQQ** | **636%** | **75.0%** | −34.8% | 1.41 | 2.67 |
+| blend 80/20 renormalised | 553% | 69.2% | −33.1% | 1.42 | 2.69 |
+| **blend 65/35 renormalised** | 493% | 64.7% | −31.8% | **1.43** | 2.69 |
+| blend 50/50 renormalised | 436% | 60.1% | −30.4% | 1.42 | 2.69 |
+| blend 80/20, **not** renormalised | 460% | 62.1% | **−26.5%** | 1.40 | 2.65 |
+
+**The gain is coverage, not blending.** SOXL is eligible on 65% of nights and
+TQQQ on 85%; **on 21% of nights SOXL is off and TQQQ is on**. The pure SWITCH
+policy never blends at all — 100% in one name or the other — and it captures
+most of the benefit on its own (Sharpe 1.37 → 1.41, return 531% → 636%). Blending
+on the shared nights adds a further 0.02 of Sharpe and costs 140 points of
+return.
+
+Every variant sits on a **flat Sharpe ridge of 1.40–1.43**, all above
+SOXL-alone's 1.37 and all indistinguishable from one another. So pick on the
+return/drawdown trade-off, not on Sharpe:
+
+| if you want | take | |
+|---|---|---|
+| maximum return | SWITCH | 636%, −34.8% |
+| a middle | blend 80/20 renormalised | 553%, −33.1% |
+| minimum drawdown | blend 80/20, not renormalised | 460%, **−26.5%** |
+
+### Year by year, two-leg
+
+| year | SOXL only | TQQQ only | 80/20 | **65/35** | 50/50 |
+|---|---|---|---|---|---|
+| 2023 | +7.1% | +7.4% | −1.7% | **+0.2%** | +2.0% |
+| 2024 | +121.4% | +95.8% | +170.0% | **+155.1%** | +140.7% |
+| 2025 | +104.2% | +65.2% | +135.1% | **+129.1%** | +122.9% |
+| 2026 (to 07-29) | **+30.2%** | **−12.9%** | +4.6% | **+1.2%** | −2.1% |
+| **all** | 530.6% | 202.5% | 552.5% | **492.7%** | 435.7% |
+
+**2026 is the warning.** TQQQ is −12.9% year to date while SOXL is +30.2%, so
+every blend gives back most of SOXL's year: 80/20 keeps +4.6%, 65/35 keeps
++1.2%, 50/50 goes negative. The diversification that won 2024 and 2025 is losing
+2026, which is exactly what diversification is supposed to do and is still
+unpleasant to hold.
+
 ### The answer on allocation
 
 **Neither a fixed split nor an indicator-driven one adds anything.** The

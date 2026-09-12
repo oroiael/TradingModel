@@ -191,13 +191,14 @@ def main():
                           ("invvol", "4. inverse-vol across eligible"),
                           ("breadth2", "5. breadth >= 2 legs"),
                           ("concentrate", "6. concentrate in lowest RV20"),
-                          ("w:60/30/10", "7. 60/30/10 SOXL/TQQQ/SPXL")):
+                          ("w:60/30/10", "7. 60/30/10 SOXL/TQQQ/SPXL"),
+                          ("w:65/35/0", "8. 65/35 SOXL/TQQQ, no SPXL")):
             (g, cg, dd, sh, t), dep, _ = run(pol, days)
             print(f"  {name:<34}{g:>9.0f}%{cg:>7.1f}%{dd:>7.1f}%{sh:>8.2f}{t:>7.2f}"
                   f"{dep*100:>13.0f}%")
         if days is W:
-            pols = [("w:60/30/10", "60/30/10"), ("w:100/0/0", "SOXL only"),
-                    ("renorm", "equal 1/3"), ("ungated", "1/3 no filter")]
+            pols = [("w:65/35/0", "65/35 2-leg"), ("w:60/30/10", "60/30/10"),
+                    ("w:100/0/0", "SOXL only"), ("renorm", "equal 1/3")]
             print(f"\n  YEAR BY YEAR — % return (2026 is partial, to {days[-1]})")
             ser = yearly(run, syms, D, elig, days, pols)
             print(f"\n  {'policy':<16}{'worst DD in year':>60}")
@@ -207,10 +208,9 @@ def main():
                 _, _, by = drawdowns(ser, days, n)
                 print(f"  {n:<16}" + "".join(
                     f"{by.get(y,0)*100:>9.1f}%" for y in sorted({d.year for d in days})))
-            print(f"\n  {'policy':<16}{'nights with each leg on (60/30/10 weights)':>50}")
+            print(f"\n  {'policy':<16}{'nights each leg is eligible':>40}")
             for s_ in syms:
-                print(f"    {s_:<6}{sum(1 for d in days if elig[s_][d])/len(days)*100:>5.0f}%"
-                      f" of nights eligible")
+                print(f"    {s_:<6}{sum(1 for d in days if elig[s_][d])/len(days)*100:>5.0f}%")
         print(f"  {'-'*92}")
         print(f"  SOXL TILT (renormalised over eligible legs)")
         for a in (33, 50, 60, 70, 80, 100):
@@ -218,6 +218,7 @@ def main():
             star = "  <-- best Sharpe of the tilts" if False else ""
             print(f"  {f'   {a}% SOXL / {(100-a)//2}% each other':<34}{g:>9.0f}%{cg:>7.1f}%"
                   f"{dd:>7.1f}%{sh:>8.2f}{t:>7.2f}{dep*100:>13.0f}%{star}")
+    two_leg(D, elig, syms, START)
 
 
 def yearly(run, syms, D, elig, days, policies):
@@ -257,6 +258,56 @@ def drawdowns(series, days, name):
             dd = x; worst = d
         by[d.year] = min(by.get(d.year, 0.0), x)
     return dd, worst, by
+
+
+def two_leg(D, elig, syms, start):
+    """SOXL+TQQQ on THEIR OWN common window -- SPXL's data no longer binds it."""
+    pair = ["SOXL", "TQQQ"]
+    days = [d for d in sorted(set(D["SOXL"]) & set(D["TQQQ"])) if d.year >= start]
+    yrs = (days[-1] - days[0]).days / 365.25
+    print(f"\n{'='*100}")
+    print(f"TWO-LEG WINDOW — SOXL + TQQQ only, {days[0]} → {days[-1]} "
+          f"({len(days)} sessions, {yrs:.1f}y)")
+    print(f"  SPXL's file ended 2026-07-21 and was capping every table above.")
+    print(f"{'='*100}")
+
+    def run2(wa, wb):
+        out = []
+        for d in days:
+            ok = [s for s in pair if elig[s][d]]
+            base = {"SOXL": wa, "TQQQ": wb}
+            tt = sum(base[s] for s in ok)
+            w = {s: 0.0 for s in pair}
+            if tt > 0:
+                for s in ok:
+                    w[s] = base[s] / tt
+            out.append((d, sum(w[s] * D[s][d]["on"] for s in pair)
+                        - sum(w.values()) * 2 * COST))
+        return out
+
+    print(f"  {'policy':<30}{'total':>10}{'CAGR':>8}{'maxDD':>8}{'Sharpe':>8}{'t':>7}")
+    store = {}
+    for lbl, wa, wb in (("SOXL only", 1.0, 0.0), ("TQQQ only", 0.0, 1.0),
+                        ("80/20", 0.8, 0.2), ("65/35 SOXL/TQQQ", 0.65, 0.35),
+                        ("50/50", 0.5, 0.5)):
+        r = run2(wa, wb); store[lbl] = dict(r)
+        g, cg, dd, sh, t = curve([v for _, v in r], yrs)
+        print(f"  {lbl:<30}{g:>9.0f}%{cg:>7.1f}%{dd:>7.1f}%{sh:>8.2f}{t:>7.2f}")
+
+    yrs_list = sorted({d.year for d in days})
+    print(f"\n  YEAR BY YEAR (2026 to {days[-1]})")
+    print(f"  {'year':<6}{'sessions':>10}" +
+          "".join(f"{k:>17}" for k in store))
+    for y in yrs_list:
+        dd_ = [d for d in days if d.year == y]
+        row = f"  {y:<6}{len(dd_):>10}"
+        for k in store:
+            row += f"{(math.prod(1+store[k][d] for d in dd_)-1)*100:>16.1f}%"
+        print(row)
+    row = f"  {'ALL':<6}{len(days):>10}"
+    for k in store:
+        row += f"{(math.prod(1+store[k][d] for d in days)-1)*100:>16.1f}%"
+    print(f"  {'-'*(16+len(store)*17)}"); print(row)
 
 
 if __name__ == "__main__":
