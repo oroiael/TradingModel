@@ -40,7 +40,25 @@ MIN_HISTORY = 60
 PRIMARY_SYMBOL = "SOXL"
 PRIMARY_MULTIPLE = 1.0
 COVER_SYMBOL = "XLU"
+
+#: The RESEARCH multiple. 3.0x XLU matches the exposure 1.0x SOXL gives, and is
+#: what `retreat_lab/out/proposed_ledger.csv` is priced at, so `parity.py` must
+#: use it. It is not necessarily what gets deployed -- see COVER_MULTIPLE_LIVE.
 COVER_MULTIPLE = 3.0
+
+#: The DEPLOYED multiple, and the reason it is lower.
+#:
+#: 3.0x gross notional sits exactly on a 3:1 house cap, which leaves no headroom
+#: at all: at precisely 3:1 any adverse overnight move puts the account over.
+#: 2.5x is the figure the account actually has available and leaves 20% of room.
+#: It costs 4.4 pp of CAGR (106.7% -> 102.3%), takes Sharpe 1.85 -> 1.82 and
+#: leaves max drawdown unchanged at -28.9%. Cheap insurance against the one
+#: constraint that can force a liquidation.
+#:
+#: XLU is a 1x ETF, so the leveraged-ETF schedule in
+#: `Margin Trading Information from interactive brokers.md` (min(30% x leverage
+#: factor, 100%) maintenance) does not apply to it; ordinary requirements do.
+COVER_MULTIPLE_LIVE = 2.5
 
 #: The flat state, named so no caller spells it as a bare string.
 FLAT = "FLAT"

@@ -90,6 +90,26 @@ Interest accrues daily and posts monthly on the third business day. These are wi
 0.01pp of the figures the SOXX-carry analysis assumed, so **that verdict is unchanged:
 SOXL's embedded financing is cheaper than financing you can buy.**
 
+### The cover leg trades at 2.5×, not 3.0×
+
+3.0× gross notional sits **exactly on a 3:1 house cap**, and exactly on a cap is the
+one place with no headroom: at precisely 3:1, any adverse overnight move puts the
+account over. 2.5× is the figure this account actually has available and leaves 20% of
+room.
+
+| XLU multiple | total | CAGR | max DD | Sharpe |
+|---|---|---|---|---|
+| 3.00× (researched) | 1,233% | 106.7% | −28.9% | 1.85 |
+| **2.50× (deployed)** | **1,135%** | **102.3%** | **−28.9%** | **1.82** |
+| 2.00× | 1,044% | 98.0% | −28.9% | 1.78 |
+
+**4.4 pp of CAGR, 0.03 of Sharpe, and no change to drawdown at all.** Cheap insurance
+against the only constraint that can force a liquidation.
+
+`constants.COVER_MULTIPLE` stays at 3.0 because `parity.py` must keep reproducing the
+research ledger; `COVER_MULTIPLE_LIVE` is 2.5 and `core.decide` takes both as
+arguments, so a deployment change cannot silently redefine what the gate checks.
+
 **Do not raise f.** At
 f = 2.0 the 2020-03-16 gap would have forced liquidation, and the filtered backtests
 start after a burn-in that excludes March 2020 entirely — the reassuring numbers have
@@ -215,11 +235,22 @@ What it costs the backtest:
 | $5,000 | 1,172% | 104.0% | −29.3% | 1.82 |
 | **$12,228 and above** | 1,234% | **106.7%** | −28.9% | **1.85** |
 
-**Fund the paper account to at least $25,000.** At the connected account's current
-**$1,155.78** the commission minimum alone costs **18.7 pp of CAGR and 0.21 of Sharpe**,
-and every measurement taken during the paper run would be contaminated by an artefact
-that disappears at real size. $12,228 is the exact threshold; $25,000 gives margin for
-SOXL's price drifting up.
+**✅ Closed — the paper account holds $140,000 with portfolio margin.** That is
+**11.4×** the $12,228 threshold, so the commission minimum never binds on either leg.
+Sizing at that equity:
+
+| leg | shares | notional | loan | commission | bp of equity/side |
+|---|---|---|---|---|---|
+| SOXL 1.0× | 1,144 | $139,888 | **$0** | $4.00 | **0.29** |
+| XLU 2.5× | 8,258 | $349,972 | $209,972 | $28.90 | **2.06** |
+
+The SOXL leg carries **no loan at all** at 1.0×, so it cannot produce a margin event:
+equity and position value move together and the ratio stays at 100%, against the 90%
+maintenance the leveraged-ETF schedule requires (`Margin Trading Information…md`,
+disclosure 2: *min(30% × leverage factor, 100%)*).
+
+Order size against measured liquidity: the SOXL order is **0.002%** of 90-day ADV, the
+XLU order **0.049%** — and **1.62%** of the 15:59 bar alone. No capacity problem.
 
 ---
 
@@ -348,7 +379,65 @@ The risks that remain, and they are real:
   state this strategy must never be in
 - a stale or wrong RV20 silently trades the wrong nights
 
-### 5.4 Phases and gates
+### 5.4 Running it: two short jobs a day, not a daemon
+
+**This is the design decision that makes "set and forget" reachable, and it falls
+out of the strategy's shape rather than from any clever engineering.**
+
+The strategy needs the broker for about **forty minutes a day**, in two windows:
+
+| window (ET) | job | what it does |
+|---|---|---|
+| 15:40 – 15:51 | **A — enter** | connect, compute the signal, submit MOC, confirm acknowledgement, disconnect |
+| 09:10 – 09:36 | **B — exit** | connect, submit MOO, confirm the fill, write the report, disconnect |
+
+Each job connects fresh and disconnects when done. Neither is running the rest of the
+time. `cron` (Linux/macOS: `launchd`) or Task Scheduler (Windows) starts them, **not a
+human** — which is what "not having to start it every day" actually means in practice.
+
+### What the IB nightly reset does, and why it lands harmlessly
+
+Verified from `TWS Documentation - Copy Paste from Online.md`:
+
+| code | meaning |
+|---|---|
+| 1100 | "Connectivity between IB and the TWS has been lost." Causes include **"a nightly reset of the IB servers"** |
+| 1101 | "Connectivity… restored — **data lost**. Your market data requests have been lost and need to be re-submitted." |
+| 1102 | "Connectivity… restored — **data maintained**." |
+| 2110 | "Connectivity between TWS and server is broken. **It will be restored automatically**" — "will usually only occur during the IB nightly server reset" |
+| 2103 / 2105 | data-farm disconnects; "**outside of the nightly IB server reset**, this typically indicates an underlying ISP connectivity issue" |
+
+The reset falls **between** the two jobs. The engine is not connected when it happens,
+so there is nothing to recover. Two things must survive it, and both do by construction:
+
+* **the position** — held at the broker, not in any process
+* **the state file** — on disk
+
+**No resting order needs to survive the reset**, because the MOO is submitted fresh
+each morning *after* it. That is the single choice that makes this robust, and it is
+worth not giving up later for the convenience of pre-placing the exit the night before.
+
+### What is NOT verified, and why the design does not depend on it
+
+Whether **TWS or IB Gateway — the application** — must be restarted daily is *not*
+documented in any of the five reference files, and `interactivebrokers.com` is
+egress-blocked from the research environment. Per `.claude/skills/ibkr-semantics`, that
+makes it inference, and it is not asserted here.
+
+The two-job design is indifferent to the answer. If Gateway does need a daily restart,
+it happens in the many hours between jobs and each job connects fresh; if it does not,
+nothing changes. What each job **must** do is fail loudly when it cannot connect, rather
+than proceed as though flat — see §6.4.
+
+### The one state that must never happen
+
+**Long into a session.** If job B does not run, the account holds a 3× semiconductor
+ETF through a trading day with no exit — the one outcome this strategy has no
+tolerance for, and the reason `watchdog.py` is a gate (P4) and not a nice-to-have. The
+watchdog runs on its own client id, is read-only until it acts, and can only ever
+flatten. It must be able to do that without job B, and without the engine.
+
+### 5.4a Phases and gates
 
 | phase | work | gate to pass |
 |---|---|---|

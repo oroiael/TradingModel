@@ -140,3 +140,28 @@ def test_net_return_from_a_fill_pair_matches_the_primitive():
     a = core.net_return(100.0, 101.0, 1.0, 0.29)
     b = core.net_on_equity(0.01, 1.0, 0.29)
     assert a == pytest.approx(b)
+
+
+# ------------------------------------------- deployed vs researched sizing
+
+def test_decide_honours_a_deployed_cover_multiple():
+    """The account trades 2.5x; the ledger is priced at 3.0x. Both must work."""
+    from constants import COVER_MULTIPLE_LIVE
+    d = core.decide(sig(PRIMARY_SYMBOL, 150, 100), sig(COVER_SYMBOL, 10, 20),
+                    cover_multiple=COVER_MULTIPLE_LIVE)
+    assert d.leg == COVER_SYMBOL
+    assert d.multiple == pytest.approx(2.5)
+
+
+def test_the_deployed_cover_multiple_leaves_headroom_under_a_3to1_cap():
+    """At exactly 3:1 any adverse move breaches. The deployed size must be under."""
+    from constants import COVER_MULTIPLE_LIVE
+    assert COVER_MULTIPLE_LIVE < 3.0
+    assert (3.0 / COVER_MULTIPLE_LIVE - 1) >= 0.15      # at least 15% of room
+
+
+def test_defaults_still_reproduce_the_research_multiples():
+    """parity.py depends on this: a deployment change must not move the gate."""
+    from constants import COVER_MULTIPLE
+    d = core.decide(sig(PRIMARY_SYMBOL, 150, 100), sig(COVER_SYMBOL, 10, 20))
+    assert d.multiple == COVER_MULTIPLE == 3.0

@@ -86,18 +86,26 @@ class Decision:
         return f"{self.leg} @ {self.multiple:.1f}x  ({', '.join(bits)})"
 
 
-def decide(primary: Signal, cover: Signal) -> Decision:
+def decide(primary: Signal, cover: Signal,
+           primary_multiple: float = PRIMARY_MULTIPLE,
+           cover_multiple: float = COVER_MULTIPLE) -> Decision:
     """The rule, in full. STRATEGY.md §2.3.
 
     Primary first, cover only if the primary is benched, flat if neither
     qualifies. The legs are mutually exclusive by construction — there is no
-    branch in which both are held, which is what keeps gross notional at 3.0x
-    rather than 4.0x on a cover night.
+    branch in which both are held, which is what keeps gross notional at the
+    cover multiple rather than the sum of both on a cover night.
+
+    The multiples are arguments rather than hardcoded because the deployed
+    cover size differs from the researched one: the ledger is priced at 3.0x,
+    the account trades 2.5x to stay off a 3:1 house cap. Defaulting to the
+    research values is what lets `parity.py` remain a real test — a deployment
+    change must not be able to silently redefine what the gate checks.
     """
     if primary.eligible:
-        return Decision(primary.symbol, PRIMARY_MULTIPLE, primary, cover)
+        return Decision(primary.symbol, primary_multiple, primary, cover)
     if cover.eligible:
-        return Decision(cover.symbol, COVER_MULTIPLE, primary, cover)
+        return Decision(cover.symbol, cover_multiple, primary, cover)
     return Decision(FLAT, 0.0, primary, cover)
 
 
