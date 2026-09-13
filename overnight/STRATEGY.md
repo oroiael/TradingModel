@@ -77,7 +77,20 @@ SOXL night and 3.0× on an XLU night.
 the primary leg.
 
 The XLU leg's 3× notional requires margin, but only on ~23% of nights, and 3:1 on a
-1× sector ETF sits well inside a portfolio-margin account. **Do not raise f.** At
+1× sector ETF sits well inside a portfolio-margin account. Verified USD rates
+(`Margin Trading Information from interactive brokers.md`, BM = 3.63%):
+
+| tier | IBKR Pro |
+|---|---|
+| 0 ≤ 100,000 | **5.130%** (BM + 1.5%) |
+| 100,000 ≤ 1,000,000 | **4.630%** (BM + 1%) |
+| 1,000,000 ≤ 50,000,000 | 4.380% (BM + 0.75%) |
+
+Interest accrues daily and posts monthly on the third business day. These are within
+0.01pp of the figures the SOXX-carry analysis assumed, so **that verdict is unchanged:
+SOXL's embedded financing is cheaper than financing you can buy.**
+
+**Do not raise f.** At
 f = 2.0 the 2020-03-16 gap would have forced liquidation, and the filtered backtests
 start after a burn-in that excludes March 2020 entirely — the reassuring numbers have
 the worst event structurally removed.
@@ -96,14 +109,17 @@ Not for the paper run. Turn it on with real money.
 
 ### 3.1 The daily procedure
 
-| when | what |
+| when (ET) | what |
 |---|---|
-| after the close on D−1 | compute RV20 and the walk-forward threshold for SOXL and XLU |
-| before the MOC cutoff on D | submit **MOC BUY** for the eligible leg, sized to target |
-| at the close on D | position established at the official closing price |
-| before the open on D+1 | submit **MOO SELL** for the full position |
-| at the open on D+1 | position closed at the official opening price |
-| after the open on D+1 | record the fill, reconcile, publish the report |
+| after 16:00 on D−1 | compute RV20 and the walk-forward threshold for SOXL and XLU |
+| **by 15:45 on D** | submit **MOC BUY** for the eligible leg — 5 minutes of margin before the deadline |
+| **15:50 on D** | **hard deadline.** After this an MOC cannot be entered, cancelled, or reduced |
+| 16:00 on D | position established at the official Arca closing auction price |
+| **by 09:15 on D+1** | submit **MOO SELL** for the full position |
+| 09:29:00 | cancels of MOO orders are rejected from here |
+| 09:29:55 | **hard deadline** — new MOO orders rejected |
+| 09:30 on D+1 | position closed at the official Arca opening auction price |
+| after 09:35 | record the fill, reconcile, publish the report |
 
 Flat during every trading session. Flat over any night where neither leg is eligible.
 
@@ -116,6 +132,35 @@ Flat during every trading session. Flat over any night where neither leg is elig
 
 `MOC` is a real order type: `TWS API/source/JavaClient/com/ib/client/OrderType.java:25`
 — `MOC( Arrays.asList("MOC", "MKT CLS", "MKTCLS") )`.
+
+### 3.2a Deadlines and routing — verified from the reference documents
+
+| fact | source |
+|---|---|
+| **All MOC orders must be received at NYSE markets by 15:50 ET**, unless offsetting a published imbalance | `IBKR Order types.md:13` |
+| **NYSE rules prohibit cancelling or reducing an MOC after 15:50 ET** | `IBKR Order types.md:14` |
+| **Smart-routed MOC orders route to, and execute on, the Primary Listing Exchange** | `IBKR Order types.md:93` |
+| Arca closing auction: 15:00 imbalance publication, 15:59 freeze (offsetting only), **16:00 auction** | `NYSE Arca Auction.md` |
+| Arca opening auction: 08:00 imbalance publication, 09:29 cancels rejected, **09:29:55 new MOO rejected**, 09:30 auction | `NYSE Arca Auction.md` |
+| Nasdaq MOO must be submitted before **09:28 ET** | `IBKR Order types.md:37` |
+
+**Both legs are NYSE Arca-listed** — `search_contracts` returns `exchange: "ARCA"` for
+SOXL (73340487) and XLU (4215235). Combined with the routing rule above, SMART-routed
+MOC and MOO orders on both names execute in the **NYSE Arca auctions**. That closes the
+question the backtest's fill assumption rested on.
+
+**This matters if the instrument set ever changes.** NYSE Arca's Core Open Auction is
+available for **Arca-listed securities only — "No" for UTP securities**
+(`NYSE Arca Auction.md`). TQQQ, QLD and SQQQ are Nasdaq-listed; substituting one would
+move the open to the Nasdaq cross with a 09:28 deadline, not the Arca auction.
+
+**Two consequences for the engine:**
+
+1. **15:50 is a commitment point.** After it the order cannot be cancelled or reduced.
+   The watchdog must confirm submission *before* 15:50 — confirming afterwards is
+   useless, there is nothing left to do about it.
+2. The signal uses RV20 through **D−1** precisely because D's close is not knowable at
+   15:50. This is not a conservatism; it is forced.
 
 ### 3.3 Why auctions and not market orders
 
@@ -145,6 +190,36 @@ somewhere inside that; MOO gets the auction print.
 | XLU | $21.8B | $852M | $26–38M | $10–16M |
 
 (15:59/09:30 figures from 1-minute bars; the 16:00 closing-auction print is additional.)
+
+### 3.5 Minimum account size — the commission minimum is the binding constraint
+
+Verified (`IBKR Commission Fees.md`): IBKR Pro tiered US stock/ETF commission is
+**$0.0035/share**, **minimum $0.35 per order**, maximum 1% of trade value.
+
+**$0.35 ÷ $0.0035 = 100 shares.** Below 100 shares an order pays the $0.35 minimum
+regardless of size, which on a small account is an enormous proportional cost.
+
+| equity | SOXL shares | SOXL bp/side | XLU shares | XLU bp/side | minimum binds? |
+|---|---|---|---|---|---|
+| **$1,156** | 9 | **3.03** | 82 | **3.03** | **both legs** |
+| $5,000 | 41 | 0.70 | 354 | 2.48 | SOXL |
+| **$12,228** | 100 | **0.29** | 866 | 2.48 | neither |
+| $25,000 | 204 | 0.29 | 1,770 | 2.48 | neither |
+| $100,000 | 818 | 0.29 | 7,079 | 2.48 | neither |
+
+What it costs the backtest:
+
+| account | total | CAGR | max DD | Sharpe |
+|---|---|---|---|---|
+| **$1,156** (the connected account) | 850% | **88.0%** | −32.5% | **1.64** |
+| $5,000 | 1,172% | 104.0% | −29.3% | 1.82 |
+| **$12,228 and above** | 1,234% | **106.7%** | −28.9% | **1.85** |
+
+**Fund the paper account to at least $25,000.** At the connected account's current
+**$1,155.78** the commission minimum alone costs **18.7 pp of CAGR and 0.21 of Sharpe**,
+and every measurement taken during the paper run would be contaminated by an artefact
+that disappears at real size. $12,228 is the exact threshold; $25,000 gives margin for
+SOXL's price drifting up.
 
 ---
 
@@ -210,18 +285,21 @@ Specific, known haircuts:
 **A reasonable prior for live is well under half the backtested CAGR, with the full
 drawdown.** The paper run exists to find out, not to confirm.
 
-### 4.4 Not verified — and not assumed
+### 4.4 Open items — three of four now closed
 
-| open item | why it matters | how it gets settled |
-|---|---|---|
-| **MOC submission cutoff time** | the whole auction-execution case; determines when the engine must decide | four MD files the operator is adding; or one live paper session |
-| **Whether IBKR routes MOC/MOO to the primary listing auction** | if it does not, costs move from the auction column to the marketable column (Sharpe 1.71 → 1.59) | same |
-| **Actual commission tier** | §3.3 uses $0.0035/share; a different tier moves the XLU leg materially | the operator's IBKR statement |
-| **Actual margin rate on the real account** | only matters if f > 1 or the XLU leg is financed | the operator's IBKR statement |
+| item | status |
+|---|---|
+| MOC submission cutoff | ✅ **closed** — 15:50 ET, `IBKR Order types.md:13`. Also unmodifiable after 15:50 (`:14`) |
+| MOC/MOO routing to the primary listing auction | ✅ **closed** — `IBKR Order types.md:93`; both legs are Arca-listed |
+| Commission tier | ✅ **closed** — $0.0035/share, **$0.35 minimum**, `IBKR Commission Fees.md`. Drives §3.5 |
+| Margin rate on the real account | ✅ **closed for the schedule** (5.130 / 4.630 / 4.380%); the operator's *blended* rate still unconfirmed, and only matters if f > 1 |
+| **Which account is the paper account** | 🟡 **open** — the connected account shows NLV $1,155.78, flat, no margin loan |
 
-The four reference documents (NYSE Arca auctions, IBKR margin, IBKR order types, IBKR
-commissions) are **not present in the repository** as of this writing — not on `main`,
-not on any branch. Nothing below depends on them, but §4.4 stays open until they land.
+The reference documents are now in the repository: `NYSE Arca Auction.md`,
+`IBKR Order types.md`, `IBKR Commission Fees.md`,
+`Margin Trading Information from interactive brokers.md`, and the PDF conversion
+`TWS Documentation - Copy Paste from Online.md` (5,590 lines, now text-searchable —
+the `ibkr-semantics` skill's error-code tables are reachable from a script at last).
 
 ---
 
@@ -333,7 +411,8 @@ compared row for row. That comparison is the whole reason to run on paper.
 ### 6.4 What to alert on, versus what to merely display
 
 Alert (push, immediately):
-- MOC cutoff approaching with no order acknowledged
+- **15:45 reached with no MOC acknowledged** — after 15:50 it cannot be entered at all,
+  so the alert has to fire while there is still time to act
 - **position still open after 09:35** — the one unrecoverable state
 - heartbeat stale during a decision window
 - fill price more than 50 bp from the official auction print
@@ -346,12 +425,11 @@ best nights out of 889 are the entire return.
 
 ## 7. Immediate next steps
 
-1. **Operator:** confirm the four reference documents actually pushed — they are not in
-   the repository. Re-push if needed.
-2. **Operator:** confirm which IBKR account is the paper account. The connected account
-   currently shows **NLV $1,155.78, flat, no margin loan**, which is not the
-   portfolio-margin account described earlier.
-3. **Build P0** — `overnight/core.py` and `overnight/features.py`, with the parity gate
+1. **Operator:** confirm which IBKR account is the paper account, and **fund it to at
+   least $25,000** (§3.5). The connected account shows **NLV $1,155.78**, at which the
+   $0.35 commission minimum costs 18.7 pp of CAGR and contaminates every measurement
+   the paper run exists to take.
+2. **Build P0** — `overnight/core.py` and `overnight/features.py`, with the parity gate
    against `final_config.py`'s ledger.
 
 Nothing in P1–P5 should start before P0's parity gate is green.
