@@ -1,0 +1,167 @@
+"""The pure strategy core.
+
+Every strategy decision the engine makes is computed here and nowhere else.
+No IBKR, no I/O, no clock, no dates, no global state — a pile of functions over
+numbers, so `parity.py` can drive it with history and the live schedule can
+drive it with today's, and the two are provably the same thing.
+
+The shape mirrors `band_lab/live/strategy_core.py` for the same reason it works
+there: a decision that cannot reach a broker cannot place a surprising order,
+and a decision with no clock cannot behave differently at 15:45 than it does in
+a test.
+
+Constants come from `constants.py`. Nothing here re-types one.
+"""
+
+from __future__ import annotations
+
+import math
+from dataclasses import dataclass
+from typing import Optional
+
+from constants import (
+    COMMISSION_MAX_PCT,
+    COMMISSION_MIN_ORDER,
+    COMMISSION_PER_SHARE,
+    COVER_MULTIPLE,
+    COVER_SYMBOL,
+    FLAT,
+    PRIMARY_MULTIPLE,
+    PRIMARY_SYMBOL,
+)
+
+
+@dataclass(frozen=True)
+class Signal:
+    """One instrument's eligibility on one decision day."""
+
+    symbol: str
+    rv: Optional[float]
+    threshold: Optional[float]
+
+    @property
+    def eligible(self) -> bool:
+        """Strictly below the cut, and only when both numbers exist.
+
+        A missing RV or a missing threshold is ineligible, never eligible —
+        the burn-in and a data gap must both fail closed. `<` not `<=` matches
+        the research code; on a tie the instrument sits out.
+        """
+        if self.rv is None or self.threshold is None:
+            return False
+        return self.rv < self.threshold
+
+    @property
+    def margin(self) -> Optional[float]:
+        """How far below the cut, in annualised volatility points.
+
+        Negative means benched. For the report, not for the decision.
+        """
+        if self.rv is None or self.threshold is None:
+            return None
+        return self.threshold - self.rv
+
+
+@dataclass(frozen=True)
+class Decision:
+    """What to hold tonight."""
+
+    leg: str
+    multiple: float
+    primary: Signal
+    cover: Signal
+
+    @property
+    def is_flat(self) -> bool:
+        return self.leg == FLAT
+
+    def describe(self) -> str:
+        bits = []
+        for s in (self.primary, self.cover):
+            if s.rv is None or s.threshold is None:
+                bits.append(f"{s.symbol} n/a")
+            else:
+                bits.append(f"{s.symbol} RV {s.rv:.1f} "
+                            f"{'<' if s.eligible else '>='} {s.threshold:.1f}")
+        return f"{self.leg} @ {self.multiple:.1f}x  ({', '.join(bits)})"
+
+
+def decide(primary: Signal, cover: Signal) -> Decision:
+    """The rule, in full. STRATEGY.md §2.3.
+
+    Primary first, cover only if the primary is benched, flat if neither
+    qualifies. The legs are mutually exclusive by construction — there is no
+    branch in which both are held, which is what keeps gross notional at 3.0x
+    rather than 4.0x on a cover night.
+    """
+    if primary.eligible:
+        return Decision(primary.symbol, PRIMARY_MULTIPLE, primary, cover)
+    if cover.eligible:
+        return Decision(cover.symbol, COVER_MULTIPLE, primary, cover)
+    return Decision(FLAT, 0.0, primary, cover)
+
+
+def signals(primary_rv: Optional[float], primary_cut: Optional[float],
+            cover_rv: Optional[float], cover_cut: Optional[float]) -> "tuple[Signal, Signal]":
+    """Build the two signals with the configured symbols attached."""
+    return (Signal(PRIMARY_SYMBOL, primary_rv, primary_cut),
+            Signal(COVER_SYMBOL, cover_rv, cover_cut))
+
+
+def target_shares(equity: float, multiple: float, price: float) -> int:
+    """Whole shares for a leg, rounded DOWN so the target notional is a ceiling.
+
+    Whole shares, not fractional: an auction order is the point of this strategy
+    and fractional quantities do not participate in one. Rounding down means an
+    under-fill against target rather than unplanned leverage.
+    """
+    if equity <= 0 or multiple <= 0 or price <= 0:
+        return 0
+    return int(math.floor(equity * multiple / price))
+
+
+def commission(shares: int, price: float) -> float:
+    """IBKR Pro tiered US stock/ETF commission for one order.
+
+    $0.0035/share, minimum $0.35, maximum 1% of trade value — verified in
+    `IBKR Commission Fees.md`. The minimum is why `STRATEGY.md` §3.5 sets a
+    funding floor: below 100 shares an order pays $0.35 whatever its size.
+    """
+    if shares <= 0:
+        return 0.0
+    value = shares * price
+    return max(min(shares * COMMISSION_PER_SHARE, value * COMMISSION_MAX_PCT),
+               COMMISSION_MIN_ORDER)
+
+
+def round_trip_cost_bps(shares: int, entry: float, exit_: float,
+                        equity: float) -> float:
+    """Both commissions as basis points of ACCOUNT EQUITY, not of notional.
+
+    Equity is the denominator throughout this strategy because the cover leg
+    runs at 3x notional: a cost quoted against notional understates it threefold
+    on exactly the nights it is largest.
+    """
+    if equity <= 0:
+        return 0.0
+    total = commission(shares, entry) + commission(shares, exit_)
+    return total / equity * 10_000.0
+
+
+def net_on_equity(overnight_return: float, multiple: float,
+                  cost_bps_per_side: float) -> float:
+    """Realised return on EQUITY for one held night.
+
+    `cost_bps_per_side` is charged against NOTIONAL and therefore scales with
+    `multiple`, which is what makes the cover leg's friction three times the
+    primary's at the same quoted rate. A flat night is `multiple = 0` and
+    returns exactly 0.0 — no cost is charged for an order never placed.
+    """
+    gross = multiple * overnight_return
+    return gross - multiple * 2.0 * cost_bps_per_side / 10_000.0
+
+
+def net_return(entry: float, exit_: float, multiple: float,
+               cost_bps_per_side: float) -> float:
+    """`net_on_equity` from a fill pair rather than a precomputed return."""
+    return net_on_equity(exit_ / entry - 1.0, multiple, cost_bps_per_side)
