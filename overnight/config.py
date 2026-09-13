@@ -58,6 +58,7 @@ class OvernightConfig:
     max_notional: float = 1_000_000.0
     #: Refuse to trade at all below this equity: under it the $0.35 commission
     #: minimum dominates and the measurements are contaminated. STRATEGY.md §3.5.
+    #: The paper account holds $140,000, so this is a floor, not a constraint.
     min_equity: float = 12_228.0
 
     # ---- sizing -----------------------------------------------------------
@@ -85,10 +86,16 @@ class OvernightConfig:
     exit_confirm_by: dt.time = field(default_factory=lambda: _t(9, 35))
 
     # ---- data -------------------------------------------------------------
-    #: Daily history to request. The walk-forward threshold is a percentile of
-    #: ALL prior RV observations, so a short history is a DIFFERENT threshold,
-    #: not a slightly noisier one. Six years matches the research construction.
-    history_duration: str = "6 Y"
+    #: Daily history to request.
+    #:
+    #: Not a sample-size question — 3 years is 751 observations and plenty. It
+    #: is that the walk-forward threshold is a percentile of ALL prior RV, so a
+    #: shorter history is a DIFFERENT cut. Measured on SOXL: the p60 is 103.67%
+    #: on 3 years against 107.50% on the full history, which flips 5.1% of
+    #: decisions and takes max drawdown from -28.9% to -35.2% for the same
+    #: return. 4 years lands on 107.49% — the shortest history that reproduces
+    #: the backtest — so that is what is fetched.
+    history_duration: str = "4 Y"
     #: Refuse to decide on less than this many sessions.
     min_sessions: int = RV_WINDOW + RV_LAG + MIN_HISTORY + 20
 
