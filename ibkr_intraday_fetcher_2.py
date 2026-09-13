@@ -6,6 +6,9 @@ import threading
 import time
 from datetime import datetime, timedelta
 import pandas as pd
+from ibkr_env import require_ibapi
+
+require_ibapi()      # names the interpreter, not just the module
 from ibapi.client import EClient
 from ibapi.wrapper import EWrapper
 from ibapi.contract import Contract
