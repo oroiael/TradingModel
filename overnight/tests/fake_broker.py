@@ -52,11 +52,19 @@ class FakeBroker:
         self.placed: list[dict] = []
         self.waits = 0
         self._next_id = 1000
+        self.quote_age: dict = {}
+        self.market_data_type = 1
 
     # ---- reads
     def net_liquidation(self): return self._equity
     def position(self, symbol): return self._positions.get(symbol, 0.0)
     def quote(self, symbol): return self._quotes.get(symbol, Q())
+
+    def quote_detail(self, symbol):
+        from broker_ext import QuoteDetail
+        q = self._quotes.get(symbol, Q())
+        return QuoteDetail(q.bid, q.ask, q.last,
+                           self.quote_age.get(symbol), self.market_data_type)
     def working_orders(self, symbol):
         return [w for w in self._working if w.symbol == symbol]
 
@@ -90,6 +98,22 @@ class FakeBroker:
 
     def place_moo(self, symbol, action, qty, order_ref):
         return self._place("MOO", symbol, action, qty, order_ref)
+
+
+def quotes_for(sessions, spread_bp=1.0):
+    """A two-sided quote centred on each series' own last close.
+
+    Hardcoded quote prices used to sit ~56% away from the synthetic price paths,
+    which no test noticed until the sizing guard refused one. A reference price
+    that disagrees with the history it is sized against is exactly the condition
+    the guard exists to catch, so the fixtures must not embody it by accident.
+    """
+    out = {}
+    for symbol, bars in sessions.items():
+        mid = bars[-1].close
+        half = mid * spread_bp / 2e4
+        out[symbol] = Q(round(mid - half, 4), round(mid + half, 4), round(mid, 4))
+    return out
 
 
 def ramp(n, start=100.0, step=0.004, seed=7):

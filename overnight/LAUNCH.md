@@ -20,48 +20,59 @@ python3 overnight/run.py --job enter --rehearse-now
 the only thing standing between a late run and a rejected auction order — so it
 cannot send anything, ever.
 
-Expect roughly:
+The pre-flight is proven: it connects, fetches, cross-checks the feed against
+the committed research dailies, computes the signal and sizes the order. What it
+prints:
 
 ```
-  OUT-OF-HOURS REHEARSAL — the 15:30:00-15:50:00 MOC window is not enforced.
-  SOXL: 1002 dates overlap ...; worst close mismatch 0.0xx% on ...
-  XLU:  1002 dates overlap ...; worst close mismatch 0.0xx% on ...
-  newest session 2026-09-11 (D-1) | SOXL rv 98.68% vs cut 106.27% | XLU rv 13.82% vs cut 16.81%
-  SOXL at 1.00x
-  no live quote for SOXL out of hours; sizing this rehearsal off the ... close
-  BUY MOC 1149 SOXL @ ~$121.82 = $140,000 (1.00x on $140,000)
-  rehearsal — nothing to confirm
-  RESULT: MOC 1149 SOXL id=-1 acknowledged
+  code: main@<commit>
+  SOXL: 1003 dates overlap 2022-09-13..2026-09-11; worst close mismatch 0.000%
+  XLU:  1003 dates overlap 2022-09-13..2026-09-11; worst close mismatch 0.000%
+  newest session 2026-09-11 (D-1) | SOXL rv 98.68% vs cut 106.30% | XLU rv 13.82% vs cut 16.81%
+  SOXL @ 1.0x  (SOXL RV 98.7 < 106.3, XLU RV 13.8 < 16.8)
+  SOXL quote: bid ... ask ... last ... | spread ...% | age ... | live
+  SOXL: sizing off midpoint $..., +0.xx% from the 2026-09-11 close $121.8200
+  BUY MOC <n> SOXL @ ~$... = $... (1.00x on $142,492)
+  RESULT: MOC <n> SOXL id=-1 acknowledged
 ```
 
 A negative order id means synthetic: nothing reached IBKR.
 
-### Check it against this
+### The four lines to actually read
 
-Computed here from the committed research dailies, which run through Friday
-2026-09-11 — the same D−1 the live fetch will see:
+**`code:`** — the commit running. If it is not what you just pulled, nothing
+below it is testing what you think.
+
+**`worst close mismatch`** — the live feed against the research dailies. It came
+back **0.000% on 1,003 dates** for both symbols, which settles that the feed is
+the same price series the threshold was fitted on. Under 0.2% is fine; a number
+in the percent range means the feed is dividend-adjusted and the whole
+volatility history is on a different footing.
+
+**`rv ... vs cut ...`** — from the committed dailies, which run through Friday
+2026-09-11, the same D−1 the live fetch sees:
 
 | | RV20 | p60 cut | |
 |---|---|---|---|
 | **SOXL** | 98.68% | 106.27% | eligible by 7.6pp |
 | **XLU** | 13.82% | 16.81% | eligible by 3.0pp |
 
-**Expect SOXL at 1.00×, about 1,149 shares near $121.82.** SOXL is eligible so it
-wins outright; XLU is only ever the fallback. The margin is wide enough that the
-answer does not depend on the history length — 5 years gives the same leg.
+**Expect SOXL at 1.00×.** SOXL is eligible so it wins outright; XLU is only ever
+the fallback. The margin is wide enough that the answer does not depend on the
+history length — 5 years gives the same leg. A different *leg* means stop and
+read why.
 
-If the rehearsal prints something else, **stop and read why** before tomorrow.
-A few tenths of a percent on the RV is normal (the live feed is the closing
-auction print; the research file is too, but they are fetched separately). A
-different *leg* is not.
+**`sizing off ... % from the ... close`** — the share count is equity ÷ this
+price, so this price being the real market price is the whole ballgame. At 15:45
+expect a drift of a percent or two. Out of hours it can be much larger and that
+is not necessarily wrong: the 21:29 Sunday pre-flight read $111.56 against
+Friday's $121.82, which is either IBKR's overnight session quoting semis lower
+or a stale book, and the log cannot tell you which. **Do not read the rehearsal's
+share count as tomorrow's.** Tomorrow's is equity ÷ the 15:45 price.
 
-The two `worst close mismatch` lines are a basis check: the live feed has to be
-the same price series the threshold was fitted on. Anything under 0.2% is fine.
-A number in the percent range means the feed is dividend-adjusted and the whole
-volatility history is on a different footing — the run says so explicitly.
-
-**If it errors, do not run the live one.** Most likely causes: TWS not running,
-API not enabled, wrong port, or `ib_async` missing from the Python you used.
+A transmitting run refuses outright if that drift exceeds 30%. The worst 15:45
+move on a traded night in six years was 23.65%, so the band never costs a real
+trade — it only catches a quote that is not a price.
 
 ---
 

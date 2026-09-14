@@ -311,20 +311,8 @@ def enter(broker, cfg: OvernightConfig, *, asof: Optional[dt.datetime] = None,
         _log(events, "info", "FLAT tonight — no order")
         return JobResult("enter", False, "flat", intent)
 
-    price = _reference_price(broker, decision.leg)
-    if price <= 0 and rehearsing:
-        # Out of hours there is no two-sided quote and `last` comes back 0.0.
-        # Refusing here would stop the pre-flight at the one step it exists to
-        # check. The close is not a price this would ever TRADE against — it is
-        # only the divisor in a share count that is never sent.
-        leg = sigs[decision.leg]
-        price = leg.last_close
-        _log(events, "warn",
-             f"no live quote for {decision.leg} out of hours; sizing this "
-             f"rehearsal off the {leg.last_date} close ${price:.2f}. The real "
-             f"15:45 run sizes off the live midpoint and REFUSES without one.")
-    if price <= 0:
-        raise Refused(f"no usable price for {decision.leg}; cannot size")
+    price = _reference_price(broker, decision.leg, sigs[decision.leg], cfg,
+                             rehearsing, events)
 
     shares = core.target_shares(equity, decision.multiple, price)
     notional = shares * price
@@ -353,18 +341,78 @@ def enter(broker, cfg: OvernightConfig, *, asof: Optional[dt.datetime] = None,
                      intent)
 
 
-def _reference_price(broker, symbol: str) -> float:
+def _reference_price(broker, symbol: str, signal: "LegSignal",
+                     cfg: OvernightConfig, rehearsing: bool,
+                     events: Optional[Callable] = None) -> float:
     """A price to size against, at 15:45. It is NOT the fill price.
 
     The MOC fills at the closing auction, which has not happened. This only has
-    to be close enough that `floor(equity * multiple / price)` lands on a sane
-    share count. Prefer the midpoint when both sides are quoted, because a wide
-    late-day `last` can be stale; fall back to `last`.
+    to be close enough that `floor(equity * multiple / price)` lands on the
+    right share count — and "right" is exact, not approximate: the multiple is
+    defined against equity, so the notional is equity x multiple AT THE PRICE
+    USED. A price that is not the current market is therefore not a rounding
+    error, it is the wrong position size, and after 15:50 an MOC can be neither
+    cancelled nor reduced.
+
+    The first pre-flight made that concrete. At 21:29 on a Sunday the quote read
+    $111.56 against Friday's $121.82 close, and sized 1,277 shares where 1,149
+    was the intent — 9% over, silently, with nothing on screen to say the price
+    was 8% from anything the strategy knew. Whether that was IBKR's overnight
+    session genuinely quoting semis lower or a stale book was not knowable from
+    the log, which was the actual defect.
+
+    So: log the provenance always, prefer a midpoint only from a book tight
+    enough to have one, and let a TRANSMITTING run refuse a price that is not
+    plausibly a price. A rehearsal never refuses — it is there to show you this.
     """
+    detail = _quote_detail(broker, symbol)
+    close, when = signal.last_close, signal.last_date
+    _log(events, "info", f"{symbol} quote: {detail.describe()}")
+
+    spread = detail.spread_pct
+    if spread is not None and spread <= cfg.max_quote_spread:
+        price, source = (detail.bid + detail.ask) / 2.0, "midpoint"
+    elif detail.last > 0:
+        price, source = float(detail.last), "last"
+        if spread is not None:
+            _log(events, "warn",
+                 f"{symbol}: {spread*100:.2f}% spread is wider than the "
+                 f"{cfg.max_quote_spread*100:.2f}% a midpoint is trusted at "
+                 f"(measured normal is 0.008% SOXL / 0.024% XLU); using `last`")
+    elif rehearsing and close > 0:
+        price, source = close, f"{when} close"
+        _log(events, "warn",
+             f"{symbol}: no usable quote out of hours; sizing this rehearsal "
+             f"off the {when} close. A real run REFUSES here.")
+    else:
+        raise Refused(f"no usable price for {symbol}: {detail.describe()}")
+
+    if close > 0:
+        drift = price / close - 1.0
+        line = (f"{symbol}: sizing off {source} ${price:.4f}, "
+                f"{drift*100:+.2f}% from the {when} close ${close:.4f}")
+        if abs(drift) <= cfg.max_price_deviation:
+            _log(events, "info", line)
+        elif rehearsing:
+            _log(events, "warn", line + " — a real run would REFUSE this")
+        else:
+            raise Refused(
+                line + f" — beyond the {cfg.max_price_deviation*100:.0f}% band. "
+                f"The worst 15:45 move on a traded night in six years was "
+                f"23.65%, so this is not a market move; it is a quote that is "
+                f"not a price. Sizing on it would send the wrong number of "
+                f"shares into an auction that cannot be undone.")
+    return price
+
+
+def _quote_detail(broker, symbol: str):
+    """`quote_detail` when the broker has one, else adapt a plain `quote`."""
+    if hasattr(broker, "quote_detail"):
+        return broker.quote_detail(symbol)
     q = broker.quote(symbol)
-    if q.bid > 0 and q.ask > 0 and q.ask >= q.bid:
-        return (q.bid + q.ask) / 2.0
-    return float(q.last or 0.0)
+    from broker_ext import QuoteDetail                        # noqa: PLC0415
+    return QuoteDetail(float(q.bid), float(q.ask), float(q.last or 0.0),
+                       None, 0)
 
 
 def _confirm_working(broker, symbol, order_id, cfg, events, tries=10, pause=3.0):
