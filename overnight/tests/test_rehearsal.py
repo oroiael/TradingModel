@@ -21,7 +21,7 @@ import schedule
 import state as state_mod
 from config import OvernightConfig
 from constants import COVER_SYMBOL, PRIMARY_SYMBOL
-from fake_broker import FakeBroker, Q, calm_then
+from fake_broker import FakeBroker, Q, calm_then, quotes_for
 from zoneinfo import ZoneInfo
 
 NY = ZoneInfo("America/New_York")
@@ -39,8 +39,7 @@ def cfg(tmp, **kw):
 def broker(**kw):
     kw.setdefault("sessions", {PRIMARY_SYMBOL: calm_then(400),
                                COVER_SYMBOL: calm_then(400, seed=5)})
-    kw.setdefault("quotes", {PRIMARY_SYMBOL: Q(122.20, 122.36, 122.28),
-                             COVER_SYMBOL: Q(42.36, 42.40, 42.38)})
+    kw.setdefault("quotes", quotes_for(kw["sessions"]))
     kw.setdefault("transmit", False)
     return FakeBroker(**kw)
 

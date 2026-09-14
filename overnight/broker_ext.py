@@ -82,6 +82,47 @@ class DailyBar(NamedTuple):
     volume: float
 
 
+class QuoteDetail(NamedTuple):
+    """A quote plus what is known about how much to trust it.
+
+    band_lab's `Quote` carries prices only, which is right for an engine that
+    crosses a spread every few minutes and would notice a bad one immediately.
+    This strategy reads a quote ONCE a day, sizes an irreversible MOC from it,
+    and does not look again — so the provenance matters as much as the number.
+    """
+
+    bid: float
+    ask: float
+    last: float
+    #: Seconds since TWS last updated this quote, or None when it does not say.
+    #: **Diagnostic only, and deliberately so.** ib_async is not installed in
+    #: the environment this was written in, so which attribute carries the
+    #: timestamp and in what type is UNVERIFIED — and band_lab already has a
+    #: scar from a guard that refused on an inconclusive probe and cost a
+    #: healthy session (`broker.py:assert_live_data`). It is logged so that a
+    #: real run can settle it; nothing refuses on it.
+    age_seconds: "float | None"
+    #: 1 live, 2 frozen, 3 delayed, 4 delayed-frozen, 0 when TWS did not say.
+    market_data_type: int
+
+    @property
+    def spread_pct(self) -> "float | None":
+        """Relative spread, or None when the book is not two-sided."""
+        if self.bid > 0 and self.ask > 0 and self.ask >= self.bid:
+            mid = (self.bid + self.ask) / 2.0
+            return (self.ask - self.bid) / mid if mid > 0 else None
+        return None
+
+    def describe(self) -> str:
+        age = "unknown" if self.age_seconds is None else f"{self.age_seconds:.0f}s"
+        kind = {1: "live", 2: "FROZEN", 3: "DELAYED",
+                4: "DELAYED-FROZEN"}.get(self.market_data_type, "unstated")
+        spread = self.spread_pct
+        sp = "one-sided" if spread is None else f"{spread*100:.3f}%"
+        return (f"bid {self.bid:.4f} ask {self.ask:.4f} last {self.last:.4f} "
+                f"| spread {sp} | age {age} | {kind}")
+
+
 class AuctionBroker(IBBroker):
     """`IBBroker` plus the two auction order types and a daily-bar history."""
 
@@ -128,6 +169,45 @@ class AuctionBroker(IBBroker):
                for b in bars]
         out.sort(key=lambda b: b.date)
         return out
+
+    def quote_detail(self, symbol: str) -> QuoteDetail:
+        """`quote()` plus the provenance needed to decide whether to size on it.
+
+        Every attribute below is read with `getattr` and a fallback. ib_async's
+        exact spelling for a tick timestamp is UNVERIFIED here — the package is
+        not installed in the environment this was written in — and the official
+        tick types list both `LAST_TIMESTAMP` (45) and `DELAYED_LAST_TIMESTAMP`
+        (`TWS API/source/pythonclient/ibapi/ticktype.py:56,99`), so more than one
+        spelling is plausible. Missing means unknown, and unknown never refuses.
+        """
+        t = self._ticker(symbol)
+        q = self.quote(symbol)
+        return QuoteDetail(q.bid, q.ask, q.last,
+                           self._quote_age(t),
+                           int(getattr(t, "marketDataType", 0) or 0))
+
+    @staticmethod
+    def _quote_age(ticker) -> "float | None":
+        """Seconds since the quote was last updated, or None if TWS did not say."""
+        now = dt.datetime.now(dt.timezone.utc)
+        for attr in ("lastTimestamp", "time", "rtTime"):
+            raw = getattr(ticker, attr, None)
+            if raw is None:
+                continue
+            try:
+                if isinstance(raw, dt.datetime):
+                    when = raw if raw.tzinfo else raw.replace(
+                        tzinfo=dt.timezone.utc)
+                elif isinstance(raw, (int, float)) and raw > 0:
+                    # epoch seconds, or milliseconds for rtTime
+                    secs = raw / 1000.0 if raw > 1e11 else float(raw)
+                    when = dt.datetime.fromtimestamp(secs, dt.timezone.utc)
+                else:
+                    continue
+                return max((now - when).total_seconds(), 0.0)
+            except (ValueError, OverflowError, OSError):
+                continue
+        return None
 
     @staticmethod
     def _end_stamp(end) -> str:

@@ -17,7 +17,8 @@ import schedule
 import state as state_mod
 from config import OvernightConfig
 from constants import COVER_SYMBOL, PRIMARY_SYMBOL
-from fake_broker import FakeBroker, Q, calm_then, ramp, stormy_recently
+from fake_broker import (FakeBroker, Q, calm_then, quotes_for, ramp,
+                         stormy_recently)
 from zoneinfo import ZoneInfo
 
 NY = ZoneInfo("America/New_York")
@@ -39,8 +40,7 @@ def at(h, m, s=0, day=(2026, 9, 14)):
 def broker(**kw):
     kw.setdefault("sessions", {PRIMARY_SYMBOL: calm_then(400),
                                COVER_SYMBOL: calm_then(400, seed=5)})
-    kw.setdefault("quotes", {PRIMARY_SYMBOL: Q(122.20, 122.36, 122.28),
-                             COVER_SYMBOL: Q(42.36, 42.40, 42.38)})
+    kw.setdefault("quotes", quotes_for(kw["sessions"]))
     return FakeBroker(**kw)
 
 
@@ -106,13 +106,15 @@ def test_enter_places_nothing_when_the_decision_is_flat(tmp_path):
 
 def test_enter_takes_the_COVER_leg_when_only_the_cover_is_calm(tmp_path):
     """The 23% of nights that are the whole reason XLU is in this strategy."""
-    b = broker(sessions={PRIMARY_SYMBOL: stormy_recently(400),
-                         COVER_SYMBOL: calm_then(400, seed=5)})
+    sessions = {PRIMARY_SYMBOL: stormy_recently(400),
+                COVER_SYMBOL: calm_then(400, seed=5)}
+    b = broker(sessions=sessions, quotes=quotes_for(sessions))
     c = cfg(str(tmp_path))
     r = schedule.enter(b, c, asof=at(15, 45))
     assert r.acted
     assert b.placed[0]["symbol"] == COVER_SYMBOL
-    assert b.placed[0]["qty"] == int(140_000 * c.cover_multiple // 42.38)
+    px = sessions[COVER_SYMBOL][-1].close
+    assert b.placed[0]["qty"] == int(140_000 * c.cover_multiple // px)
 
 
 def test_enter_prefers_the_PRIMARY_when_both_are_calm(tmp_path):
@@ -130,7 +132,7 @@ def test_enter_sizes_and_sends_a_moc(tmp_path):
         pytest.skip("fixture produced a flat night")
     o = b.placed[0]
     assert o["kind"] == "MOC" and o["action"] == "BUY"
-    px = 122.28 if o["symbol"] == PRIMARY_SYMBOL else 42.38
+    px = b.quote(o["symbol"]).last
     mult = c.primary_multiple if o["symbol"] == PRIMARY_SYMBOL else c.cover_multiple
     assert o["qty"] == int(140_000 * mult // px)
     assert o["qty"] * px <= 140_000 * mult          # rounded DOWN, never over

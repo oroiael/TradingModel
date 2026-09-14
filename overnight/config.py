@@ -70,6 +70,25 @@ class OvernightConfig:
     #: The paper account holds $140,000, so this is a floor, not a constraint.
     min_equity: float = 12_228.0
 
+    # ---- sizing off a quote you only get to read once ----------------------
+    #: Widest relative bid-ask that may be trusted for a midpoint.
+    #:
+    #: Measured, not chosen: `retreat_lab/out/fill_quality_20260912.csv` puts
+    #: SOXL's full spread at 0.82 bp and XLU's at 2.36 bp, so 1% is 120x and
+    #: 42x normal. It cannot fire on a working market and does fire on the
+    #: one-sided or crossed book an out-of-hours quote can be. Past it, the
+    #: midpoint is not a price and `last` is used instead.
+    max_quote_spread: float = 0.01
+    #: How far the sizing price may sit from D-1's close before a TRANSMITTING
+    #: run refuses.
+    #:
+    #: Also measured. On the 1-minute grid, |15:45 price / prior close - 1| on
+    #: the 965 nights this strategy would have traded has a maximum of 23.65%
+    #: (2025-01-27). A 30% band refuses none of them, so it never costs a real
+    #: trade — it is a backstop against a quote that is not a price at all, not
+    #: a view about how far SOXL can move. A rehearsal logs and continues.
+    max_price_deviation: float = 0.30
+
     # ---- sizing -----------------------------------------------------------
     primary_multiple: float = PRIMARY_MULTIPLE
     cover_multiple: float = COVER_MULTIPLE_LIVE
@@ -93,6 +112,14 @@ class OvernightConfig:
     #: The auction has printed by here; a position still open is the one
     #: unrecoverable state and must alert.
     exit_confirm_by: dt.time = field(default_factory=lambda: _t(9, 35))
+
+    #: Earliest the watchdog will send a market order. After the opening
+    #: auction has printed and the MOO has had its chance — before that, a
+    #: position is not yet evidence that anything went wrong.
+    watchdog_open: dt.time = field(default_factory=lambda: _t(9, 31))
+    #: Latest. Past this a market order competes with the closing auction for
+    #: the same liquidity, and `enter` is about to run at 15:45 anyway.
+    watchdog_close: dt.time = field(default_factory=lambda: _t(15, 40))
 
     # ---- data -------------------------------------------------------------
     #: Daily history to request.
@@ -157,8 +184,24 @@ class OvernightConfig:
             raise ValueError("enter_target must be before enter_deadline")
         if self.exit_target >= self.exit_deadline:
             raise ValueError("exit_target must be before exit_deadline")
+        if self.watchdog_open <= self.exit_deadline:
+            raise ValueError(
+                "watchdog_open must be after exit_deadline — before the "
+                "opening auction has printed, a position is not evidence that "
+                "anything went wrong")
+        if self.watchdog_close >= self.enter_target:
+            raise ValueError(
+                "watchdog_close must be before enter_target, or the flatten "
+                "and the entry race each other")
         if self.min_sessions < RV_WINDOW + RV_LAG + MIN_HISTORY:
             raise ValueError("min_sessions cannot be below the burn-in requirement")
+        if not (0.0 < self.max_quote_spread < 1.0):
+            raise ValueError(f"max_quote_spread {self.max_quote_spread} outside (0, 1)")
+        if not (0.0 < self.max_price_deviation < 1.0):
+            raise ValueError(
+                f"max_price_deviation {self.max_price_deviation} outside (0, 1). "
+                f"The measured worst case on a traded night is 23.65%, so "
+                f"anything at or below that refuses real trades.")
 
     def summary(self) -> str:
         mode = ("TRANSMIT" if self.transmit

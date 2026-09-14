@@ -4,6 +4,7 @@
     python3 overnight/run.py --job confirm               # 16:05 ET — record the fill
     python3 overnight/run.py --job exit     --transmit   # 09:15 ET — place the MOO
     python3 overnight/run.py --job report                # 09:40 ET — ledger row
+    python3 overnight/run.py --job watchdog --transmit   # 09:40+ — flatten if stuck
 
 `confirm` is not optional bookkeeping. `executions()` reads `ib.fills()`, which
 covers the CURRENT session only, so the 16:00 MOC print cannot be read the next
@@ -48,6 +49,7 @@ if _HERE not in sys.path:
 import bandlab                                                # noqa: E402
 
 import schedule                                               # noqa: E402
+import watchdog as watchdog_mod                              # noqa: E402
 import state as state_mod                                     # noqa: E402
 from broker_ext import AuctionBroker                          # noqa: E402
 from config import OvernightConfig                            # noqa: E402
@@ -172,7 +174,7 @@ def job_report(broker, cfg: OvernightConfig, store) -> int:
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser(description="overnight SOXL/XLU")
     ap.add_argument("--job", required=True,
-                    choices=("enter", "confirm", "exit", "report"))
+                    choices=("enter", "confirm", "exit", "report", "watchdog"))
     ap.add_argument("--config", default=None)
     ap.add_argument("--transmit", action="store_true",
                     help="send real orders. Default is a rehearsal.")
@@ -220,6 +222,15 @@ def main(argv=None) -> int:
             r = schedule.exit_(broker, cfg, asof=when,
                                events=lambda l, m: store.event(l, "exit", m))
             print(f"\n  RESULT: {r.detail}")
+        elif args.job == "watchdog":
+            r = watchdog_mod.flatten(
+                broker, cfg, asof=when,
+                events=lambda l, m: store.event(l, "watchdog", m))
+            print(f"\n  RESULT: {r.detail}")
+            # A watchdog that had to act, or could not finish, must not exit 0:
+            # a scheduler's only reading of this job is its return code.
+            if r.acted:
+                rc = 3 if "STILL HOLDING" in r.detail else 0
         else:
             rc = job_report(broker, cfg, store)
     except schedule.Refused as e:
