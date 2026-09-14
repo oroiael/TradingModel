@@ -60,7 +60,10 @@ class FakeBroker:
     def working_orders(self, symbol):
         return [w for w in self._working if w.symbol == symbol]
 
-    def historical_sessions(self, symbol, end, duration, bar_size="1 day"):
+    def daily_sessions(self, symbol, end, duration, what="TRADES"):
+        """Daily bars. Named for `AuctionBroker.daily_sessions`, NOT band_lab's
+        `historical_sessions` — that one refuses a `1 day` bar size, and a
+        double that answered it would have hidden exactly that."""
         return list(self._sessions.get(symbol, []))
 
     def refresh_orders(self):

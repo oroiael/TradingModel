@@ -117,6 +117,10 @@ def daily_features(broker, symbol: str, cfg: OvernightConfig, asof: dt.datetime,
     a short history is a *different* threshold, not a noisier one. `min_sessions`
     is enforced rather than warned about for that reason.
 
+    Daily bars come from `AuctionBroker.daily_sessions`, not band_lab's
+    `historical_sessions` — that one indexes bars by minutes since 09:30 and
+    refuses a `1 day` size outright, which is correct for what it is for.
+
     **The decision day's own bar is dropped.** `reqHistoricalData` with an
     `endDateTime` inside a live session returns a PARTIAL bar for that day, and
     after 16:00 it returns a complete one. Either would put day D's close inside
@@ -125,8 +129,7 @@ def daily_features(broker, symbol: str, cfg: OvernightConfig, asof: dt.datetime,
     filter is on the date, so it is correct at 15:45, at 20:10, and on a
     weekend alike.
     """
-    bars = broker.historical_sessions(symbol, asof, cfg.history_duration,
-                                      bar_size="1 day")
+    bars = broker.daily_sessions(symbol, asof, cfg.history_duration)
     sessions = [features.Session(_bar_date(b), float(b.open), float(b.close))
                 for b in bars]
     sessions.sort(key=lambda s: s.date)
@@ -143,6 +146,54 @@ def daily_features(broker, symbol: str, cfg: OvernightConfig, asof: dt.datetime,
         raise Refused(f"{symbol}: {len(sessions)} sessions, need "
                       f"{cfg.min_sessions} — the threshold would be wrong")
     return sessions
+
+
+def cross_check_basis(symbol: str, sessions, reference_csv: str,
+                      events: Optional[Callable] = None,
+                      tolerance: float = 0.002) -> Optional[float]:
+    """Compare live closes against the research file, on the dates both cover.
+
+    The threshold is a percentile of the instrument's own RV history, so the
+    live feed has to be the SAME SERIES the backtest measured, not merely a
+    correct one. `whatToShow="ADJUSTED_LAST"` would back-adjust for dividends
+    and remove the quarterly ex-div gaps from the close-to-close returns; XLU
+    yields about 2.8%, so five years of that is a double-digit divergence in the
+    old prices and a visibly lower RV. Requesting the wrong basis is silent —
+    both series look like plausible prices — so it is measured instead.
+
+    Returns the largest relative difference, or None when the dates do not
+    overlap. Informational: it never refuses, because a stale research file is
+    not a reason to stop trading.
+    """
+    if not reference_csv or not os.path.exists(reference_csv):
+        _log(events, "warn", f"{symbol}: no research file to cross-check against")
+        return None
+    try:
+        ref = {s.date: s.close for s in features.load_sessions(reference_csv)}
+    except Exception as exc:                                  # noqa: BLE001
+        _log(events, "warn", f"{symbol}: could not read {reference_csv}: {exc}")
+        return None
+
+    pairs = [(s.date, s.close, ref[s.date]) for s in sessions if s.date in ref]
+    if not pairs:
+        _log(events, "warn", f"{symbol}: research file and live history do not "
+                             f"overlap; basis unverified")
+        return None
+
+    worst_date, live, book = max(pairs, key=lambda t: abs(t[1] / t[2] - 1.0))
+    worst = abs(live / book - 1.0)
+    level = "info" if worst <= tolerance else "error"
+    _log(events, level,
+         f"{symbol}: {len(pairs)} dates overlap {min(p[0] for p in pairs)}"
+         f"..{max(p[0] for p in pairs)}; worst close mismatch {worst*100:.3f}% "
+         f"on {worst_date} (live {live:.4f} vs research {book:.4f})")
+    if worst > tolerance:
+        _log(events, "error",
+             f"{symbol}: the live feed is NOT the series the threshold was "
+             f"fitted on. Check whatToShow — TRADES vs ADJUSTED_LAST is the "
+             f"usual cause. The decision below is computed on a different "
+             f"history than the backtest.")
+    return worst
 
 
 def _bar_date(bar) -> dt.date:
@@ -182,6 +233,9 @@ def todays_signals(broker, cfg: OvernightConfig, asof: dt.datetime,
     out = {}
     for symbol in cfg.symbols:
         sessions = daily_features(broker, symbol, cfg, asof, events)
+        if getattr(cfg, "rehearse_now", False):
+            cross_check_basis(symbol, sessions,
+                              cfg.reference_csv.get(symbol, ""), events)
         returns = features.close_to_close(sessions)
         n = len(sessions)                       # sessions[n-1] is D-1
         hist = []
