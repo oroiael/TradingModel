@@ -113,6 +113,14 @@ class OvernightConfig:
     #: unrecoverable state and must alert.
     exit_confirm_by: dt.time = field(default_factory=lambda: _t(9, 35))
 
+    #: Earliest the watchdog will send a market order. After the opening
+    #: auction has printed and the MOO has had its chance — before that, a
+    #: position is not yet evidence that anything went wrong.
+    watchdog_open: dt.time = field(default_factory=lambda: _t(9, 31))
+    #: Latest. Past this a market order competes with the closing auction for
+    #: the same liquidity, and `enter` is about to run at 15:45 anyway.
+    watchdog_close: dt.time = field(default_factory=lambda: _t(15, 40))
+
     # ---- data -------------------------------------------------------------
     #: Daily history to request.
     #:
@@ -176,6 +184,15 @@ class OvernightConfig:
             raise ValueError("enter_target must be before enter_deadline")
         if self.exit_target >= self.exit_deadline:
             raise ValueError("exit_target must be before exit_deadline")
+        if self.watchdog_open <= self.exit_deadline:
+            raise ValueError(
+                "watchdog_open must be after exit_deadline — before the "
+                "opening auction has printed, a position is not evidence that "
+                "anything went wrong")
+        if self.watchdog_close >= self.enter_target:
+            raise ValueError(
+                "watchdog_close must be before enter_target, or the flatten "
+                "and the entry race each other")
         if self.min_sessions < RV_WINDOW + RV_LAG + MIN_HISTORY:
             raise ValueError("min_sessions cannot be below the burn-in requirement")
         if not (0.0 < self.max_quote_spread < 1.0):

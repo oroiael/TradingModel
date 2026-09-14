@@ -99,6 +99,13 @@ class FakeBroker:
     def place_moo(self, symbol, action, qty, order_ref):
         return self._place("MOO", symbol, action, qty, order_ref)
 
+    def place_market(self, symbol, action, qty, order_ref):
+        return self._place("MKT", symbol, action, qty, order_ref)
+
+    def cancel(self, order_id):
+        self._working = [w for w in self._working if w.order_id != order_id]
+        self._pending = [w for w in self._pending if w.order_id != order_id]
+
 
 def quotes_for(sessions, spread_bp=1.0):
     """A two-sided quote centred on each series' own last close.
