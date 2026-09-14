@@ -523,10 +523,14 @@ def exit_(broker, cfg: OvernightConfig, *, asof: Optional[dt.datetime] = None,
     live = {s: q for s, q in held.items() if abs(q) > 1e-9}
 
     intent = state_mod.read_intent(cfg.state_path)
-    if intent and not intent.is_flat and intent.leg not in live:
+    if intent and intent.is_actionable and intent.leg not in live:
         _log(events, "warn",
              f"state says {intent.shares} {intent.leg} but the account does not "
              f"hold it — the MOC may not have filled. Selling what is there.")
+    elif intent and not intent.is_flat and not intent.transmitted:
+        _log(events, "info",
+             f"the last intent on file ({intent.shares} {intent.leg}, "
+             f"{intent.decision_date}) was a rehearsal and was never sent")
 
     if not live:
         _log(events, "info", "nothing held — no exit order")

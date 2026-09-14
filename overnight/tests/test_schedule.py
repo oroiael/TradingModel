@@ -234,7 +234,8 @@ def test_exit_warns_when_the_moc_evidently_did_not_fill(tmp_path):
     c = cfg(str(tmp_path))
     state_mod.write_intent(c.state_path, state_mod.Intent(
         decision_date="2026-09-13", leg=PRIMARY_SYMBOL, multiple=1.0, shares=1144,
-        order_id=1, order_ref="x", equity_at_entry=140_000.0, reference_price=122.0))
+        order_id=1, order_ref="x", equity_at_entry=140_000.0, reference_price=122.0,
+        transmitted=True))                         # a REAL entry last night
     b = broker()                                   # account is flat
     seen = []
     r = schedule.exit_(b, c, asof=at(9, 15), events=lambda l, m: seen.append((l, m)))
@@ -255,12 +256,27 @@ def with_execs(b, symbol, rows):
     return b
 
 
-def _intent(c, leg=PRIMARY_SYMBOL, shares=1144):
+def _intent(c, leg=PRIMARY_SYMBOL, shares=1144, transmitted=True):
+    """`transmitted=True` is what a real entry writes. A rehearsal writes the
+    same row with it False, and the live jobs must then treat it as no intent."""
     i = state_mod.Intent(decision_date="2026-09-14", leg=leg, multiple=1.0,
                          shares=shares, order_id=1, order_ref="x",
-                         equity_at_entry=140_000.0, reference_price=122.28)
+                         equity_at_entry=140_000.0, reference_price=122.28,
+                         transmitted=transmitted)
     state_mod.write_intent(c.state_path, i)
     return i
+
+
+def test_exit_treats_a_REHEARSAL_intent_as_no_intent(tmp_path, capsys):
+    """A rehearsal writes an intent too. Left to be read as real, it makes the
+    morning's jobs cry wolf about a position that was never opened."""
+    c = cfg(str(tmp_path)); _intent(c, transmitted=False)
+    b = broker()
+    r = schedule.exit_(b, c, asof=at(9, 15))
+    assert r.acted is False and b.placed == []
+    out = capsys.readouterr().out
+    assert "was a rehearsal and was never sent" in out
+    assert "may not have filled" not in out, "a rehearsal is not a failed fill"
 
 
 def test_confirm_records_the_vwap_across_several_executions(tmp_path):

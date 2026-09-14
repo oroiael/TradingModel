@@ -117,6 +117,11 @@ def job_report(broker, cfg: OvernightConfig, store) -> int:
     if intent is None or intent.is_flat:
         print("  no trade to report (flat night)")
         return 0
+    if not intent.transmitted:
+        print(f"  the intent on file ({intent.shares} {intent.leg}, "
+              f"{intent.decision_date}) was a rehearsal — nothing was sent, so "
+              f"there is no round trip to reconcile.")
+        return 0
 
     if not intent.entry_confirmed:
         print(f"  no confirmed entry fill on file. The `confirm` job must run "

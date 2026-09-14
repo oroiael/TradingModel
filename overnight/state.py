@@ -57,6 +57,24 @@ class Intent:
     def is_flat(self) -> bool:
         return self.leg == "FLAT" or self.shares == 0
 
+    @property
+    def is_actionable(self) -> bool:
+        """Did this intent put a real order into the market?
+
+        A rehearsal writes an intent too — it computes the same decision and
+        sizes the same order, it just never sends it. That file then sits in
+        `out/` until the next run overwrites it, and the morning's jobs read it
+        as though the position were real: `exit` warns that the account does not
+        hold what state says, and `report` exits non-zero looking for a fill
+        that was never going to exist.
+
+        Nothing traded wrong — `exit` sizes from `broker.position()` and the
+        watchdog reads the broker — but a scheduled system that cries wolf every
+        time someone rehearses is a system whose alarms get ignored. So an
+        untransmitted intent is treated as no intent at all.
+        """
+        return not self.is_flat and self.transmitted
+
 
 def write_intent(path: str, intent: Intent) -> None:
     os.makedirs(os.path.dirname(path), exist_ok=True)

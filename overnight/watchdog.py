@@ -270,6 +270,7 @@ def _describe(intent, held, events) -> None:
                  f"{', '.join(_SYMBOLS_HINT)}; if another strategy trades those "
                  f"on this account, the two will collide and one must move.")
         return
+    kind = "intent" if intent.transmitted else "rehearsal intent (never sent)"
     _log(events, "info",
-         f"intent: {intent.shares} {intent.leg} from {intent.decision_date}; "
+         f"{kind}: {intent.shares} {intent.leg} from {intent.decision_date}; "
          f"broker holds {held}")
