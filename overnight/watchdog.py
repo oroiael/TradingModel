@@ -57,7 +57,9 @@ if _HERE not in sys.path:
 
 import state as state_mod                                     # noqa: E402
 from config import OvernightConfig                            # noqa: E402
-from schedule import JobResult, Refused, _log, now_et         # noqa: E402
+from schedule import (                                        # noqa: E402
+    JobResult, Refused, _log, cancel_working_buys, now_et,
+)
 
 #: IBKR's own word for a sell, from `Execution.side`. Not "SELL".
 SOLD = "SLD"
@@ -99,6 +101,9 @@ def flatten(broker, cfg: OvernightConfig, *,
             f"{wall} is past {cfg.watchdog_close}. A market order this close to "
             f"the bell competes with the closing auction for the same "
             f"liquidity, and `enter` is about to run. Flatten manually in TWS.")
+
+    # Same reason as the exit job: nothing in the morning should ever add.
+    cancel_working_buys(broker, cfg.symbols, events)
 
     held = {s: broker.position(s) for s in cfg.symbols}
     live = {s: q for s, q in held.items() if abs(q) > 1e-9}

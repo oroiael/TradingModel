@@ -341,6 +341,61 @@ def enter(broker, cfg: OvernightConfig, *, asof: Optional[dt.datetime] = None,
                      intent)
 
 
+def _working_sells(broker, symbol) -> "list[float]":
+    """Quantities of any working SELL. Empty when the broker cannot answer —
+    unknown must not become a reason to skip the exit."""
+    try:
+        broker.refresh_orders()
+        working = list(broker.working_orders(symbol))
+    except Exception:                                         # noqa: BLE001
+        return []
+    return [float(getattr(w, "qty", 0.0) or 0.0) for w in working
+            if str(getattr(w, "action", "")).upper().startswith("S")]
+
+
+def cancel_working_buys(broker, symbols, events=None) -> int:
+    """Kill any working BUY before exiting. Returns how many were cancelled.
+
+    The morning jobs sell; nothing in them should ever add. A BUY still working
+    at 09:15 can only be last night's entry that did not complete, and leaving
+    it alone risks the worst shape this strategy has: sell the position at the
+    open, then have the leftover buy fill at tonight's close, leaving a position
+    nobody decided to hold and no exit scheduled to close it.
+
+    Whether an unfilled MOC survives its own auction is NOT verified — IBKR's
+    documentation is unreachable from here and the first live night's 629-of-
+    1,390 fill is the only evidence this project has. Cancelling costs nothing
+    when there is nothing to cancel, which is the whole argument for doing it
+    unconditionally rather than waiting to find out.
+    """
+    killed = 0
+    for symbol in symbols:
+        try:
+            broker.refresh_orders()
+            working = list(broker.working_orders(symbol))
+        except Exception as exc:                              # noqa: BLE001
+            _log(events, "warn", f"{symbol}: could not read working orders: {exc}")
+            continue
+        for w in working:
+            if not str(getattr(w, "action", "")).upper().startswith("B"):
+                continue
+            oid = getattr(w, "order_id", None)
+            _log(events, "warn",
+                 f"{symbol}: a BUY is still working (id={oid}, "
+                 f"{getattr(w, 'qty', '?')} shares). Cancelling it — the exit "
+                 f"must never leave something behind that can open a position "
+                 f"tonight with no exit scheduled for it.")
+            if oid is None:
+                continue
+            try:
+                broker.cancel(oid)
+                killed += 1
+            except Exception as exc:                          # noqa: BLE001
+                _log(events, "error",
+                     f"{symbol}: cancel({oid}) raised {exc} — check TWS by hand")
+    return killed
+
+
 def _reference_price(broker, symbol: str, signal: "LegSignal",
                      cfg: OvernightConfig, rehearsing: bool,
                      events: Optional[Callable] = None) -> float:
@@ -424,8 +479,18 @@ def _confirm_working(broker, symbol, order_id, cfg, events, tries=10, pause=3.0)
         _log(events, "info", "rehearsal — nothing to confirm")
         return True
     for _ in range(tries):
-        broker.refresh_orders()
-        for w in broker.working_orders(symbol):
+        try:
+            broker.refresh_orders()
+            working = list(broker.working_orders(symbol))
+        except Exception as exc:                              # noqa: BLE001
+            # The order is ALREADY PLACED. Letting this raise would report a
+            # failure for an order that reached IBKR, and the obvious response
+            # to that — run it again — would send a second one.
+            _log(events, "error",
+                 f"cannot confirm order {order_id}: {exc}. It was sent and may "
+                 f"be working. Do NOT re-run this job; look in TWS.")
+            return False
+        for w in working:
             if getattr(w, "order_id", None) == order_id:
                 _log(events, "info", f"order {order_id} acknowledged by IBKR")
                 return True
@@ -519,6 +584,8 @@ def exit_(broker, cfg: OvernightConfig, *, asof: Optional[dt.datetime] = None,
                 f"rejects new MOO orders from 09:29:55). A position left open "
                 f"now will be held through the session — flatten it manually.")
 
+    cancel_working_buys(broker, cfg.symbols, events)
+
     held = {s: broker.position(s) for s in cfg.symbols}
     live = {s: q for s, q in held.items() if abs(q) > 1e-9}
 
@@ -541,6 +608,21 @@ def exit_(broker, cfg: OvernightConfig, *, asof: Optional[dt.datetime] = None,
         if qty < 0:
             raise Refused(f"{symbol} position is {qty:+.0f} (short). This strategy "
                           f"never shorts — investigate before acting.")
+
+        # A sell already working covers this position. Adding a second is how a
+        # long 541 became a short 1,082 in band_lab, and this job is re-runnable
+        # by hand and by a scheduler that saw a non-zero exit code — so it has to
+        # be safe to run twice.
+        existing = _working_sells(broker, symbol)
+        if existing and sum(existing) >= qty - 1e-9:
+            _log(events, "warn",
+                 f"{symbol}: {len(existing)} sell(s) for {sum(existing):.0f} "
+                 f"already working against {qty:.0f} held. NOT sending another — "
+                 f"two sells against one position is a short, which is worse "
+                 f"than the thing it would be fixing.")
+            sent.append((symbol, qty, 0, True))
+            continue
+
         ref = f"ON-{asof:%Y%m%d}-{symbol}-EXIT"
         _log(events, "info", f"SELL MOO {qty:.0f} {symbol}")
         oid = broker.place_moo(symbol, "SELL", qty, ref)
