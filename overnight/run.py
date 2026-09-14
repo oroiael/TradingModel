@@ -143,19 +143,41 @@ def job_report(broker, cfg: OvernightConfig, store) -> int:
     entry = intent.fill_price
     exit_px = vwap(sells)
     qty = sum(float(r.qty) for r in sells)
+    equity = intent.equity_at_entry
     gross = exit_px / entry - 1.0
     cost_bps = PRIMARY_COST_BPS if intent.leg == PRIMARY_SYMBOL else COVER_COST_BPS
-    net = intent.multiple * gross - intent.multiple * 2 * cost_bps / 1e4
+
+    # ---- the exposure that ACTUALLY existed, not the one that was intended.
+    #
+    # An MOC is not guaranteed to fill in full. The first live night ordered
+    # 1,390 SOXL and filled 629 — 0.447x, not 1.00x. Scaling the return by
+    # `intent.multiple` would have reported every number in this row 2.24x too
+    # large, and `running_totals` compounds net_pct, so the error would have
+    # propagated into the inception-to-date figures and never come out.
+    #
+    # Everything below is therefore derived from shares that actually traded.
+    notional = qty * entry
+    multiple_actual = notional / equity if equity > 0 else 0.0
+    cost_dollars = notional * 2 * cost_bps / 1e4
+    pnl = qty * (exit_px - entry) - cost_dollars
+    net = pnl / equity if equity > 0 else 0.0
     equity_after = broker.net_liquidation()
 
-    totals = state_mod.running_totals(cfg.ledger_path, intent.equity_at_entry)
+    filled = intent.filled_shares or int(qty)
+    intended = intent.shares or int(qty)
+    fill_rate = (filled / intended * 100.0) if intended else 0.0
+
+    totals = state_mod.running_totals(cfg.ledger_path, equity)
     row = dict(decision_date=intent.decision_date, leg=intent.leg, shares=int(qty),
+               intended_shares=intended, fill_rate_pct=round(fill_rate, 2),
+               multiple_intended=round(intent.multiple, 4),
+               multiple_actual=round(multiple_actual, 4),
                entry_price=round(entry, 4), exit_price=round(exit_px, 4),
-               gross_pct=round(intent.multiple * gross * 100, 4),
-               cost_pct=round(intent.multiple * 2 * cost_bps / 100, 4),
+               gross_pct=round(multiple_actual * gross * 100, 4),
+               cost_pct=round(cost_dollars / equity * 100, 4) if equity > 0 else 0.0,
                net_pct=round(net * 100, 4),
-               pnl_dollars=round(net * intent.equity_at_entry, 2),
-               equity_before=round(intent.equity_at_entry, 2),
+               pnl_dollars=round(pnl, 2),
+               equity_before=round(equity, 2),
                equity_after=round(equity_after, 2),
                peak_equity=round(max(totals["peak"], equity_after), 2),
                drawdown_pct=round(totals["drawdown_pct"], 3),
@@ -164,12 +186,16 @@ def job_report(broker, cfg: OvernightConfig, store) -> int:
                hold_days="", note="")
     state_mod.append_ledger(cfg.ledger_path, row)
 
-    after = state_mod.running_totals(cfg.ledger_path, intent.equity_at_entry)
+    after = state_mod.running_totals(cfg.ledger_path, equity)
     print(f"\n  {intent.decision_date}  {intent.leg}  "
           f"BUY {int(qty)} @ {entry:.2f} (MOC) -> SELL @ {exit_px:.2f} (MOO)")
-    print(f"    gross {intent.multiple*gross*100:+.3f}%   "
-          f"costs {-intent.multiple*2*cost_bps/100:+.3f}%   "
-          f"net {net*100:+.3f}%   ${net*intent.equity_at_entry:+,.0f}")
+    if intended and int(qty) != intended:
+        print(f"    PARTIAL: {int(qty)} of {intended} intended "
+              f"({fill_rate:.1f}%) — this night ran at {multiple_actual:.3f}x, "
+              f"not {intent.multiple:.2f}x. Every figure below is the real one.")
+    print(f"    gross {multiple_actual*gross*100:+.3f}%   "
+          f"costs {-cost_dollars/equity*100:+.3f}%   "
+          f"net {net*100:+.3f}%   ${pnl:+,.0f}")
     print(f"    since inception: {after['trades']} trades, {after['wins']} wins "
           f"({after['win_rate']:.0f}%), {after['total_pct']:+.1f}%, "
           f"max DD {after['drawdown_pct']:.1f}%")

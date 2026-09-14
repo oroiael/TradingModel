@@ -94,8 +94,14 @@ def read_intent(path: str) -> Optional[Intent]:
         return None                # stop the exit job; the position is truth
 
 
+#: `shares` is what actually traded. `intended_shares` and `multiple_actual`
+#: are here because the first live night filled 629 of 1,390 — an MOC is not
+#: guaranteed to fill in full, and a row that records only the intent would
+#: make a 0.45x night look like a 1.00x one.
 LEDGER_COLUMNS = [
-    "decision_date", "leg", "shares", "entry_price", "exit_price",
+    "decision_date", "leg", "shares", "intended_shares", "fill_rate_pct",
+    "multiple_intended", "multiple_actual",
+    "entry_price", "exit_price",
     "gross_pct", "cost_pct", "net_pct", "pnl_dollars",
     "equity_before", "equity_after", "peak_equity", "drawdown_pct",
     "primary_rv", "primary_threshold", "cover_rv", "cover_threshold",
