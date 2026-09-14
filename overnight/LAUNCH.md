@@ -5,19 +5,41 @@
 
 ---
 
-## Before the close today
+## Pre-flight — run this tonight
 
 On the machine running TWS/Gateway, with it logged in to the paper account:
 
 ```bash
 cd /path/to/TradingModel
-python3 overnight/run.py --job enter          # NO --transmit — sends nothing
+git pull
+python3 overnight/run.py --job enter --rehearse-now
 ```
 
-Expect: a connect, "newest session <date>", a decision line, a share count, and
-`RESULT: ...`. It exercises everything except `placeOrder`.
+`--rehearse-now` is what lets this run at 8pm instead of only between 15:30 and
+15:50. It **refuses to run with `--transmit`** — the clock guards it removes are
+the only thing standing between a late run and a rejected auction order — so it
+cannot send anything, ever.
 
-**If that errors, do not run the live one.** Most likely causes: TWS not running,
+Expect roughly:
+
+```
+  OUT-OF-HOURS REHEARSAL — the 15:30:00-15:50:00 MOC window is not enforced.
+  newest session 2026-09-11 (D-1) | SOXL rv 61.42% vs cut 107.49% | XLU rv ...
+  SOXL at 1.00x
+  no live quote for SOXL out of hours; sizing this rehearsal off the ... close
+  BUY MOC 1144 SOXL @ ~$122.xx = $140,000 (1.00x on $140,000)
+  rehearsal — nothing to confirm
+  RESULT: MOC 1144 SOXL id=-1 acknowledged
+```
+
+A negative order id means synthetic: nothing reached IBKR.
+
+**The leg it names tonight is the leg tomorrow's 15:45 run will buy.** Both drop
+the decision day's own bar, so both end their volatility window on Friday
+2026-09-11's close. Only the share count will differ — tonight it divides by a
+stale close, tomorrow by the live midpoint.
+
+**If it errors, do not run the live one.** Most likely causes: TWS not running,
 API not enabled, wrong port, or `ib_async` missing from the Python you used.
 
 ---
@@ -35,6 +57,7 @@ Run them by hand tomorrow. Once you've seen a clean round trip, put them in cron
 (lines are in `run.py`'s docstring).
 
 **`--transmit` is required to send anything.** Without it, nothing reaches the market.
+**Never pass `--rehearse-now` to a real run** — it is rejected if you try.
 
 ---
 

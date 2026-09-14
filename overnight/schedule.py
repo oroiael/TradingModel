@@ -32,7 +32,7 @@ import datetime as dt
 import os
 import sys
 from dataclasses import dataclass
-from typing import Callable, Optional
+from typing import Callable, NamedTuple, Optional
 from zoneinfo import ZoneInfo
 
 _HERE = os.path.dirname(os.path.abspath(__file__))
@@ -43,7 +43,9 @@ import core                                                   # noqa: E402
 import features                                               # noqa: E402
 import state as state_mod                                     # noqa: E402
 from config import OvernightConfig, TIMEZONE                  # noqa: E402
-from constants import COVER_SYMBOL, FLAT, PRIMARY_SYMBOL      # noqa: E402
+from constants import (                                       # noqa: E402
+    COVER_SYMBOL, FLAT, PRIMARY_SYMBOL, RV_LAG, RV_WINDOW,
+)
 
 NY = ZoneInfo(TIMEZONE)
 
@@ -65,30 +67,82 @@ def now_et() -> dt.datetime:
     return dt.datetime.now(NY)
 
 
+def _pct(x) -> str:
+    return "n/a" if x is None else f"{x:.2f}%"
+
+
 def _log(events, level, msg):
     if events:
         events(level, msg)
     print(f"  [{level}] {msg}", flush=True)
 
 
+# ------------------------------------------------------------- the clock lock
+
+def _bypass_clock(cfg, events=None, window="") -> bool:
+    """True when the clock guards may be skipped, because nothing can be sent.
+
+    The two hard deadlines are about orders, not about runs. An MOC arriving
+    after 15:50 is rejected and, once accepted, cannot be cancelled or reduced;
+    Arca rejects new MOO orders from 09:29:55. A job with `transmit` off places
+    neither, so for it the deadlines describe nothing.
+
+    That reasoning holds ONLY while nothing can be sent, so the condition is
+    re-checked here rather than trusted from the flag. `config.validate()`
+    already refuses the combination; this is the second lock on the same door,
+    because the door opens onto a rejected live order.
+    """
+    if not getattr(cfg, "rehearse_now", False):
+        return False
+    if cfg.transmit:
+        raise Refused(
+            "rehearse_now is set AND transmit is on. The clock guards are the "
+            "only thing between this run and a rejected late auction order. "
+            "Refusing to run either way.")
+    if window:
+        _log(events, "warn",
+             f"OUT-OF-HOURS REHEARSAL — the {window} window is not enforced. "
+             f"Nothing will be sent. This exercises the data path only; the "
+             f"real run must still land inside the window.")
+    return True
+
+
 # ------------------------------------------------------------------ features
 
-def daily_features(broker, symbol: str, cfg: OvernightConfig, asof: dt.datetime):
-    """Fetch daily bars and build the feature history for one instrument.
+def daily_features(broker, symbol: str, cfg: OvernightConfig, asof: dt.datetime,
+                   events: Optional[Callable] = None):
+    """Fetch daily bars for one instrument, ending strictly before the decision day.
 
     The walk-forward threshold is a percentile of ALL prior RV observations, so
     a short history is a *different* threshold, not a noisier one. `min_sessions`
     is enforced rather than warned about for that reason.
+
+    **The decision day's own bar is dropped.** `reqHistoricalData` with an
+    `endDateTime` inside a live session returns a PARTIAL bar for that day, and
+    after 16:00 it returns a complete one. Either would put day D's close inside
+    the RV window, which is the single thing `RV_LAG` exists to prevent — and it
+    would do so silently, because a partial bar looks like any other bar. The
+    filter is on the date, so it is correct at 15:45, at 20:10, and on a
+    weekend alike.
     """
     bars = broker.historical_sessions(symbol, asof, cfg.history_duration,
                                       bar_size="1 day")
     sessions = [features.Session(_bar_date(b), float(b.open), float(b.close))
                 for b in bars]
     sessions.sort(key=lambda s: s.date)
+
+    cutoff = asof.date()
+    dropped = [s for s in sessions if s.date >= cutoff]
+    if dropped:
+        _log(events, "info",
+             f"{symbol}: dropped {len(dropped)} bar(s) dated {cutoff} or later "
+             f"— day D's own close can never enter its own RV window")
+        sessions = [s for s in sessions if s.date < cutoff]
+
     if len(sessions) < cfg.min_sessions:
         raise Refused(f"{symbol}: {len(sessions)} sessions, need "
                       f"{cfg.min_sessions} — the threshold would be wrong")
-    return sessions, features.build(sessions)
+    return sessions
 
 
 def _bar_date(bar) -> dt.date:
@@ -100,24 +154,45 @@ def _bar_date(bar) -> dt.date:
     return dt.date.fromisoformat(str(d)[:10])
 
 
-def todays_signals(broker, cfg: OvernightConfig, asof: dt.datetime):
+class LegSignal(NamedTuple):
+    """What one instrument contributes to tonight's decision."""
+
+    rv: Optional[float]
+    threshold: Optional[float]
+    last_date: dt.date
+    last_close: float
+
+
+def todays_signals(broker, cfg: OvernightConfig, asof: dt.datetime,
+                   events: Optional[Callable] = None):
     """RV and threshold for both legs, as of the decision day.
 
-    The newest complete session in the history is D-1, which is exactly what the
+    After `daily_features` the newest session is D-1, which is exactly what the
     RV window must end on. The decision day itself is `asof`; its close does not
     exist yet and must not.
+
+    The threshold history is built here rather than taken from `features.build`.
+    `build` emits a row only for days that have a FOLLOWING session, because it
+    also measures the realised overnight return — so its newest row is D-2, and
+    using it would decide today against a cut one observation short of what the
+    research computes. The loop below runs to D-1 inclusive, which is every
+    decision day strictly before today, and that is what `build` gives a day in
+    the middle of the history.
     """
     out = {}
     for symbol in cfg.symbols:
-        sessions, feats = daily_features(broker, symbol, cfg, asof)
+        sessions = daily_features(broker, symbol, cfg, asof, events)
         returns = features.close_to_close(sessions)
-        # history of RV for every session that had one, to build today's cut
-        hist = [f.rv for f in (feats[d] for d in sorted(feats)) if f.rv is not None]
-        # today's RV uses the window ending at the newest session's close,
-        # i.e. index len(sessions) as the decision day with lag 1.
-        rv = features.realised_vol(returns, len(sessions))
+        n = len(sessions)                       # sessions[n-1] is D-1
+        hist = []
+        for i in range(RV_WINDOW + RV_LAG, n):  # every decision day before today
+            v = features.realised_vol(returns, i)
+            if v is not None:
+                hist.append(v)
+        # today is decision index n: its window ends at sessions[n-1].close.
+        rv = features.realised_vol(returns, n)
         cut = features.threshold_at(hist)
-        out[symbol] = (rv, cut, sessions[-1].date)
+        out[symbol] = LegSignal(rv, cut, sessions[-1].date, sessions[-1].close)
     return out
 
 
@@ -128,14 +203,17 @@ def enter(broker, cfg: OvernightConfig, *, asof: Optional[dt.datetime] = None,
     """Decide tonight's leg and send the MOC. Runs 15:30-15:50 ET."""
     asof = asof or now_et()
     clock = asof.timetz().replace(tzinfo=None)
+    rehearsing = _bypass_clock(cfg, events,
+                               f"{cfg.enter_open}-{cfg.enter_deadline} MOC")
 
-    if clock < cfg.enter_open:
-        raise Refused(f"{clock} is before the {cfg.enter_open} window opens")
-    if clock >= cfg.enter_deadline:
-        raise Refused(
-            f"{clock} is past the {cfg.enter_deadline} MOC deadline. A late MOC "
-            f"is rejected, not queued, and after 15:50 it can be neither "
-            f"cancelled nor reduced. Doing nothing.")
+    if not rehearsing:
+        if clock < cfg.enter_open:
+            raise Refused(f"{clock} is before the {cfg.enter_open} window opens")
+        if clock >= cfg.enter_deadline:
+            raise Refused(
+                f"{clock} is past the {cfg.enter_deadline} MOC deadline. A late "
+                f"MOC is rejected, not queued, and after 15:50 it can be neither "
+                f"cancelled nor reduced. Doing nothing.")
 
     # Ground truth before anything else. Both must be clean.
     for symbol in cfg.symbols:
@@ -154,12 +232,17 @@ def enter(broker, cfg: OvernightConfig, *, asof: Optional[dt.datetime] = None,
         raise Refused(f"equity ${equity:,.0f} is below the ${cfg.min_equity:,.0f} "
                       f"floor — the $0.35 commission minimum would dominate")
 
-    sigs = todays_signals(broker, cfg, asof)
-    p_rv, p_cut, p_last = sigs[PRIMARY_SYMBOL]
-    c_rv, c_cut, c_last = sigs[COVER_SYMBOL]
+    sigs = todays_signals(broker, cfg, asof, events)
+    primary, cover = sigs[PRIMARY_SYMBOL], sigs[COVER_SYMBOL]
+    p_rv, p_cut = primary.rv, primary.threshold
+    c_rv, c_cut = cover.rv, cover.threshold
     sp, sc = core.signals(p_rv, p_cut, c_rv, c_cut)
     decision = core.decide(sp, sc, cfg.primary_multiple, cfg.cover_multiple)
-    _log(events, "info", f"newest session {p_last} | {decision.describe()}")
+    _log(events, "info",
+         f"newest session {primary.last_date} (D-1) | "
+         f"{PRIMARY_SYMBOL} rv {_pct(p_rv)} vs cut {_pct(p_cut)} | "
+         f"{COVER_SYMBOL} rv {_pct(c_rv)} vs cut {_pct(c_cut)}")
+    _log(events, "info", decision.describe())
 
     intent = state_mod.Intent(
         decision_date=asof.date().isoformat(), leg=decision.leg,
@@ -175,6 +258,17 @@ def enter(broker, cfg: OvernightConfig, *, asof: Optional[dt.datetime] = None,
         return JobResult("enter", False, "flat", intent)
 
     price = _reference_price(broker, decision.leg)
+    if price <= 0 and rehearsing:
+        # Out of hours there is no two-sided quote and `last` comes back 0.0.
+        # Refusing here would stop the pre-flight at the one step it exists to
+        # check. The close is not a price this would ever TRADE against — it is
+        # only the divisor in a share count that is never sent.
+        leg = sigs[decision.leg]
+        price = leg.last_close
+        _log(events, "warn",
+             f"no live quote for {decision.leg} out of hours; sizing this "
+             f"rehearsal off the {leg.last_date} close ${price:.2f}. The real "
+             f"15:45 run sizes off the live midpoint and REFUSES without one.")
     if price <= 0:
         raise Refused(f"no usable price for {decision.leg}; cannot size")
 
@@ -311,14 +405,17 @@ def exit_(broker, cfg: OvernightConfig, *, asof: Optional[dt.datetime] = None,
     """
     asof = asof or now_et()
     clock = asof.timetz().replace(tzinfo=None)
+    rehearsing = _bypass_clock(cfg, events,
+                               f"{cfg.exit_open}-{cfg.exit_deadline} MOO")
 
-    if clock < cfg.exit_open:
-        raise Refused(f"{clock} is before the {cfg.exit_open} window opens")
-    if clock >= cfg.exit_deadline:
-        raise Refused(
-            f"{clock} is past the {cfg.exit_deadline} MOO deadline (Arca rejects "
-            f"new MOO orders from 09:29:55). A position left open now will be "
-            f"held through the session — flatten it manually.")
+    if not rehearsing:
+        if clock < cfg.exit_open:
+            raise Refused(f"{clock} is before the {cfg.exit_open} window opens")
+        if clock >= cfg.exit_deadline:
+            raise Refused(
+                f"{clock} is past the {cfg.exit_deadline} MOO deadline (Arca "
+                f"rejects new MOO orders from 09:29:55). A position left open "
+                f"now will be held through the session — flatten it manually.")
 
     held = {s: broker.position(s) for s in cfg.symbols}
     live = {s: q for s, q in held.items() if abs(q) > 1e-9}
