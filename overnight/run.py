@@ -17,6 +17,14 @@ STRATEGY.md §5.4.
 **`--transmit` is the default OFF.** Pass `--transmit` to send real orders.
 `readonly` in ib_async does not stop `placeOrder`; the adapter enforces this.
 
+**`--rehearse-now` runs a job outside its clock window**, for a pre-flight of
+the data path — connect, fetch 4 years of daily bars, compute RV and the
+walk-forward cut, decide, size. It refuses to run alongside `--transmit`,
+because the clock guards it removes are the only thing standing between a late
+run and a REJECTED auction order:
+
+    python3 overnight/run.py --job enter --rehearse-now    # any time, sends nothing
+
 cron (ET; adjust for the host's timezone):
 
     45 15 * * 1-5  cd /path/to/TradingModel && python3 overnight/run.py --job enter --transmit >> overnight/out/enter.log   2>&1
@@ -139,13 +147,23 @@ def main(argv=None) -> int:
     ap.add_argument("--config", default=None)
     ap.add_argument("--transmit", action="store_true",
                     help="send real orders. Default is a rehearsal.")
+    ap.add_argument("--rehearse-now", action="store_true", dest="rehearse_now",
+                    help="ignore the clock window, for a pre-flight of the data "
+                         "path. Cannot be combined with --transmit.")
     ap.add_argument("--account", default=None)
     ap.add_argument("--port", type=int, default=None)
     args = ap.parse_args(argv)
 
+    if args.rehearse_now and args.transmit:
+        ap.error("--rehearse-now cannot be combined with --transmit. The window "
+                 "guards it removes exist because a late auction order is "
+                 "rejected, not queued.")
+
     cfg = OvernightConfig.load(args.config)
     if args.transmit:
         cfg.transmit = True
+    if args.rehearse_now:
+        cfg.rehearse_now = True
     if args.account:
         cfg.account = args.account
     if args.port:

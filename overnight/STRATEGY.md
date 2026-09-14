@@ -56,6 +56,22 @@ eligible(D) = RV20(D) < threshold(D)
 D's close is not known when the decision is made. The backtest was re-run on the
 D−1 signal and is unaffected — see §4.3.
 
+Two implementation notes, because the live path can violate both statements above
+while looking correct:
+
+* **The history request must drop day D's own bar.** `reqHistoricalData` with an
+  `endDateTime` inside a live session returns a *partial* bar for that day, and
+  after 16:00 a complete one. Either would put D's close inside the window this
+  section keeps it out of, and a partial bar is indistinguishable from any other.
+  `schedule.daily_features` filters on the date, so it is right at 15:45, at
+  20:10, and on a weekend alike.
+* **The threshold history runs to D−1 inclusive.** `features.build` emits a row
+  only for days that have a *following* session, because it also measures the
+  realised overnight return — so its newest row is D−2. Building today's cut
+  from it would be one observation short of "every session strictly before D".
+  `schedule.todays_signals` computes the history itself for that reason, and
+  `tests/test_rehearsal.py` pins it to `build`'s answer on a day both can decide.
+
 The threshold is **walk-forward**: recomputed each day from prior history only. It is
 not a fixed number. As of the last research run the SOXL cut sits near 107% annualised
 and the XLU cut near 21%, but the engine must compute them, never hardcode them.

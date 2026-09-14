@@ -53,6 +53,14 @@ class OvernightConfig:
     transmit: bool = False
     #: Refuse to start against a live-money port unless explicitly acknowledged.
     allow_live_account: bool = False
+    #: Run a job OUTSIDE its clock window, for a pre-flight of the data path.
+    #:
+    #: The 15:50 and 09:29:30 guards exist for one reason: an auction order
+    #: arriving after them is *rejected*, and after 15:50 an MOC can be neither
+    #: cancelled nor reduced. Neither statement says anything about a run that
+    #: places nothing. So this is allowed only with `transmit` off, and
+    #: `validate()` below refuses the combination rather than trusting a caller.
+    rehearse_now: bool = False
     #: Refuse to size a leg larger than this, whatever equity says. A backstop
     #: against a bad net_liquidation read, not a strategy parameter.
     max_notional: float = 1_000_000.0
@@ -109,6 +117,11 @@ class OvernightConfig:
         return (PRIMARY_SYMBOL, COVER_SYMBOL)
 
     def validate(self) -> None:
+        if self.rehearse_now and self.transmit:
+            raise ValueError(
+                "rehearse_now and transmit are mutually exclusive. rehearse_now "
+                "removes the 15:50/09:29:30 auction guards, which is only safe "
+                "because nothing is sent. Pick one.")
         if self.port in (7496, 4001) and not self.allow_live_account:
             raise ValueError(
                 f"port {self.port} is a LIVE-money port. Set allow_live_account "
@@ -128,7 +141,9 @@ class OvernightConfig:
             raise ValueError("min_sessions cannot be below the burn-in requirement")
 
     def summary(self) -> str:
-        mode = "TRANSMIT" if self.transmit else "rehearse (nothing sent)"
+        mode = ("TRANSMIT" if self.transmit
+                else "rehearse OUT OF HOURS (nothing sent)" if self.rehearse_now
+                else "rehearse (nothing sent)")
         return (f"{self.host}:{self.port} cid={self.client_id} "
                 f"acct={self.account or '(single)'} | {mode} | "
                 f"{PRIMARY_SYMBOL} {self.primary_multiple:.2f}x / "
