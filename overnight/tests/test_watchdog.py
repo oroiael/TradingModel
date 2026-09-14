@@ -248,9 +248,19 @@ def test_it_says_what_it_expected_against_what_it_found(tmp_path, capsys):
     state_mod.write_intent(c.state_path, state_mod.Intent(
         decision_date="2026-09-14", leg=PRIMARY_SYMBOL, multiple=1.0,
         shares=1149, order_id=1, order_ref="x", equity_at_entry=142_492.0,
-        reference_price=121.82))
+        reference_price=121.82, transmitted=True))
     run(broker(), str(tmp_path))
     assert "intent: 1149 SOXL from 2026-09-14" in capsys.readouterr().out
+
+
+def test_it_marks_a_rehearsal_intent_as_never_sent(tmp_path, capsys):
+    c = cfg(str(tmp_path))
+    state_mod.write_intent(c.state_path, state_mod.Intent(
+        decision_date="2026-09-13", leg=PRIMARY_SYMBOL, multiple=1.0,
+        shares=1277, order_id=-1, order_ref="x", equity_at_entry=142_492.0,
+        reference_price=111.56, transmitted=False))
+    run(broker(), str(tmp_path))
+    assert "rehearsal intent (never sent): 1277 SOXL" in capsys.readouterr().out
 
 
 def test_a_position_with_no_intent_is_still_sold_but_flagged(tmp_path, capsys):
