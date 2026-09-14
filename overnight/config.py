@@ -25,6 +25,7 @@ from constants import (
 )
 
 _HERE = os.path.dirname(os.path.abspath(__file__))
+_ROOT = os.path.dirname(_HERE)
 TIMEZONE = "America/New_York"
 
 
@@ -106,6 +107,25 @@ class OvernightConfig:
     history_duration: str = "4 Y"
     #: Refuse to decide on less than this many sessions.
     min_sessions: int = RV_WINDOW + RV_LAG + MIN_HISTORY + 20
+    #: The research series for each symbol, for `--rehearse-now` to cross-check
+    #: the live feed against. The threshold is a percentile of the instrument's
+    #: own RV history, so the live feed must be the SAME series the backtest
+    #: measured — TRADES here, not ADJUSTED_LAST. See
+    #: `schedule.cross_check_basis`. Informational only; nothing refuses on it.
+    #:
+    #: Daily files, not `SOXL_1min.csv`. The 1-minute series the backtest ran on
+    #: takes its close from the last 15:59 bar, which is the last CONTINUOUS
+    #: trade; a daily bar carries the official closing auction print, which is
+    #: what an MOC actually fills at. Measured across 1,225 overlapping days
+    #: those differ by a median 0.088%, and 219 days by more than 0.2% — noise
+    #: that would make a 0.2% tolerance cry wolf while hiding a real basis
+    #: error. Daily against daily is the comparison that has signal.
+    reference_csv: dict = field(default_factory=lambda: {
+        PRIMARY_SYMBOL: os.path.join(_ROOT, "retreat_lab", "out",
+                                     "SOXL_daily_ibkr.csv"),
+        COVER_SYMBOL: os.path.join(_ROOT, "retreat_lab", "out",
+                                   "XLU_daily_ibkr.csv"),
+    })
 
     # ---- paths ------------------------------------------------------------
     db_path: str = os.path.join(_HERE, "out", "overnight.db")

@@ -24,20 +24,41 @@ Expect roughly:
 
 ```
   OUT-OF-HOURS REHEARSAL — the 15:30:00-15:50:00 MOC window is not enforced.
-  newest session 2026-09-11 (D-1) | SOXL rv 61.42% vs cut 107.49% | XLU rv ...
+  SOXL: 1002 dates overlap ...; worst close mismatch 0.0xx% on ...
+  XLU:  1002 dates overlap ...; worst close mismatch 0.0xx% on ...
+  newest session 2026-09-11 (D-1) | SOXL rv 98.68% vs cut 106.27% | XLU rv 13.82% vs cut 16.81%
   SOXL at 1.00x
   no live quote for SOXL out of hours; sizing this rehearsal off the ... close
-  BUY MOC 1144 SOXL @ ~$122.xx = $140,000 (1.00x on $140,000)
+  BUY MOC 1149 SOXL @ ~$121.82 = $140,000 (1.00x on $140,000)
   rehearsal — nothing to confirm
-  RESULT: MOC 1144 SOXL id=-1 acknowledged
+  RESULT: MOC 1149 SOXL id=-1 acknowledged
 ```
 
 A negative order id means synthetic: nothing reached IBKR.
 
-**The leg it names tonight is the leg tomorrow's 15:45 run will buy.** Both drop
-the decision day's own bar, so both end their volatility window on Friday
-2026-09-11's close. Only the share count will differ — tonight it divides by a
-stale close, tomorrow by the live midpoint.
+### Check it against this
+
+Computed here from the committed research dailies, which run through Friday
+2026-09-11 — the same D−1 the live fetch will see:
+
+| | RV20 | p60 cut | |
+|---|---|---|---|
+| **SOXL** | 98.68% | 106.27% | eligible by 7.6pp |
+| **XLU** | 13.82% | 16.81% | eligible by 3.0pp |
+
+**Expect SOXL at 1.00×, about 1,149 shares near $121.82.** SOXL is eligible so it
+wins outright; XLU is only ever the fallback. The margin is wide enough that the
+answer does not depend on the history length — 5 years gives the same leg.
+
+If the rehearsal prints something else, **stop and read why** before tomorrow.
+A few tenths of a percent on the RV is normal (the live feed is the closing
+auction print; the research file is too, but they are fetched separately). A
+different *leg* is not.
+
+The two `worst close mismatch` lines are a basis check: the live feed has to be
+the same price series the threshold was fitted on. Anything under 0.2% is fine.
+A number in the percent range means the feed is dividend-adjusted and the whole
+volatility history is on a different footing — the run says so explicitly.
 
 **If it errors, do not run the live one.** Most likely causes: TWS not running,
 API not enabled, wrong port, or `ib_async` missing from the Python you used.

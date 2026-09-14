@@ -55,10 +55,39 @@ from constants import PRIMARY_COST_BPS, COVER_COST_BPS, PRIMARY_SYMBOL  # noqa: 
 Store = bandlab.load("store").Store
 
 
+def _revision() -> str:
+    """The commit this code is actually running from, for the banner.
+
+    Added after a pre-flight failed twice on a traceback from a line that had
+    already been deleted upstream: the checkout was stale and nothing on screen
+    said so. A `git pull` that reports "Already up to date" while the branch it
+    fetched moved is indistinguishable from a successful one unless the running
+    code names itself. Never raises — a missing git is not a reason to refuse
+    to trade.
+    """
+    import subprocess
+    try:
+        head = subprocess.run(["git", "rev-parse", "--short", "HEAD"],
+                              cwd=_HERE, capture_output=True, text=True,
+                              timeout=5)
+        if head.returncode != 0:
+            return "unknown"
+        rev = head.stdout.strip()
+        dirty = subprocess.run(["git", "status", "--porcelain", "--untracked-files=no"],
+                               cwd=_HERE, capture_output=True, text=True, timeout=5)
+        branch = subprocess.run(["git", "rev-parse", "--abbrev-ref", "HEAD"],
+                                cwd=_HERE, capture_output=True, text=True, timeout=5)
+        out = f"{branch.stdout.strip() or '?'}@{rev}"
+        return out + (" +local-edits" if dirty.stdout.strip() else "")
+    except Exception:                                         # noqa: BLE001
+        return "unknown"
+
+
 def _banner(cfg: OvernightConfig, job: str, when: dt.datetime) -> None:
     print("=" * 78)
     print(f"  overnight · {job.upper()} · {when:%Y-%m-%d %H:%M:%S %Z}")
     print(f"  {cfg.summary()}")
+    print(f"  code: {_revision()}")
     print("=" * 78)
 
 
