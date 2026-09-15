@@ -1,3 +1,4 @@
+import os
 """Independent re-check of retreat_timing.py's episodes against the raw bars.
 
 Re-derives every claim in the ledger straight from SOXL_1min.csv without reusing
@@ -9,7 +10,12 @@ Usage:  python3 retreat_lab/verify.py [up_bps dn_bps]
 import csv, datetime as dt, sys, os
 from decimal import Decimal
 
-ROOT = "/home/user/TradingModel"
+ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+#: The repository root, derived from this file rather than typed.
+#: It was hardcoded to a Linux path for most of this project's life,
+#: which is invisible until someone runs it on the machine that
+#: actually has TWS: every glob silently matches nothing and the
+#: script reports "no data" rather than "wrong path".
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from retreat_timing import BPS, CONFIGS, bl, tag, ROOT, BARS, SYMBOL  # thresholds only, not the engine
 

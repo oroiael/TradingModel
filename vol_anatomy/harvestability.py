@@ -7,7 +7,12 @@ identically on SOXL and TQQQ from the yearly option CSVs.
 import os, sys
 import numpy as np, pandas as pd
 
-ROOT = "/home/user/TradingModel"
+ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+#: The repository root, derived from this file rather than typed.
+#: It was hardcoded to a Linux path for most of this project's life,
+#: which is invisible until someone runs it on the machine that
+#: actually has TWS: every glob silently matches nothing and the
+#: script reports "no data" rather than "wrong path".
 OUT = os.path.join(ROOT, "vol_anatomy/out")
 COLS = ["expiration", "strike", "right", "bid", "ask", "implied_vol",
         "underlying_price", "trade_date"]

@@ -22,7 +22,12 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import numpy as np, pandas as pd
 from anatomy import load, ann_vol
 
-ROOT = "/home/user/TradingModel"
+ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+#: The repository root, derived from this file rather than typed.
+#: It was hardcoded to a Linux path for most of this project's life,
+#: which is invisible until someone runs it on the machine that
+#: actually has TWS: every glob silently matches nothing and the
+#: script reports "no data" rather than "wrong path".
 OUT = os.path.join(ROOT, "vol_anatomy/out")
 W = pd.Timestamp("2022-01-01")
 

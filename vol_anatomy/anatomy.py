@@ -7,7 +7,12 @@ Fund facts are from SOXL-SOXS-Fact-Sheet.pdf / SAI_Combined3XShares.pdf.
 import os, sys
 import numpy as np, pandas as pd
 
-ROOT = "/home/user/TradingModel"
+ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+#: The repository root, derived from this file rather than typed.
+#: It was hardcoded to a Linux path for most of this project's life,
+#: which is invisible until someone runs it on the machine that
+#: actually has TWS: every glob silently matches nothing and the
+#: script reports "no data" rather than "wrong path".
 OUT = os.path.join(ROOT, "vol_anatomy/out")
 A = 252
 

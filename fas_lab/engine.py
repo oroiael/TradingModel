@@ -1,3 +1,4 @@
+import os
 """band_lab's locked intraday rules, parameterised so they can be run on any ETF.
 
 Implements band_lab/IMPLEMENTATION_SPEC.md section 2 verbatim, including the
@@ -10,7 +11,12 @@ import functools
 import numpy as np
 import pandas as pd
 
-ROOT = "/home/user/TradingModel"
+ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+#: The repository root, derived from this file rather than typed.
+#: It was hardcoded to a Linux path for most of this project's life,
+#: which is invisible until someone runs it on the machine that
+#: actually has TWS: every glob silently matches nothing and the
+#: script reports "no data" rather than "wrong path".
 
 
 @functools.lru_cache(maxsize=8)
