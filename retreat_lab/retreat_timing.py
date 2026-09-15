@@ -25,7 +25,12 @@ import os, sys, csv, datetime as dt
 from decimal import Decimal
 from collections import Counter, OrderedDict
 
-ROOT = "/home/user/TradingModel"
+ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+#: The repository root, derived from this file rather than typed.
+#: It was hardcoded to a Linux path for most of this project's life,
+#: which is invisible until someone runs it on the machine that
+#: actually has TWS: every glob silently matches nothing and the
+#: script reports "no data" rather than "wrong path".
 OUT = os.path.join(ROOT, "retreat_lab/out")
 
 # Which instrument. Everything in retreat_lab reads these three names, so one

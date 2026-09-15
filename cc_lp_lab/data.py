@@ -4,7 +4,12 @@ import os
 import numpy as np
 import pandas as pd
 
-ROOT = "/home/user/TradingModel"
+ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+#: The repository root, derived from this file rather than typed.
+#: It was hardcoded to a Linux path for most of this project's life,
+#: which is invisible until someone runs it on the machine that
+#: actually has TWS: every glob silently matches nothing and the
+#: script reports "no data" rather than "wrong path".
 OUT = os.path.join(ROOT, "cc_lp_lab/out")
 SPLIT_DATE = pd.Timestamp("2021-03-02")   # 15:1 forward split, before option data
 

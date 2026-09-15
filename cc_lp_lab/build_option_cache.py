@@ -1,3 +1,4 @@
+import os
 """Distill the 736 raw intraday 5-min option files into one parquet of trade bars.
 
 Keeps only bars where a trade actually printed (count>0 and close present) --
@@ -8,8 +9,9 @@ import glob, os, sys
 import pandas as pd
 from multiprocessing import Pool
 
-RAW = "/home/user/TradingModel/raw_data"
-OUT = "/home/user/TradingModel/cc_lp_lab/out"
+_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+RAW = os.path.join(_ROOT, "raw_data")
+OUT = os.path.join(_ROOT, "cc_lp_lab", "out")
 COLS = ["expiration", "strike", "right", "timestamp", "close", "volume", "count"]
 
 
