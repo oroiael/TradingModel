@@ -46,3 +46,18 @@ overnight/out/*.db
 overnight/out/*.json
 overnight/out/*.csv
 overnight/out/*.log
+
+# retreat_lab: results a script rewrites on EVERY run. Tracking these made a
+# local analysis dirty the tree and abort the next `git pull` — the data files
+# beside them (*_daily_ibkr.csv, proposed_ledger.csv, fill_quality_*.csv,
+# option_quotes_*.csv) are fetched or measured once and stay tracked, because
+# the parity gate and the cost model read them.
+retreat_lab/out/tail_screen.csv
+retreat_lab/out/dd_levers.csv
+retreat_lab/out/xlu_sleeve.csv
+retreat_lab/out/scaled_*.csv
+retreat_lab/out/hedge_sleeve_*.csv
+
+# The 235-symbol screen universe: ~14MB of daily bars fetched by
+# fetch_universe.py, refetchable in 45 minutes and machine-local.
+retreat_lab/out/universe/
