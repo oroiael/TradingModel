@@ -86,7 +86,13 @@ def main():
         common = [d for d in days if d in s]
         if len(common) < 200:
             continue
-        drag = mean(s[d] for d in common)
+        allr = [s[d] for d in common]
+        drag = mean(allr)
+        # a drag of +0.011%/night means nothing without its own error bar:
+        # over 925 nights the standard error is what separates "free to hold"
+        # from "slightly negative and we cannot tell".
+        dsd = stdev(allr) if len(allr) > 1 else 0.0
+        drag_t = drag / (dsd / len(allr) ** 0.5) if dsd else 0.0
         tl = [s[d] for d in common if d in decile]
         tail10 = mean(tl) if tl else 0.0
         # is the tail number distinguishable from this instrument's own noise?
@@ -97,18 +103,19 @@ def main():
         hit = sum(1 for d in dn if s[d] > 0) / len(dn) * 100 if dn else 0.0
         c = corr([base[d] for d in common], [s[d] for d in common])
         rows.append(dict(sym=sym, n=len(common), corr=c, drag=drag,
-                         tail10=tail10, t=t, tail5=tail5, hit=hit,
-                         grp=group_of(sym)))
+                         drag_t=drag_t, tail10=tail10, t=t, tail5=tail5,
+                         hit=hit, grp=group_of(sym)))
 
     rows.sort(key=lambda r: -r["tail10"])
 
     def show(rs, title):
         print(f"\n  {title}")
-        print(f"  {'symbol':<8}{'class':<17}{'corr':>7}{'drag':>9}"
+        print(f"  {'symbol':<8}{'class':<17}{'corr':>7}{'drag':>9}{'t':>6}"
               f"{'tail-10%':>10}{'t':>7}{'tail-5%':>9}{'hit':>6}")
         for r in rs:
             print(f"  {r['sym']:<8}{r['grp']:<17}{r['corr']:>7.2f}"
-                  f"{r['drag']*100:>8.3f}%{r['tail10']*100:>9.3f}%{r['t']:>7.1f}"
+                  f"{r['drag']*100:>8.3f}%{r['drag_t']:>6.1f}"
+                  f"{r['tail10']*100:>9.3f}%{r['t']:>7.1f}"
                   f"{r['tail5']*100:>8.3f}%{r['hit']:>5.0f}%")
 
     # THE question: pays in the tail AND does not bleed to hold.
@@ -143,12 +150,13 @@ def main():
     with open(path, "w", newline="") as fh:
         w = csv.writer(fh, lineterminator="\n")
         w.writerow(["symbol", "asset_class", "nights", "corr", "drag_pct",
-                    "tail10_pct", "tail10_t", "tail5_pct", "hit_rate_pct"])
+                    "drag_t", "tail10_pct", "tail10_t", "tail5_pct",
+                    "hit_rate_pct"])
         for r in rows:
             w.writerow([r["sym"], r["grp"], r["n"], round(r["corr"], 4),
-                        round(r["drag"] * 100, 4), round(r["tail10"] * 100, 4),
-                        round(r["t"], 2), round(r["tail5"] * 100, 4),
-                        round(r["hit"], 1)])
+                        round(r["drag"] * 100, 4), round(r["drag_t"], 2),
+                        round(r["tail10"] * 100, 4), round(r["t"], 2),
+                        round(r["tail5"] * 100, 4), round(r["hit"], 1)])
     print(f"  wrote {path}")
 
 
