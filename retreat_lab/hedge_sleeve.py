@@ -123,7 +123,18 @@ def main():
           f"{'<-5%':>6}   {'same-DD by scaling':>22}")
 
     def scale_matching(target_dd):
-        """The f whose drawdown matches, and what it returns. The comparison."""
+        """The f whose drawdown matches, and what it returns.
+
+        Returns (None, None) when the target is DEEPER than the unscaled
+        strategy's own drawdown. Scaling down can only make a drawdown
+        shallower, so there is no f to compare against — and the first version
+        of this silently bottomed out at f=1.00 and declared any hedge that
+        added return while deepening the drawdown a winner. That is leverage
+        wearing a hedge's clothes, and TMV at 100% (-36.5% against a -28.9%
+        baseline, crowned HEDGE WINS) is what exposed it.
+        """
+        if target_dd < base["dd"]:
+            return None, None
         lo, hi = 0.05, 1.0
         for _ in range(40):
             mid = (lo + hi) / 2
@@ -136,19 +147,53 @@ def main():
 
     print(f"  {'none':<10}{base['cagr']:>8.1f}%{base['dd']:>8.1f}%"
           f"{base['sharpe']:>8.2f}{base['worst']:>9.2f}%{base['n5']:>6}")
-    verdicts = []
+    winners = []
     for r in (0.10, 0.20, 0.30, 0.50, 1.00):
         st = curve(run(r), yrs)
         f, fcagr = scale_matching(st["dd"])
-        win = st["cagr"] > fcagr
-        verdicts.append(win)
+        if f is None:
+            note = "n/a — DEEPER than baseline, not a hedge"
+            win = False
+        else:
+            # Winning on CAGR-per-drawdown while LOSING Sharpe means the gain
+            # came from one episode rather than from carrying less risk. Both
+            # have to improve before this is called a win.
+            win = st["cagr"] > fcagr and st["sharpe"] >= base["sharpe"]
+            flag = "HEDGE WINS" if win else (
+                "scaling wins" if st["cagr"] <= fcagr else "CAGR only, Sharpe fell")
+            note = f"f={f:.2f} → {fcagr:>6.1f}%  {flag}"
+        if win:
+            winners.append(r)
         print(f"  {f'{r:.0%} hedge':<10}{st['cagr']:>8.1f}%{st['dd']:>8.1f}%"
-              f"{st['sharpe']:>8.2f}{st['worst']:>9.2f}%{st['n5']:>6}   "
-              f"f={f:.2f} → {fcagr:>6.1f}%  {'HEDGE WINS' if win else 'scaling wins'}")
+              f"{st['sharpe']:>8.2f}{st['worst']:>9.2f}%{st['n5']:>6}   {note}")
+
+    # ---------------------------------------------- the test that decides it
+    #
+    # dd_levers.py established the -28.9% is ONE 88-day stretch in 2023 that six
+    # nights produced. Any instrument that happened to be up on those six nights
+    # reduces it. Having screened 234 candidates and then sleeved the best, that
+    # is precisely the shape of an overfit — so the halves have to agree.
+    print(f"\n  OUT OF SAMPLE — the -28.9% is ONE episode (2023-07-28 to 10-24,")
+    print(f"  six nights). Screening 234 names for what was up on six nights")
+    print(f"  finds six nights. The halves have to agree, or it found nothing.")
+    mid = len(days) // 2
+    halves = [("first  " + str(days[0]) + "→" + str(days[mid - 1]), 0, mid),
+              ("second " + str(days[mid]) + "→" + str(days[-1]), mid, len(days))]
+    print(f"\n  {'window':<30}{'sleeve':<9}{'CAGR':>9}{'maxDD':>9}{'Sharpe':>8}")
+    for label, a, b in halves:
+        for r in (0.0,) + tuple(winners[:2] or (0.30,)):
+            v = run(r)[a:b]
+            yh = (days[b - 1] - days[a]).days / 365.25
+            st = curve(v, yh)
+            tag = "none" if r == 0 else f"{r:.0%}"
+            print(f"  {label if r == 0 else '':<30}{tag:<9}{st['cagr']:>8.1f}%"
+                  f"{st['dd']:>8.1f}%{st['sharpe']:>8.2f}")
 
     print()
-    if any(verdicts):
-        print(f"  {'+'.join(legs)} beats the dial at some size — worth a closer look.")
+    if winners:
+        print(f"  {'+'.join(legs)} beats the dial at {', '.join(f'{r:.0%}' for r in winners)}"
+              f" in-sample.")
+        print(f"  Believe it only if BOTH halves above show the drawdown improving.")
     else:
         print(f"  {'+'.join(legs)} is DOMINATED: every drawdown it buys, holding")
         print(f"  less buys more cheaply, with no second instrument and no "
