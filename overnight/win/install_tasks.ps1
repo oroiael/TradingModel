@@ -4,7 +4,7 @@
   be typed during the trading day.
 
 .DESCRIPTION
-  Seven tasks under the \Overnight\ folder in Task Scheduler. Times are the
+  Eight tasks under the \Overnight\ folder in Task Scheduler. Times are the
   MACHINE's local clock, and the strategy's deadlines are New York time, so
   this refuses to install unless the machine is on Eastern.
 
@@ -72,7 +72,8 @@ $send = if ($live) { '--transmit' } else { '' }
 # job, time, flags, why
 $jobs = @(
   @{ Name = 'exit';      At = '09:15'; Args = "exit $send";     Why = 'sell at the opening auction' },
-  @{ Name = 'watchdog';  At = '09:35'; Args = "watchdog $send"; Why = 'flatten if the exit did not' },
+  @{ Name = 'watchdog0'; At = '09:32'; Args = "watchdog $send"; Why = 'catch a MOO that did not fill, two minutes after the print' },
+  @{ Name = 'watchdog';  At = '09:35'; Args = "watchdog $send"; Why = 'second check' },
   @{ Name = 'report';    At = '09:45'; Args = 'report';         Why = 'write the P&L row' },
   @{ Name = 'watchdog2'; At = '12:30'; Args = "watchdog $send"; Why = 'midday safety net' },
   @{ Name = 'watchdog3'; At = '15:35'; Args = "watchdog $send"; Why = 'clear anything stuck before entering' },

@@ -26,13 +26,14 @@ powershell -ExecutionPolicy Bypass -File overnight\win\uninstall_tasks.ps1
 
 ### What that installs
 
-Seven weekday tasks under `\Overnight\` in Task Scheduler, all logging to
+Eight weekday tasks under `\Overnight\` in Task Scheduler, all logging to
 `overnight\out\<job>.log`.
 
 | ET | job | what it does |
 |---|---|---|
 | 09:15 | `exit` | sells **market-on-open** |
-| 09:35 | `watchdog` | flattens at market if the exit did not |
+| 09:32 | `watchdog` | catches a MOO that did not fill, two minutes after the print |
+| 09:35 | `watchdog` | second check |
 | 09:45 | `report` | writes the P&L row |
 | 12:30 | `watchdog` | midday safety net |
 | 15:35 | `watchdog` | clears anything stuck, before entering |
