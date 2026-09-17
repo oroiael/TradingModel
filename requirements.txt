@@ -1,0 +1,57 @@
+# TradingModel — dependencies for backtesting and analysis.
+#
+# This is the set that runs ANYWHERE, including a GitHub Codespace: pure
+# computation over the CSVs tracked in Git LFS, plus the HTTP-based data
+# sources. Derived from the actual imports across the repo, not guessed.
+#
+#     pip install -r requirements.txt
+#
+# Anything that needs a process listening on localhost — TWS/IB Gateway, the
+# ThetaData Terminal — lives in requirements-local.txt instead, because it
+# cannot work in a cloud container. See .devcontainer/README.md.
+
+# --- Core numerics: every backtester and lab in this repo ---
+#
+# The major-version caps are deliberate. pandas 3.0 is current on PyPI and
+# changes defaults this repo leans on heavily (copy-on-write semantics, the
+# string dtype, groupby/resample edges). An uncapped `pandas>=2.0` would mean a
+# fresh Codespace silently runs a different pandas from your local venv, and a
+# backtest that disagrees with the one you ran last week is the single worst
+# failure mode for this project. Lift the cap deliberately, with a re-run of
+# the qa/ suite, not by accident on a container rebuild.
+pandas>=2.0,<3.0
+numpy>=1.24,<3.0
+scipy>=1.10
+
+# --- Plotting (38 modules import it; headless containers need the Agg
+#     backend, which .devcontainer/devcontainer.json sets via MPLBACKEND) ---
+matplotlib>=3.6
+
+# --- Statistics: ratio_hedge_proxy, vol_anatomy, the regression overlays ---
+statsmodels>=0.14
+
+# --- Parquet backend for the cc_lp_lab and ccp_lab caches. Not imported
+#     directly — pandas reaches for it in read_parquet/to_parquet. Without it
+#     ccp_lab falls back to pickle, which works but is larger and slower. ---
+pyarrow>=14.0
+
+# --- IBKR client used by the current scripts. Installing it is safe in a
+#     Codespace; CONNECTING is not (nothing listens on 127.0.0.1:7497 there).
+#     band_lab/live/ibkr_env.py explains the import-vs-interpreter failure. ---
+ib_async>=1.0
+
+# --- HTTP data sources: both work fine from a container ---
+yfinance>=0.2
+requests>=2.28
+
+# --- Config and scheduling ---
+python-dotenv>=1.0
+python-dateutil>=2.8
+schedule>=1.2
+
+# --- ETFGroupAnalysis/scripts/p2_collective.py and p14_crosslead_economic.py ---
+scikit-learn>=1.3
+
+# --- Tests (band_lab/live/tests and the qa/ suite) ---
+pytest>=7.4
+coverage>=7.3
