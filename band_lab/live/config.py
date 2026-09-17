@@ -30,6 +30,30 @@ from spec_constants import (  # noqa: E402
     STOP_PCT, TARGET_PCT, W_PER_SLEEVE, ConfigError, validate_config,
 )
 
+#: Which broker ports mean real money, and which mean paper.
+#:
+#: The first four are TWS and IB Gateway's own defaults. The last two are the
+#: reason this is a named set rather than an inline tuple: the containerised
+#: Gateway (`deploy/docker-compose.yml`) does not expose the Gateway's own port
+#: to the docker network at all. The Gateway binds `127.0.0.1:4001/4002` inside
+#: its container and `socat` republishes those on `0.0.0.0:4003/4004`, so an
+#: engine running as a sibling container connects to **4003 (live) or 4004
+#: (paper)** — verified from the image's own `scripts/common.sh`, which sets
+#: `API_PORT=4002; SOCAT_PORT=4004` for paper and `4001/4003` for live.
+#:
+#: That mattered: the guard below used to read `(7496, 4001)`, so a live
+#: container-networked session on **4003 would have sailed past the
+#: `allow_live_account` acknowledgement entirely** — the one check standing
+#: between Phase 2 and real money. The TWS image has the same shape on
+#: 7498/7499.
+#:
+#: A port outside both sets is not refused here — IBC's `OverrideTwsApiPort`
+#: makes custom ports legitimate — but `run.py` prints it as UNRECOGNISED
+#: rather than guessing, because a banner that says PAPER when it does not know
+#: is worse than one that admits it.
+LIVE_PORTS = frozenset({7496, 4001, 4003, 7498})
+PAPER_PORTS = frozenset({7497, 4002, 4004, 7499})
+
 #: §2 of the plan — capital basis is capped so the published cost rows apply.
 CAPITAL_CAP = 150_000.0
 
@@ -117,7 +141,7 @@ class EngineConfig:
     def validate(self) -> None:
         """§6.8 — reject anything that is a strategy change in disguise."""
         validate_config(self)                     # the §12 gate itself
-        if self.port in (7496, 4001) and not self.allow_live_account:
+        if self.port in LIVE_PORTS and not self.allow_live_account:
             raise ConfigError(
                 f"port {self.port} is a LIVE-money port; Phase 2 is paper only. "
                 "Set allow_live_account=True only when Phase 3 is signed off.")

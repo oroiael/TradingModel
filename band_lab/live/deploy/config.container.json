@@ -1,0 +1,8 @@
+{
+  "host": "ib-gateway",
+  "port": 4004,
+  "client_id": 11,
+  "watchdog_client_id": 12,
+  "transmit": false,
+  "allow_live_account": false
+}

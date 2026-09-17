@@ -49,6 +49,25 @@ def test_live_money_port_is_refused_by_default():
     EngineConfig(port=7496, allow_live_account=True).validate()
 
 
+def test_every_live_port_is_refused_including_the_socat_ones():
+    """The containerised Gateway does not present 4001 to the docker network.
+
+    It binds 127.0.0.1:4001 inside its own container and socat republishes that
+    on 0.0.0.0:4003, so a sibling container reaches LIVE money on **4003**. The
+    guard listed only (7496, 4001), which meant the one acknowledgement standing
+    between Phase 2 and real money did not fire on the port a compose deployment
+    actually uses. Same shape on the TWS image's 7498.
+    """
+    from config import LIVE_PORTS, PAPER_PORTS
+    assert LIVE_PORTS.isdisjoint(PAPER_PORTS), "a port cannot be both"
+    for port in sorted(LIVE_PORTS):
+        with pytest.raises(ConfigError):
+            EngineConfig(port=port).validate()
+        EngineConfig(port=port, allow_live_account=True).validate()
+    for port in sorted(PAPER_PORTS):
+        EngineConfig(port=port).validate()          # must not raise
+
+
 def test_transmit_defaults_off():
     assert EngineConfig().transmit is False
 
@@ -373,8 +392,8 @@ def test_transmit_flag_turns_the_order_path_on():
 
 def test_transmit_is_still_refused_on_a_live_money_port():
     """--transmit must not become a route around the Phase 2 paper-only rule."""
-    from config import EngineConfig
-    for port in (7496, 4001):
+    from config import EngineConfig, LIVE_PORTS
+    for port in sorted(LIVE_PORTS):
         with pytest.raises(ConfigError):
             EngineConfig(port=port, transmit=True).validate()
 

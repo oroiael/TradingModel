@@ -35,7 +35,7 @@ import features                                            # noqa: E402
 from broker import (                                        # noqa: E402
     Broker, BrokerError, IBBroker, MarketClosedError, NotLiveDataError,
 )
-from config import EngineConfig                            # noqa: E402
+from config import EngineConfig, LIVE_PORTS, PAPER_PORTS                            # noqa: E402
 from engine import Engine, FLATTEN_IDX, START_IDX          # noqa: E402
 from feed import BarFeed                                   # noqa: E402
 from store import Store                                    # noqa: E402
@@ -351,9 +351,18 @@ def main() -> int:
         # believed to be a dry run.
         print("=" * 72)
         print("*** TRANSMIT ON — ORDERS WILL REACH THE MARKET ***")
-        print(f"    port {cfg.port} "
-              f"({'PAPER' if cfg.port in (7497, 4002) else 'CHECK THIS PORT'})"
-              f"   clientId={cfg.client_id}")
+        # PAPER_PORTS covers the socat ports the containerised Gateway
+        # actually presents to a sibling container (4004 paper, 4003 live), so
+        # a healthy deployment no longer reads CHECK THIS PORT on every start.
+        # §4.7's rule: a warning that fires on healthy days gets scrolled past.
+        # An unrecognised port still says so rather than guessing PAPER.
+        if cfg.port in PAPER_PORTS:
+            label = "PAPER"
+        elif cfg.port in LIVE_PORTS:
+            label = "*** LIVE MONEY ***"
+        else:
+            label = "UNRECOGNISED — CHECK THIS PORT"
+        print(f"    port {cfg.port} ({label})   clientId={cfg.client_id}")
         print(f"    {','.join(cfg.symbols)} at f={cfg.f} w={cfg.w} "
               f"cap=${cfg.capital_cap:,.0f}")
         print("    First order is possible only after the 11:00 bar (§2.3).")
