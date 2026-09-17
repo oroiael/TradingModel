@@ -7,7 +7,7 @@
   "image": "mcr.microsoft.com/devcontainers/python:1-3.12-bookworm",
 
   "features": {
-    // The data in this repo is ~6.3 GB across 853 CSVs tracked in Git LFS.
+    // The data in this repo is ~6.3 GB across 822 CSVs tracked in Git LFS.
     // Without this feature the checkout gives you pointer files, and every
     // backtester fails with a parse error on a 130-byte "CSV".
     "ghcr.io/devcontainers/features/git-lfs:1": {}

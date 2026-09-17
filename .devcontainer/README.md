@@ -14,9 +14,12 @@ optimizers (`massive_grid_optimizer.py`, `the_titan_grid.py`,
 (`yfinance`).
 
 ```bash
-scripts/fetch-data.sh --root       # pull the CSVs your run reads
-python band_lab/phase1/run.py      # then run as usual
+scripts/fetch-data.sh --root     # the 66 top-level CSVs, 1.2 GB
+python collar_backtester.py      # reads Master_Backtest_Data_SOXL.csv
 ```
+
+Pull before you run. Without the data these scripts do not fail cleanly — they
+read the 130-byte LFS pointer as if it were a CSV and die in the parser.
 
 ## What does not
 
@@ -42,40 +45,68 @@ importing. `band_lab/live/ibkr_env.py` explains the distinction.
 
 ## The LFS bandwidth question
 
-This repo tracks **~6.3 GB across 853 CSVs** in Git LFS:
+This repo tracks **~6.3 GB across 822 CSVs** in Git LFS:
 
-| Group | Files | Size |
-| --- | --- | --- |
-| top level | 66 | 1.22 GB |
-| `raw_data/` | 753 | 4.74 GB |
-| `soxl_raw_data/` | 3 | 313 MB |
+| Group | Files | Size | Fetch with |
+| --- | --- | --- | --- |
+| top level | 66 | 1.22 GB | `--root` |
+| `raw_data/` | 753 | 4.74 GB | `--raw-data` |
+| `soxl_raw_data/` | 3 | 313 MB | `--soxl-raw` |
 
-LFS bandwidth is metered monthly, and **every fresh Codespace re-downloads
-whatever it pulls**. This is the constraint most likely to bite you — check
-your allowance at github.com/settings/billing before making a habit of
-rebuilding.
-
-`post-create.sh` therefore sets `--skip-smudge` and pulls **nothing** by
-default. Fetch per run:
+LFS bandwidth is metered monthly, and a default clone materializes all of it —
+on every fresh Codespace. So **`.lfsconfig` sets `lfs.fetchexclude = "*"`**: a
+clone or a new Codespace arrives holding pointer files and costs no bandwidth,
+and you pull the group a run actually reads.
 
 ```bash
-scripts/fetch-data.sh --list       # groups and sizes
+scripts/fetch-data.sh --list       # groups, sizes, and what is already present
 scripts/fetch-data.sh --root       # 1.2 GB
 scripts/fetch-data.sh SOXL_1min.csv SOXS_1min.csv
 scripts/fetch-data.sh --all        # 6.3 GB, prompts first
 ```
 
-Two further levers, both deliberately **not** applied here because they change
-behaviour for every clone, not just Codespaces:
+### The `-X ""` gotcha
 
-- **`.lfsconfig` with `lfs.fetchexclude = "*"`** would make skip-smudge the
-  repo-wide default. Clean for a repo this size, but your next fresh clone on
-  any machine would also arrive empty. Your call.
-- **Prebuilds** (repo Settings → Codespaces) bake the container *and* the LFS
-  content into an image, so a new Codespace starts warm. Costs storage,
-  removes the repeated transfer.
+This bites anyone running git-lfs by hand, so it is worth stating plainly.
+`fetchexclude` is applied **in addition to** `--include`, not overridden by it:
+a file is fetched only if it matches the include **and** misses the exclude.
+With `*` excluded, that means:
 
-Keeping one Codespace alive rather than recreating it avoids the problem
+```bash
+git lfs pull -I "SOXL_1min.csv"          # fetches NOTHING, silently
+git lfs pull -I "SOXL_1min.csv" -X ""    # correct
+```
+
+Verified against git-lfs 3.4.1. `scripts/fetch-data.sh` passes `-X ""` for you,
+which is the main reason to use it rather than calling git-lfs directly.
+
+A second, related trap: a leading slash anchors a pattern to the repo root.
+Without it, `*.csv` matches at any depth — `-I "*.csv"` pulls all 822 files,
+`-I "/*.csv"` pulls the 66 at top level.
+
+### Consequences elsewhere
+
+`.lfsconfig` is committed, so this applies to **every** clone, not just
+Codespaces — including your Mac. A fresh clone there will also arrive empty
+until you run the fetch script. That is the intended trade for a repo this
+size, but it is a behaviour change worth knowing about.
+
+To opt out, delete `.lfsconfig`, or override it locally, which wins over the
+committed file:
+
+```bash
+git config lfs.fetchexclude ""
+```
+
+Existing clones that already hold the data are unaffected — nothing is deleted.
+
+### Prebuilds
+
+Repo Settings → Codespaces → prebuilds bakes the container *and* whatever LFS
+content you fetch into an image, so a new Codespace starts warm. Costs storage,
+removes the repeated transfer. Worth it if you create Codespaces often.
+
+Keeping one Codespace alive rather than recreating it sidesteps the problem
 entirely — a stopped Codespace keeps its disk; only the process dies.
 
 ## Python and dependency versions

@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
 # Runs once, after the Codespace container is created.
 #
-# Deliberately does NOT pull Git LFS content. The data in this repo is ~6.3 GB
-# and LFS bandwidth is metered monthly, so fetching all of it on every rebuild
-# is the fastest way to burn a quota. Fetch what a given run needs instead:
-#     scripts/fetch-data.sh --list
+# Does NOT pull Git LFS content, and does not need to suppress it either:
+# .lfsconfig sets `lfs.fetchexclude = "*"` repo-wide, so the clone that already
+# happened before this script ran cost no LFS bandwidth and left pointer files
+# on disk. This only reports the state and points at the fetch helper.
 set -euo pipefail
 
 say() { printf '\n\033[1m%s\033[0m\n' "$*"; }
@@ -15,26 +15,26 @@ python -m pip install -r requirements.txt --quiet
 echo "done: $(python -c 'import pandas, numpy; print("pandas", pandas.__version__, "| numpy", numpy.__version__)')"
 
 say "Git LFS status"
-git lfs install --local --skip-smudge >/dev/null 2>&1 || true
+# Column 2 of `git lfs ls-files` is the download state: * present, - pointer.
+total="$(git lfs ls-files 2>/dev/null | grep -c . || true)"
+have="$(git lfs ls-files 2>/dev/null | awk '$2=="*"' | grep -c . || true)"
+echo "${have} of ${total} LFS objects present locally."
 
-# A pointer file starts with the LFS spec URL and is ~130 bytes. Sample a file
-# we know is LFS-tracked rather than guessing from `git lfs ls-files`, which
-# reports what is tracked, not what is actually present on disk.
-probe="SOXL_1min.csv"
-if [ -f "$probe" ] && head -c 60 "$probe" 2>/dev/null | grep -q "git-lfs.github.com"; then
+if [ "$have" -lt "$total" ]; then
     cat <<'MSG'
-LFS content is NOT downloaded — the CSVs on disk are pointer files.
 
-This is expected and intentional: pulling all 853 files would transfer ~6.3 GB
-against your monthly LFS bandwidth quota. Fetch only what you need:
+Most CSVs on disk are pointer files, which is intentional: .lfsconfig excludes
+LFS content from fetch so a clone costs no bandwidth. Pull what a run needs:
 
-    scripts/fetch-data.sh --list              # what is available
-    scripts/fetch-data.sh SOXL_1min.csv       # one file
-    scripts/fetch-data.sh --band-lab          # a lab's inputs
+    scripts/fetch-data.sh --list              # groups, sizes, what is present
+    scripts/fetch-data.sh --root              # 1.2 GB  top-level CSVs
+    scripts/fetch-data.sh --raw-data          # 4.7 GB  raw_data/
+    scripts/fetch-data.sh SOXL_1min.csv       # named files
     scripts/fetch-data.sh --all               # everything (~6.3 GB)
+
+Running git-lfs by hand needs -X "" to clear that repo-level exclude:
+    git lfs pull -I "SOXL_1min.csv" -X ""
 MSG
-else
-    echo "LFS content appears to be present on disk."
 fi
 
 say "What runs here, and what does not"
