@@ -1,0 +1,31 @@
+# TradingModel — dependencies that only work on a machine running the
+# brokerage and data-vendor software locally.
+#
+#     pip install -r requirements-local.txt
+#
+# Install this on the Mac/Windows box that runs TWS or IB Gateway and the
+# ThetaData Terminal. Do NOT expect these to be usable in a Codespace: both
+# packages are clients for a process listening on localhost, and in a cloud
+# container localhost is the container. See .devcontainer/README.md.
+
+-r requirements.txt
+
+# --- ThetaData client. Talks to the ThetaData Terminal (a local Java app);
+#     used by the soxl_options_greeks_* and hybrid_collar_* loaders. The
+#     credentials come from .env — see .env.example.
+#
+#     Requires Python 3.12+: the entire 0.x line is yanked on PyPI and every
+#     1.0.x wheel declares requires-python >=3.12. On 3.11 this line cannot
+#     resolve at all, which is why .devcontainer pins 3.12. ---
+thetadata>=1.0
+
+# --- IBKR's own client, used by the older 5-minute fetchers
+#     (soxl_ibkr_historical.py, ibkr_intraday_fetcher.py, and 3 others).
+#     Installed from the TWS API tree vendored in this repo rather than PyPI,
+#     so the version matches the SDK the fetchers were written against:
+#
+#         pip install -e "TWS API/source/pythonclient"
+#
+#     Left as a comment because the path contains a space, which breaks
+#     naive requirements parsing on some tooling. Run it by hand once. ---
+# -e "TWS API/source/pythonclient"

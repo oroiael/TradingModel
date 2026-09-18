@@ -1,3 +1,14 @@
+# Local secrets. `.env` carries the ThetaData credentials the option loaders
+# read via python-dotenv. It was tracked until now — see .env.example for the
+# key names, and set the real values as Codespaces secrets rather than here.
+# Note `env/` below matches the directory only; it does not cover this file.
+.env
+.env.local
+.env.*.local
+
+# macOS
+.DS_Store
+
 __pycache__/
 *.pyc
 

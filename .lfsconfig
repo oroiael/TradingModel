@@ -1,0 +1,25 @@
+# Repo-level Git LFS policy. Read by git-lfs from the working tree, so it
+# applies to every clone and every Codespace — including the initial clone,
+# which is the point: that is the transfer we are trying not to pay for.
+#
+# This repo tracks ~6.3 GB across 822 CSVs. LFS bandwidth is metered monthly,
+# so the default of "materialize everything on clone" is the wrong default
+# here. `fetchexclude = *` makes a clone arrive with pointer files and costs
+# no bandwidth; you then pull the group a run actually reads:
+#
+#     scripts/fetch-data.sh --list
+#     scripts/fetch-data.sh --root
+#
+# IMPORTANT, if you run git-lfs by hand: `fetchexclude` is applied IN ADDITION
+# to any --include, not overridden by it. A file is fetched only when it
+# matches the include AND does not match the exclude, so with `*` excluded:
+#
+#     git lfs pull -I "SOXL_1min.csv"            # fetches NOTHING
+#     git lfs pull -I "SOXL_1min.csv" -X ""      # correct — clears the exclude
+#
+# Verified against git-lfs 3.4.1. scripts/fetch-data.sh passes -X "" for you.
+#
+# To opt out and go back to full checkouts, delete this file (or set
+# fetchexclude to an empty value in your local .git/config, which wins).
+[lfs]
+	fetchexclude = "*"

@@ -140,6 +140,60 @@ this sleeve's own working flatten with it, which is why `ensure_flat` re-sends
 unconditionally after escalating. Whether it frees a leg stuck in `PendingCancel`
 is **not verified**; `FakeIB` models it optimistically and says so.
 
+## Market data: which codes condemn what
+
+The engine refuses to trade on delayed data (§4), and the authoritative detector
+is the **error code**, not `marketDataType` — TWS does not reliably send a
+`marketDataType` callback when it is already serving what was asked for, so
+refusing on silence fires mostly on healthy days. That was learned twice: the
+original guard read an attribute nothing ever set, and its replacement stood a
+healthy sleeve down at 11:05 on a confirmed-good subscription.
+
+`broker.NO_LIVE_DATA_ERRORS` is the set that refuses. What matters beyond
+membership is **scope**, because two codes in it mean different things:
+
+| code | meaning | scope |
+|---|---|---|
+| `10089`, `10090`, `354`, `10167`, `10168` | no live subscription for *this contract* | the symbol only |
+| `10197` | "No market data during competing session" | **the whole account** |
+
+10197's message table entry, quoted: *"the user is logged into the paper account
+and live account simultaneously trying to request live market data using both the
+accounts. In such a scenario preference would be given to the live account."*
+
+That condition cannot be true of SOXL and false of SOXS. Registering it against
+whichever contract happened to be in flight would leave the other sleeve armed on
+a feed that has been demoted too, so it registers against the `"*"` wildcard that
+`assert_live_data` already honours. Entitlement codes are the opposite and
+`test_a_subscription_error_on_one_sleeve_does_not_condemn_the_other` pins them
+that way on purpose — widening those would stand down a sleeve that is fine.
+
+**Use `broker.no_live_data_scope(code, symbol)`. Never hand-write the `"*"`** —
+same rule, and same reason, as `is_working` below.
+
+**Verified** from IBKR's message tables in
+`TWS API/TWS Documentation - Copy Paste from Online.pdf`. **Never observed here:**
+no session has produced a 10197. It was added because the containerised paper
+Gateway (`band_lab/live/deploy/`) runs unattended while a live login may exist on
+another machine, which makes a competing session likelier than it was when the
+only deployment was one desktop TWS. Treating it as account-wide is correct
+whether TWS emits it once per request or once per session, which is why it was
+decided from the message text rather than held until a session showed one.
+
+Two related codes are **not** in the set, deliberately or otherwise:
+
+- `10189` — *"Failed to request tick-by-tick data… Trading TWS session is
+  connected from a different IP address. Or, No market data permissions."* The
+  engine does not request tick-by-tick data, so it has never been seen. A remote
+  Gateway makes the IP half of that message newly relevant; unresolved.
+- `1100` / `1101` / `1102` — connectivity, not entitlement. `1100` names "a
+  competing session" as one cause, and **`1101` means market-data subscriptions
+  were lost and must be re-requested.** None of the three is in
+  `IB_STATUS_CHATTER` or the warning band, so they currently reach the generic
+  branch and are reported as though an order had been marked `Cancelled`. That
+  is wrong, it will fire on every nightly reset, and nothing re-subscribes after
+  `1101`. **Open.**
+
 ## Writing or changing FakeIB
 
 The double exists so the order path can be tested without a broker, which only
@@ -150,8 +204,16 @@ while `IBBroker` returned everything from `openTrades()`. The state that carried
 
 - Use `broker.is_working(status)`. **Never hand-write a status list** — that is
   the exact mistake, and it recurred inside a test double written to catch it.
+- Same for market data: take scope from `broker.no_live_data_scope`, which both
+  `IBBroker._on_ib_error` and `FakeIB.report_no_live_data` call, so the double
+  cannot disagree with the broker about whether a code condemns one symbol or
+  the account.
 - New states must be reachable: `stall_cancels` leaves cancels in `PendingCancel`,
-  `confirm_cancels()` acknowledges them.
+  `confirm_cancels()` acknowledges them. `report_no_live_data(code, symbol)` is
+  the market-data equivalent — added 2026-09-18, because until then FakeIB could
+  only express a `marketDataType` downgrade and "a competing login stands BOTH
+  sleeves down" could not be written as an engine test except by patching the
+  thing under test.
 - If a new divergence appears, fix the double rather than working around it in the
   test. A test that reproduces a bug through a mechanism the broker does not have
   passes for the wrong reason.
@@ -165,6 +227,8 @@ These are inference, not verification, and each is marked at its use site:
 | a broker-side `STP` survives the client dying | `PHASE2_PLAN.md` §6.1 | kill the engine with a bracket on, look at TWS |
 | `reqGlobalCancel` frees a stalled `PendingCancel` | `orders.py:ensure_flat` | a session where the escalation fires |
 | `1 D` historical inside RTH may reach into the prior session | `PHASE2_PLAN.md` §6.4 | compare a request's span against the session |
+| `10197` carries a contract, and fires per request not per session | `broker.py:ACCOUNT_WIDE_NO_LIVE_DATA` | a session with a competing login — read whether `contract` is set and how many arrive |
+| `1101` needs an explicit re-subscribe, and `1100/1101/1102` are mis-reported as order failures | `broker.py:_on_ib_error` | any nightly reset; the log will show which branch they took |
 
 When one of these is settled by a live session, move it out of this table and into
 the verified sections above, with the date and what was observed.

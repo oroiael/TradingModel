@@ -1,0 +1,67 @@
+# Proves the three suites run from a clean checkout, on the Python the
+# devcontainer pins. This is the reproducible half of "do our tests run in a
+# Codespace" — the Codespace itself is checked by scripts/verify-codespace.sh.
+name: tests
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  suites:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # NOT lfs: true. .lfsconfig sets lfs.fetchexclude = "*", and git-lfs
+          # applies that IN ADDITION to any include, so checkout's built-in LFS
+          # step would transfer nothing and leave pointer files behind — the
+          # suites would then fail on unparseable "CSV" rather than on anything
+          # real. The explicit fetch below passes -X "" to clear the exclude.
+          lfs: false
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"        # matches .devcontainer
+          cache: pip
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Fetch only the data the suites read
+        run: |
+          git lfs install
+          # ~59 MB of the repo's 6.3 GB. Pulling everything here would burn the
+          # monthly LFS bandwidth quota on every push.
+          ./scripts/fetch-data.sh \
+            SOXL_5min_6Years.csv SOXS_5min_6Years.csv SOXL_1min.csv
+
+      - name: Confirm the data is real, not pointers
+        run: |
+          for f in SOXL_5min_6Years.csv SOXS_5min_6Years.csv SOXL_1min.csv; do
+            if head -c 60 "$f" | grep -q "git-lfs.github.com"; then
+              echo "::error file=$f::still an LFS pointer — the fetch did not run"
+              exit 1
+            fi
+            echo "ok  $f ($(du -h "$f" | cut -f1))"
+          done
+
+      - name: band_lab/phase1
+        run: cd band_lab/phase1 && python -m pytest -q
+
+      - name: band_lab/live
+        run: cd band_lab/live && python -m pytest -q
+
+      - name: overnight
+        run: cd overnight && python -m pytest -q
+
+      # The skill is a reference the engine is written against; it going stale
+      # is a silent failure, so it is checked like any other assertion.
+      - name: ibkr-semantics claims still hold
+        run: python .claude/skills/ibkr-semantics/scripts/verify_claims.py
