@@ -71,6 +71,39 @@ def _pct(x) -> str:
     return "n/a" if x is None else f"{x:.2f}%"
 
 
+def log_contract(broker, symbol: str, events=None) -> None:
+    """Say which contract and which venue an order is about to be routed to.
+
+    `IBKR Order types.md:93` — a SMART-routed MOC executes on the PRIMARY
+    LISTING EXCHANGE. The engine qualifies every symbol with
+    `primaryExchange="ARCA"` because that is right for XLU, and this repository
+    asserted it was right for SOXL too without ever checking.
+
+    It matters because the fill record splits perfectly by symbol: XLU has
+    filled 4 of 4 auction orders at 100% in a single execution each, and SOXL
+    0 of 3 — 629 of 1,390 across four executions, then nothing at all, then
+    218 of 1,294 across two. Partial fills in several executions are the
+    CONTINUOUS book, not an auction print. A MOC sent to a venue that does not
+    run the closing auction for that symbol would look exactly like this.
+
+    Read-only, and printed every run so the answer is in the log rather than in
+    someone's memory of a TWS window.
+    """
+    get = getattr(broker, "contract", None)
+    if not callable(get):
+        return
+    try:
+        c = get(symbol)
+    except Exception as exc:                                  # noqa: BLE001
+        _log(events, "warn", f"{symbol}: could not qualify contract: {exc}")
+        return
+    _log(events, "info",
+         f"{symbol} contract: conId={getattr(c, 'conId', '?')} "
+         f"exchange={getattr(c, 'exchange', '?')} "
+         f"primaryExchange={getattr(c, 'primaryExchange', '?')} "
+         f"type={getattr(c, 'secType', '?')}")
+
+
 def _log(events, level, msg):
     if events:
         events(level, msg)
@@ -311,6 +344,7 @@ def enter(broker, cfg: OvernightConfig, *, asof: Optional[dt.datetime] = None,
         _log(events, "info", "FLAT tonight — no order")
         return JobResult("enter", False, "flat", intent)
 
+    log_contract(broker, decision.leg, events)
     price = _reference_price(broker, decision.leg, sigs[decision.leg], cfg,
                              rehearsing, events)
 
@@ -541,6 +575,15 @@ def confirm(broker, cfg: OvernightConfig, *, asof: Optional[dt.datetime] = None,
     qty = sum(float(e.qty) for e in execs)
     px = sum(float(e.qty) * float(e.price) for e in execs) / qty
     pos = broker.position(intent.leg)
+
+    # The timestamp is the diagnostic. A closing-auction print is stamped
+    # 16:00:00; anything earlier came off the continuous book, which is what a
+    # partial fill across several executions implies and what SOXL has produced
+    # on every auction order so far.
+    for e in sorted(execs, key=lambda x: str(getattr(x, "time", ""))):
+        _log(events, "info",
+             f"  exec {getattr(e, 'time', '?')}  {float(e.qty):>7.0f} @ "
+             f"{float(e.price):.4f}  ref={getattr(e, 'order_ref', '') or '-'}")
 
     intent.filled_shares = int(qty)
     intent.fill_price = round(px, 4)
