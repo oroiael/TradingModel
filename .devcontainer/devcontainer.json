@@ -10,7 +10,17 @@
     // The data in this repo is ~6.3 GB across 822 CSVs tracked in Git LFS.
     // Without this feature the checkout gives you pointer files, and every
     // backtester fails with a parse error on a 130-byte "CSV".
-    "ghcr.io/devcontainers/features/git-lfs:1": {}
+    "ghcr.io/devcontainers/features/git-lfs:1": {},
+
+    // Lets the paper IB Gateway run inside this Codespace, which is the only
+    // way to exercise the real IBKR path from here: `ib_async` speaks the TWS
+    // socket protocol to a running Gateway and nothing else, so without a
+    // Gateway in the container there is no connection to test.
+    //
+    // PAPER ONLY, and only for testing the connection. A Codespace idles out
+    // after 30 minutes (4 h maximum) and is the wrong host for a session that
+    // must hold 09:30-16:00 ET — see band_lab/live/deploy/README.md.
+    "ghcr.io/devcontainers/features/docker-in-docker:2": {}
   },
 
   // Sized for the grid searches (massive_grid_optimizer, the_titan_grid,

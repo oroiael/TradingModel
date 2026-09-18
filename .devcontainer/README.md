@@ -109,6 +109,38 @@ removes the repeated transfer. Worth it if you create Codespaces often.
 Keeping one Codespace alive rather than recreating it sidesteps the problem
 entirely — a stopped Codespace keeps its disk; only the process dies.
 
+## Verifying the container works
+
+```bash
+scripts/verify-codespace.sh
+```
+
+Checks the interpreter is 3.12, that every dependency imports, that pandas is
+below the 3.0 cap, fetches the data the suites read, then runs all three
+suites and the `ibkr-semantics` claim check. Exit 0 means this container can
+run the project.
+
+| suite | tests | data it needs |
+|---|---|---|
+| `band_lab/phase1` | 60 | none |
+| `band_lab/live` | 504 | `SOXL_5min_6Years.csv`, `SOXS_5min_6Years.csv` |
+| `overnight` | 155 | `SOXL_1min.csv` |
+
+That is ~59 MB of the repo's 6.3 GB. The data set was established by running
+each suite against pointer files and reading which path it died on, not by
+guessing from `.gitattributes` — and a fresh clone has none of it, because
+`.lfsconfig` excludes LFS content from fetch.
+
+`.github/workflows/tests.yml` runs the same three suites on every push, from a
+clean checkout on Python 3.12. That is the reproducible version of this check:
+the script tells you whether *your* container is good, CI tells you whether the
+repo still builds anywhere. Note it sets `lfs: false` on checkout and fetches
+explicitly, because `actions/checkout`'s built-in LFS step would transfer
+nothing against `fetchexclude = "*"`.
+
+The IBKR connection is **not** covered by either. It needs a Gateway; see
+`band_lab/live/deploy/README.md`.
+
 ## Python and dependency versions
 
 The container is **Python 3.12**. `band_lab/live/DEPLOYMENT.md` sets the floor

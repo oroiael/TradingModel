@@ -50,4 +50,15 @@ DOES NOT RUN: anything connecting to 127.0.0.1:7497/7496/4001/4002 (TWS or
       Keep those on the machine running TWS. See .devcontainer/README.md.
 MSG
 
+say "Verify this container"
+cat <<'MSG'
+One command checks dependencies, fetches the ~59 MB the suites read, and runs
+all three of them (719 tests):
+
+    scripts/verify-codespace.sh
+
+The IBKR connection is a separate check and needs a Gateway:
+band_lab/live/deploy/README.md — "Testing the IBKR connection".
+MSG
+
 say "Ready."

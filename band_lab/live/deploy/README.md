@@ -106,6 +106,57 @@ log names the remedy (log the other session out) instead of reporting it as a
 dead order, and the 11:00 refusal names 10197 rather than blaming a
 subscription.
 
+## Testing the IBKR connection
+
+`diagnose.py` is the check. It connects read-only, performs every call the
+engine performs, prints what came back, **places no orders** and cancels every
+subscription it opens. It is the same pre-flight the runbook uses, so a pass
+here means the same thing it means on the trading machine.
+
+This works from inside a Codespace: `.devcontainer` enables docker-in-docker,
+so the paper Gateway runs alongside you. Paper login raises no IBKR Mobile
+prompt, so it comes up unattended.
+
+```bash
+cd band_lab/live/deploy
+cp .env.example .env                       # paper credentials
+docker compose up -d
+docker compose logs -f ib-gateway          # wait for the login to settle
+
+cd ..
+python diagnose.py --config deploy/config.host.json
+```
+
+Read it in this order — each line answers a different question:
+
+| line | what a pass proves |
+|---|---|
+| connect | the socket is open and the client id is not in use |
+| account / NetLiquidation | credentials are right and the account is readable |
+| session hours | the contract resolved and the exchange calendar came back |
+| **market data** | **the feed is live, not delayed** — the one that decides whether 11:00 arms |
+| historical bars | pacing is not being breached and the bar timestamps are ET |
+
+The market-data line is the one to actually look at. RUNBOOK §4.4: paper sees
+live data only if the live account shares its subscriptions. If it reports
+delayed, the engine will stand down at 11:00 and the session is wasted — and
+a Codespace is a likely place to hit IBKR **10197**, because the Gateway here
+runs while your desktop TWS may still be logged in. On 10197 every sleeve
+stands down, not just one; the log names the remedy.
+
+Two things a pass here does **not** prove. Both need the real deployment:
+
+- that the container survives 09:30-16:00 — a Codespace idles out after 30
+  minutes by default, 4 hours maximum;
+- that the 23:00 IBC restart reconciles cleanly (RUNBOOK §6.2).
+
+Shut it down when you are finished, so the session does not sit logged in and
+compete with the desktop for market data:
+
+```bash
+docker compose down
+```
+
 ## Going live later
 
 1. `TRADING_MODE: live` and real credentials.
