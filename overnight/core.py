@@ -20,6 +20,7 @@ from dataclasses import dataclass
 from typing import Optional
 
 from constants import (
+    CLEARING_PER_SHARE,
     COMMISSION_MAX_PCT,
     COMMISSION_MIN_ORDER,
     COMMISSION_PER_SHARE,
@@ -28,6 +29,8 @@ from constants import (
     FLAT,
     PRIMARY_MULTIPLE,
     PRIMARY_SYMBOL,
+    SELL_SEC_FEE_RATE,
+    SELL_TAF_PER_SHARE,
 )
 
 
@@ -128,18 +131,30 @@ def target_shares(equity: float, multiple: float, price: float) -> int:
     return int(math.floor(equity * multiple / price))
 
 
-def commission(shares: int, price: float) -> float:
-    """IBKR Pro tiered US stock/ETF commission for one order.
+def commission(shares: int, price: float, side: str = "BUY") -> float:
+    """All-in IBKR cost for one order, back-solved from the activity statement.
 
-    $0.0035/share, minimum $0.35, maximum 1% of trade value — verified in
-    `IBKR Commission Fees.md`. The minimum is why `STRATEGY.md` §3.5 sets a
-    funding floor: below 100 shares an order pays $0.35 whatever its size.
+    $0.005/share on the FIXED schedule, minimum $1.00, capped at 1% of trade
+    value, plus $0.000003/share clearing. A SELL additionally pays the FINRA
+    Trading Activity Fee per share and the SEC Section 31 fee on proceeds, so
+    an exit is dearer than the entry that opened it — on the 629-share SOXL
+    round trip, $4.63 out against $3.15 in.
+
+    The minimum is why `STRATEGY.md` §3.5 sets a funding floor: below 200
+    shares an order pays $1.00 whatever its size.
+
+    Only the commission is capped at 1% — the regulatory fees are statutory
+    and ride on top, which is what the statement shows.
     """
     if shares <= 0:
         return 0.0
     value = shares * price
-    return max(min(shares * COMMISSION_PER_SHARE, value * COMMISSION_MAX_PCT),
-               COMMISSION_MIN_ORDER)
+    total = max(min(shares * COMMISSION_PER_SHARE, value * COMMISSION_MAX_PCT),
+                COMMISSION_MIN_ORDER)
+    total += shares * CLEARING_PER_SHARE
+    if side.upper() == "SELL":
+        total += shares * SELL_TAF_PER_SHARE + value * SELL_SEC_FEE_RATE
+    return total
 
 
 def round_trip_cost_bps(shares: int, entry: float, exit_: float,
@@ -152,7 +167,8 @@ def round_trip_cost_bps(shares: int, entry: float, exit_: float,
     """
     if equity <= 0:
         return 0.0
-    total = commission(shares, entry) + commission(shares, exit_)
+    total = (commission(shares, entry, "BUY")
+             + commission(shares, exit_, "SELL"))
     return total / equity * 10_000.0
 
 

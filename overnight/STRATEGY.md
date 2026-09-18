@@ -300,6 +300,27 @@ and 1.24.
 | nights: SOXL / XLU / flat | 580 (65%) / 204 (23%) / 111 (12%) |
 | trades | 784, win rate 58% |
 | mean / median per trade | +0.376% / +0.320% |
+
+> **These figures are priced at a commission rate this account does not pay.**
+> They assume IBKR Pro **tiered** ($0.0035/share). The DU1790300 activity
+> statement for 2026-09-14..17 shows the account is on the **fixed** schedule:
+> $0.005/share, plus $0.000003/share clearing, plus per-share and
+> per-proceeds fees on the sell side. Measured per-side cost came in at 0.54
+> bps on SOXL and 1.33 bps on XLU against the 0.29 / 0.83 used here — 1.9x
+> and 1.6x.
+>
+> Repricing this same ledger at the real schedule: **CAGR +107.4% → +102.2%,
+> Sharpe 1.86 → 1.80, max drawdown −28.9% → −29.1%.** The table above is
+> therefore optimistic by about 5 pp of CAGR, and should be read as an upper
+> bound until `final_config.py` is re-run. The edge is not overturned — it is
+> measured in whole percent per trade against a correction of basis points —
+> but nothing downstream of this table should quote 106.7% without the
+> correction.
+>
+> The table is left at the original numbers on purpose: `parity.py` proves the
+> live core reproduces this exact ledger, and that proof is only worth
+> something if the ledger is not quietly edited. See
+> `constants.LEDGER_PRIMARY_COST_BPS`.
 | best / worst night | +13.42% / **−15.50%** |
 | nights worse than −8% | 5 |
 | weekend or holiday holds | 163 of 784 (21%) |
