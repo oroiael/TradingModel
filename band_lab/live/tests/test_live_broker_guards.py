@@ -194,6 +194,86 @@ def test_a_subscription_error_on_one_sleeve_does_not_condemn_the_other():
     b.assert_live_data("SOXS")               # must not raise
 
 
+def test_a_competing_session_stands_the_whole_account_down():
+    """10197 is a property of the login, not of a contract.
+
+    IBKR's message table: *"the user is logged into the paper account and live
+    account simultaneously trying to request live market data using both the
+    accounts. In such a scenario preference would be given to the live
+    account."* That cannot be true of SOXL and false of SOXS, so registering it
+    against whichever contract was in flight would leave the other sleeve armed
+    on a feed that has been demoted too.
+
+    The containerised paper Gateway (`deploy/`) makes this likelier, because it
+    runs unattended while a live login may exist on another machine.
+    """
+    b = _broker(dry_run=True, mdt=1)
+    b._on_ib_error(9, 10197, "No market data during competing session",
+                   SimpleNamespace(symbol="SOXL"))
+    for sleeve in ("SOXL", "SOXS"):
+        with pytest.raises(NotLiveDataError):
+            b.assert_live_data(sleeve)
+    with pytest.raises(NotLiveDataError):
+        b.assert_live_data()                 # and the account-level check too
+
+
+def test_a_competing_session_is_reported_as_one_not_as_a_dead_order():
+    """The remedy is "log the other session out", and the log must say so.
+
+    Before this, 10197 fell through to the generic branch and announced that
+    ib_async had "marked this trade Cancelled" — naming a trade that does not
+    exist for a reqMktData reqId, and pointing the operator at an order problem
+    instead of at the other login. §4.7: a message that misreports the fault is
+    worse than no message.
+    """
+    b, said = _broker_recording()
+    b._on_ib_error(9, 10197, "No market data during competing session",
+                   SimpleNamespace(symbol="SOXL"))
+    level, msg = said[-1]
+    assert level == "error"
+    assert "Cancelled" not in msg, "this is not an order rejection"
+    assert "competing session" in msg and "EVERY sleeve" in msg
+
+    # and the refusal at 11:00 names the real cause, not a hardcoded guess
+    with pytest.raises(NotLiveDataError) as exc:
+        b.assert_live_data("SOXL")
+    assert "10197" in str(exc.value)
+    assert "10089" not in str(exc.value), "must not blame a subscription"
+
+
+def test_a_per_contract_data_error_still_only_condemns_that_contract():
+    """The account-wide path must not have widened 10089 by accident."""
+    b = _broker(dry_run=True, mdt=1)
+    b._on_ib_error(9, 10089, "no subscription", SimpleNamespace(symbol="SOXL"))
+    with pytest.raises(NotLiveDataError):
+        b.assert_live_data("SOXL")
+    b.assert_live_data("SOXS")               # must not raise
+
+
+def test_fake_and_real_agree_on_no_live_data_scope():
+    """The double must reach the state the broker reports, not approximate it.
+
+    FakeIB could previously only express a `marketDataType` downgrade, so the
+    competing-session case was untestable at engine level except by patching
+    the thing under test. Both now route through `no_live_data_scope`.
+    """
+    from broker import FakeIB, no_live_data_scope, ACCOUNT_WIDE_NO_LIVE_DATA
+
+    for code in sorted(ACCOUNT_WIDE_NO_LIVE_DATA):
+        real = _broker(dry_run=True, mdt=1)
+        real._on_ib_error(9, code, "x", SimpleNamespace(symbol="SOXL"))
+        fake = FakeIB()
+        fake.report_no_live_data(code, "SOXL")
+        assert real._no_live_data == fake.no_live_data == {"*"}
+        assert no_live_data_scope(code, "SOXL") == "*"
+
+    real = _broker(dry_run=True, mdt=1)
+    real._on_ib_error(9, 10089, "x", SimpleNamespace(symbol="SOXL"))
+    fake = FakeIB()
+    fake.report_no_live_data(10089, "SOXL")
+    assert real._no_live_data == fake.no_live_data == {"SOXL"}
+
+
 def test_silence_proceeds_with_a_warning_rather_than_refusing():
     """Measured 2026-08-06: TWS often sends no `marketDataType` at all.
 

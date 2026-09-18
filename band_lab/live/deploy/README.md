@@ -98,8 +98,13 @@ error **10197** applies — *"the user is logged into the paper account and live
 account simultaneously… preference would be given to the live account"* — and
 the paper side quietly loses its feed.
 
-`broker.py`'s `NO_LIVE_DATA_ERRORS` does not yet include 10197, so the engine
-would not stand down on it. Tracked separately; not fixed here.
+The engine handles this: 10197 is in `broker.py`'s `NO_LIVE_DATA_ERRORS`, and
+because a competing login is a property of the *session* rather than of a
+contract it registers against the `"*"` wildcard — so **every** sleeve stands
+down, not just whichever symbol was in flight when IBKR sent the message. The
+log names the remedy (log the other session out) instead of reporting it as a
+dead order, and the 11:00 refusal names 10197 rather than blaming a
+subscription.
 
 ## Going live later
 
