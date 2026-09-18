@@ -80,7 +80,10 @@ def main() -> int:
 
     # The engine's own transcription, when it is importable from here.
     try:
-        from broker import ACTIVE_STATES, DONE_STATES, is_working
+        from broker import (ACCOUNT_WIDE_NO_LIVE_DATA, ACTIVE_STATES,
+                            DONE_STATES, FakeIB, IB_STATUS_CHATTER,
+                            NO_LIVE_DATA_ERRORS, is_warning, is_working,
+                            no_live_data_scope)
         claims += [
             ("broker.DONE_STATES matches the package",
              DONE_STATES == set(OrderStatus.DoneStates)),
@@ -88,6 +91,31 @@ def main() -> int:
              ACTIVE_STATES == set(OrderStatus.ActiveStates)),
             ("is_working treats PendingCancel as working",
              is_working("PendingCancel")),
+
+            # --- market data scope, per the "which codes condemn what" section
+            ("10197 refuses trading at all (it is in NO_LIVE_DATA_ERRORS)",
+             10197 in NO_LIVE_DATA_ERRORS),
+            ("10197 is the only account-wide market-data code",
+             set(ACCOUNT_WIDE_NO_LIVE_DATA) == {10197}),
+            ("every account-wide code also refuses — else scope is dead code",
+             ACCOUNT_WIDE_NO_LIVE_DATA <= NO_LIVE_DATA_ERRORS),
+            ("10197 condemns the account, not the contract in flight",
+             no_live_data_scope(10197, "SOXL") == "*"),
+            ("10089 still condemns only its own contract",
+             no_live_data_scope(10089, "SOXL") == "SOXL"),
+            ("10197 is not a warning, so it reaches the recording path",
+             not is_warning(10197)),
+            ("FakeIB can reach the account-wide state (report_no_live_data)",
+             (lambda f: (f.report_no_live_data(10197, "SOXL"),
+                         f.no_live_data == {"*"})[1])(FakeIB())),
+
+            # Documents an OPEN question, so it is meant to flip. If this now
+            # FAILS, someone has given 1100/1101/1102 their own handling —
+            # good, and the skill's market-data section must be updated to say
+            # so rather than still calling them mis-reported.
+            ("1100/1101/1102 are still unhandled connectivity codes (OPEN)",
+             not any(c in IB_STATUS_CHATTER or is_warning(c)
+                     or c in NO_LIVE_DATA_ERRORS for c in (1100, 1101, 1102))),
         ]
     except ImportError:
         print("  [skip] band_lab/live not importable — package claims only")
