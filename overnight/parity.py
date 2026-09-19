@@ -30,10 +30,16 @@ if _HERE not in sys.path:
     sys.path.insert(0, _HERE)
 
 from constants import (                                       # noqa: E402
-    COVER_COST_BPS,
     FLAT,
-    PRIMARY_COST_BPS,
     PRIMARY_SYMBOL,
+)
+# The ledger's own cost assumption, not the live one. The gate compares
+# DECISIONS and RETURN ARITHMETIC against a file that was priced at 0.29/0.83;
+# repricing one side of that comparison would make the gate fail for a reason
+# it was never meant to detect. `constants.LEDGER_*` says why these are frozen.
+from constants import (                                       # noqa: E402
+    LEDGER_COVER_COST_BPS as COVER_COST_BPS,
+    LEDGER_PRIMARY_COST_BPS as PRIMARY_COST_BPS,
 )
 import core                                                   # noqa: E402
 import features                                               # noqa: E402

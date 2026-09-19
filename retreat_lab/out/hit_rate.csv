@@ -1,0 +1,15 @@
+symbol,class,nights,uncond_win_pct,uncond_mean_pct,traded,filtered_win_pct,filtered_mean_pct,lift_pts
+UTSL,leveraged_long,925,54.92,0.1399,682,56.6,0.1478,1.68
+TECL,leveraged_long,925,55.03,0.1818,678,56.49,0.2284,1.46
+QLD,leveraged_long,925,56.32,0.1185,774,56.2,0.1201,-0.12
+SOXL,semis,925,55.03,0.3897,629,55.96,0.3422,0.93
+TQQQ,leveraged_long,925,55.78,0.1699,771,55.77,0.1644,-0.01
+XLU,sectors,925,53.51,0.0437,681,54.04,0.0421,0.52
+LABU,leveraged_long,925,53.51,0.1459,813,53.01,0.1024,-0.5
+TNA,leveraged_long,925,53.3,0.1174,740,52.84,0.0794,-0.46
+HYG,credit,925,48.32,-0.0092,873,48.0,-0.015,-0.33
+TYD,rates_long,925,47.46,-0.0168,826,47.46,-0.0189,-0.0
+TLT,rates_long,925,46.38,-0.0372,827,47.04,-0.0376,0.66
+TMF,rates_long,925,46.27,-0.1121,835,46.71,-0.1122,0.44
+UBT,rates_long,925,45.08,-0.0527,829,45.24,-0.0573,0.15
+SQQQ,inverse_equity,925,43.57,-0.1569,768,43.23,-0.1567,-0.34

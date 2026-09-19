@@ -197,3 +197,31 @@ def test_the_shipped_reference_files_exist_and_overlap():
         path = cfg.reference_csv[symbol]
         assert os.path.exists(path), f"{symbol}: {path} is missing"
         assert features.load_sessions(path), f"{symbol}: {path} is empty"
+
+
+# ============================== routing diagnostics for the SOXL fill problem
+
+def test_log_contract_prints_the_routing_venue(capsys):
+    """XLU has filled 4 of 4 auction orders at 100%; SOXL 0 of 3. A MOC is
+    routed to the PRIMARY LISTING EXCHANGE, and the engine asserts ARCA for
+    both without ever having checked SOXL."""
+    class B:
+        def contract(self, symbol):
+            return type("C", (), dict(conId=1234, exchange="SMART",
+                                      primaryExchange="ARCA", secType="STK"))()
+    schedule.log_contract(B(), "SOXL")
+    out = capsys.readouterr().out
+    assert "primaryExchange=ARCA" in out and "conId=1234" in out
+
+
+def test_log_contract_is_silent_on_a_broker_without_one():
+    """Never break a run for a diagnostic."""
+    schedule.log_contract(object(), "SOXL")
+
+
+def test_log_contract_warns_rather_than_raises(capsys):
+    class B:
+        def contract(self, symbol):
+            raise RuntimeError("no such contract")
+    schedule.log_contract(B(), "SOXL")
+    assert "could not qualify" in capsys.readouterr().out

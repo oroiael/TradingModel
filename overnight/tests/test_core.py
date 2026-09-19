@@ -96,32 +96,75 @@ def test_target_shares_degenerate_inputs_are_zero(eq, mult, px):
 
 # ----------------------------------------------------------------- commission
 
-def test_commission_uses_per_share_rate_above_100_shares():
-    assert core.commission(1000, 122.28) == pytest.approx(3.50)
+def test_commission_uses_per_share_rate_above_the_minimum():
+    # $0.005/share + $0.000003/share clearing, FIXED schedule.
+    assert core.commission(1000, 122.28) == pytest.approx(5.003)
 
 
-def test_the_035_MINIMUM_binds_below_100_shares():
-    """§3.5's whole point: 9 shares pay $0.35, not $0.0315."""
-    assert core.commission(9, 122.28) == pytest.approx(0.35)
-    assert core.commission(99, 122.28) == pytest.approx(0.35)
-    assert core.commission(100, 122.28) == pytest.approx(0.35)  # exactly at the knee
+def test_the_100_MINIMUM_binds_below_200_shares():
+    """§3.5's whole point: 9 shares pay $1.00, not $0.045."""
+    assert core.commission(9, 122.28) == pytest.approx(1.000027)
+    assert core.commission(199, 122.28) == pytest.approx(1.000597)
+    assert core.commission(200, 122.28) == pytest.approx(1.0006)  # at the knee
 
 
 def test_one_percent_cap_binds_on_penny_prices():
-    # 1000 shares at $0.10 = $100 notional; per-share would be $3.50, cap is $1.00
-    assert core.commission(1000, 0.10) == pytest.approx(1.00)
+    # 10,000 shares at $0.10 = $1,000 notional; per-share would be $50, cap is $10.
+    assert core.commission(10_000, 0.10) == pytest.approx(10.03)
+
+
+def test_a_sell_costs_more_than_the_buy_that_opened_it():
+    """TAF and Section 31 ride on the exit only. Never treat a side as symmetric."""
+    buy = core.commission(1000, 122.28, "BUY")
+    sell = core.commission(1000, 122.28, "SELL")
+    assert sell > buy
+    assert sell - buy == pytest.approx(1000 * 0.000195 + 122_280 * 20.60e-6)
 
 
 def test_no_shares_no_commission():
     assert core.commission(0, 122.28) == 0.0
+    assert core.commission(0, 122.28, "SELL") == 0.0
+
+
+@pytest.mark.parametrize("shares,price,expect", [
+    (629, 101.264880763, 3.146887),    # SOXL 2026-09-14 MOC buy
+    (218, 114.818348624, 1.090654),    # SOXL 2026-09-17 MOC buy
+    (8734, 41.32, 43.696202),          # XLU  2026-09-15 MOC buy
+    (8930, 41.33, 44.676790),          # XLU  2026-09-16 MOC buy
+])
+def test_buy_commission_reproduces_the_activity_statement(shares, price, expect):
+    """Every buy in DU1790300 2026-09-14..17, to the sixth decimal.
+
+    These are the numbers IBKR actually charged. If this test fails the cost
+    model has drifted off the account's real fee schedule, which is exactly
+    what went wrong for the first four live nights.
+    """
+    assert core.commission(shares, price, "BUY") == pytest.approx(expect, abs=1e-6)
+
+
+@pytest.mark.parametrize("shares,price,expect", [
+    (8734, 41.59022899, 52.882263),   # XLU  2026-09-16 MOO sell
+    (8930, 41.550269877, 54.061645),  # XLU  2026-09-17 MOO sell
+    (629, 104.824562798, 4.627796),   # SOXL 2026-09-15 watchdog sell
+])
+def test_sell_commission_reproduces_the_activity_statement(shares, price, expect):
+    """Same, for the sells, and to the same tolerance as the buys.
+
+    The two sell-side rates were fitted on exactly these three rows, so this
+    is not independent confirmation of the FIT -- it is a pin on the rates.
+    It earns its place because the fit had a spare degree of freedom (three
+    rows, two unknowns) and still came out at zero residual: if an edit moves
+    either rate, all three go red together, not one.
+    """
+    assert core.commission(shares, price, "SELL") == pytest.approx(expect, abs=1e-6)
 
 
 def test_round_trip_cost_is_quoted_against_equity_not_notional():
     """The cover leg runs at 3x notional; quoting against notional understates it."""
     bps = core.round_trip_cost_bps(shares=1000, entry=42.38, exit_=42.50,
                                    equity=1000 * 42.38 / 3.0)
-    # two orders of ~$3.50 on ~$14,127 of equity
-    assert bps == pytest.approx(4.96, abs=0.05)
+    # $5.00 in, $6.07 out, on ~$14,127 of equity
+    assert bps == pytest.approx(7.84, abs=0.05)
 
 
 # -------------------------------------------------------------------- returns

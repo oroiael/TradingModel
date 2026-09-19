@@ -1,0 +1,14 @@
+symbol,class,rv_corr_to_soxl,nights,cover_pct,mean_pct,win_pct,in_control_group
+TYD,rates_long,-0.1552,283,95.6,0.003,46.6,True
+TLT,rates_long,-0.1532,279,94.3,-0.0176,47.3,False
+UBT,rates_long,-0.1531,277,93.6,0.0144,45.8,True
+TMF,rates_long,-0.1411,279,94.3,-0.0041,47.0,False
+HYG,credit,0.212,253,85.5,-0.0352,46.2,True
+UTSL,leveraged_long,0.2798,191,64.5,0.2573,60.7,False
+XLU,sectors,0.2891,189,63.9,0.0897,60.3,True
+LABU,leveraged_long,0.4449,212,71.6,-0.2491,49.1,True
+TNA,leveraged_long,0.5485,184,62.2,-0.0351,51.6,False
+TQQQ,leveraged_long,0.8575,147,49.7,0.1547,53.7,False
+QLD,leveraged_long,0.8578,149,50.3,0.1247,53.0,True
+SQQQ,inverse_equity,0.8616,147,49.7,-0.1944,45.6,True
+TECL,leveraged_long,0.9472,61,20.6,0.4111,55.7,True

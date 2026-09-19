@@ -31,6 +31,22 @@ engine is untouched.
 Routing: smart-routed MOC orders execute on the primary listing exchange
 (`IBKR Order types.md:93`). SOXL and XLU are both Arca-listed, so both trade in
 the Arca auctions — which is the fill the backtest assumes.
+
+**VERIFIED 2026-09-18**, having been asserted here unverified for four days:
+Direxion's own SOXL/SOXS fact sheet, as of 2026-08-31, states "The Primary
+Listing Exchange is the NYSE Arca, Inc." XLU is an Arca-listed SPDR sector fund.
+So `primaryExchange="ARCA"` is correct for both and routing is NOT the
+explanation for SOXL's auction fills.
+
+That matters because it kills the leading theory. Through 2026-09-17 the record
+is XLU 4 of 4 auction orders filled 100% in a single execution each, and SOXL
+0 of 3 — 629 of 1,390 across four executions, then nothing, then 218 of 1,294
+across two. Two candidate causes have now been eliminated: the routing venue
+(above) and a malformed order (`IBBroker._order` sets no `lmtPrice`, so
+`place_moc` produces a clean MOC, not a limit-on-close). The cause is not yet
+known, and `schedule.log_contract` plus the per-execution timestamps in
+`confirm` are what will distinguish what remains — an auction print is stamped
+16:00:00.
 """
 
 from __future__ import annotations

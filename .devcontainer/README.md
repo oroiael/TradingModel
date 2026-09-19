@@ -33,11 +33,64 @@ is the container, and neither of these is in it:
 | `soxl_ibkr_historical*.py`, `ibkr_intraday_fetcher*.py`, `TQQQ_ibkr_historical_3yr.py` | same, via the older `ibapi` client |
 | `soxl_options_greeks_*.py`, `soxl_historical_greeks*.py` | the `thetadata` client needs the local ThetaData Terminal |
 
-There are workarounds — running headless IB Gateway with IBC inside the
-container, or reverse-tunnelling back to your Mac — but the first puts your
-IBKR credentials in a cloud container, and the second needs your Mac online
-anyway, which defeats the point. **Recommended split: live trading and data
-fetching stay on the machine running TWS; backtests move to the Codespace.**
+**Superseded in part.** `band_lab/live/deploy/docker-compose.yml` now runs a
+paper IB Gateway as a container, and `devcontainer.json` enables
+docker-in-docker so it can run here. The table above is still right about
+`localhost` — it is the Gateway container that changes the answer, not the
+network. With it up, `127.0.0.1:4002` inside the Codespace reaches a real TWS
+socket and the clients above connect.
+
+**Recommended split is unchanged: live trading and data fetching stay on the
+machine running TWS; analysis moves to the Codespace.** The Gateway makes the
+IBKR path *possible* from here, not advisable. Two reasons, and the second is
+the serious one.
+
+1. Your IBKR password ends up in a cloud container's environment.
+2. **IBKR allows one session per username.** Log the container Gateway into
+   the same paper account as your desktop TWS and they fight over it. This
+   compose file sets `EXISTING_SESSION_DETECTED_ACTION: primary`, so the
+   container is the one that wins — it takes the session and your desktop TWS
+   is dropped. If that desktop is running the `overnight/` engine, it silently
+   misses the 15:45 MOC, the 16:05 confirm, the 09:15 MOO or the 09:35
+   watchdog. Related: IBKR **10197**, "no market data during competing
+   session", which this project's notes record as demoting **the whole
+   account**, not one symbol — see `.claude/skills/ibkr-semantics/SKILL.md`.
+
+   If you need the Gateway here anyway, use a **second IBKR paper username**.
+   Failing that, only bring it up while desktop TWS is closed, and stop it
+   before 15:25 ET.
+
+## Running the cover-leg screen from here
+
+`retreat_lab/cover_search.py` scores 235 candidate instruments against SOXL.
+It is a two-stage pipeline and only the first stage needs a broker:
+
+```bash
+# Stage 1 — needs TWS/Gateway. ~45 min for 235 symbols at the default pacing.
+python3 retreat_lab/fetch_universe.py                 # desktop TWS, port 7497
+python3 retreat_lab/fetch_universe.py --port 4002     # container Gateway
+
+# Stage 2 — pure compute, no broker, no LFS data beyond the SOXL series.
+scripts/fetch-data.sh SOXL_1min.csv
+python3 retreat_lab/cover_search.py 20
+```
+
+Because stage 2 needs nothing from IBKR, the cleanest arrangement is to run
+stage 1 on the Windows box that already has TWS and the market-data
+entitlements, commit `retreat_lab/out/universe/*.csv`, and do stage 2 here.
+That avoids the session collision above entirely.
+
+Two things to expect from stage 1:
+
+- **It outlives the idle timeout.** 235 symbols at 11 s pacing is ~45 minutes;
+  Codespaces stops at 30 minutes idle by default. Raise it to 4 hours in
+  Codespaces settings. If it does get cut off, just re-run — the script skips
+  anything already on disk and continues.
+- **A partial universe is normal.** The 235 names span 18 groups including
+  currency, crypto and rates, and historical data for those needs entitlements
+  this account may not hold. Symbols that fail are logged and skipped rather
+  than aborting the run. Read the skip list before treating the screen as
+  complete.
 
 Those clients are still installed (`ib_async` is in `requirements.txt`) so the
 modules import and the offline tests pass. It is connecting that fails, not

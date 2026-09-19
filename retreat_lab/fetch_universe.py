@@ -28,8 +28,16 @@ MOC is not a risk worth taking for a research fetch.
 Symbols that will not qualify (delisted, renamed, wrong venue) are logged and
 skipped. A screen that aborts on the first bad ticker in 235 is useless.
 
+**Which port.** 7497 is desktop TWS in paper mode, which is the default and the
+recommended host for this job: that machine already runs TWS and already holds
+the market-data entitlements. 4002 is the containerised Gateway from
+`band_lab/live/deploy/`, for running this inside a Codespace. Do not point this
+at a Gateway that is logged into the SAME paper account as a desktop TWS you
+are relying on — see `.devcontainer/README.md` on IBKR 10197.
+
 Usage:  python3 retreat_lab/fetch_universe.py [--pace 11] [--duration "5 Y"]
-                                              [--port 7497] [--force]
+                                              [--host 127.0.0.1] [--port 7497]
+                                              [--force]
 """
 from __future__ import annotations
 
@@ -79,7 +87,11 @@ def main(argv=None) -> int:
     ap.add_argument("--pace", type=float, default=11.0,
                     help="seconds between requests (default 11 ~ 55/10min)")
     ap.add_argument("--duration", default="5 Y")
-    ap.add_argument("--port", type=int, default=7497)
+    ap.add_argument("--host", default="127.0.0.1",
+                    help="TWS/Gateway host (default 127.0.0.1)")
+    ap.add_argument("--port", type=int, default=7497,
+                    help="7497 desktop TWS paper (default), 4002 the "
+                         "containerised Gateway in a Codespace")
     ap.add_argument("--client-id", type=int, default=22, dest="client_id")
     ap.add_argument("--force", action="store_true",
                     help="refetch symbols already on disk")
@@ -114,14 +126,22 @@ def main(argv=None) -> int:
     # `primary=""` matters: the engine qualifies against ARCA, which is right
     # for SOXL and XLU and wrong for most of a 235-name universe. SMART with no
     # primary lets IBKR resolve the listing itself.
-    broker = AuctionBroker(host="127.0.0.1", port=args.port,
+    broker = AuctionBroker(host=args.host, port=args.port,
                            client_id=args.client_id, exchange="SMART",
                            primary="", dry_run=True,
                            on_event=lambda l, m: None)
     ok = skipped = 0
     started = time.time()
     try:
-        broker.connect()
+        try:
+            broker.connect()
+        except Exception as exc:                              # noqa: BLE001
+            alt = 4002 if args.port == 7497 else 7497
+            print(f"could not reach {args.host}:{args.port} — {str(exc)[:70]}\n"
+                  f"  7497 is desktop TWS (paper); 4002 is the containerised\n"
+                  f"  Gateway that `band_lab/live/deploy/docker-compose.yml`\n"
+                  f"  publishes. Try --port {alt}.")
+            return 3
         for i, sym in enumerate(todo, 1):
             try:
                 bars = broker.daily_sessions(sym, None, args.duration)
