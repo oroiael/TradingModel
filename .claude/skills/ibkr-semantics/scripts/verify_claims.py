@@ -81,9 +81,9 @@ def main() -> int:
     # The engine's own transcription, when it is importable from here.
     try:
         from broker import (ACCOUNT_WIDE_NO_LIVE_DATA, ACTIVE_STATES,
-                            DONE_STATES, FakeIB, IB_STATUS_CHATTER,
-                            NO_LIVE_DATA_ERRORS, is_warning, is_working,
-                            no_live_data_scope)
+                            DONE_STATES, FakeIB, IB_CONNECTIVITY_CODES,
+                            IBBroker, NO_LIVE_DATA_ERRORS, is_warning,
+                            is_working, no_live_data_scope)
         claims += [
             ("broker.DONE_STATES matches the package",
              DONE_STATES == set(OrderStatus.DoneStates)),
@@ -109,13 +109,30 @@ def main() -> int:
              (lambda f: (f.report_no_live_data(10197, "SOXL"),
                          f.no_live_data == {"*"})[1])(FakeIB())),
 
-            # Documents an OPEN question, so it is meant to flip. If this now
-            # FAILS, someone has given 1100/1101/1102 their own handling —
-            # good, and the skill's market-data section must be updated to say
-            # so rather than still calling them mis-reported.
-            ("1100/1101/1102 are still unhandled connectivity codes (OPEN)",
-             not any(c in IB_STATUS_CHATTER or is_warning(c)
-                     or c in NO_LIVE_DATA_ERRORS for c in (1100, 1101, 1102))),
+            # --- connectivity, per the "the nightly reset" section
+            #
+            # These replaced a claim written to flip when 1100/1101/1102 got
+            # handled. It never flipped: it tested the three sets that existed
+            # when it was written, and the fix introduced a fourth
+            # (IB_CONNECTIVITY_CODES), so it stayed true while its label went
+            # stale. The lesson is in the shape of what follows — assert the
+            # BEHAVIOUR that is wanted, not the absence of the mechanisms you
+            # happen to have thought of.
+            ("1100/1101/1102 are routed as connectivity, not order errors",
+             {1100, 1101, 1102} <= IB_CONNECTIVITY_CODES),
+            ("no connectivity code is sticky — they fire every night",
+             IB_CONNECTIVITY_CODES.isdisjoint(NO_LIVE_DATA_ERRORS)),
+            ("1101 drops the ticker cache, so the next read re-subscribes",
+             (lambda b: (b._tickers.__setitem__("SOXL", object()),
+                         b._on_ib_error(-1, 1101, "data lost"),
+                         b._tickers == {})[2])(IBBroker(dry_run=True))),
+            ("1102 keeps it, so TWS's surviving lines are not orphaned",
+             (lambda b: (b._tickers.__setitem__("SOXL", object()),
+                         b._on_ib_error(-1, 1102, "data maintained"),
+                         "SOXL" in b._tickers)[2])(IBBroker(dry_run=True))),
+            ("a 1100 makes quote report empty rather than a frozen book",
+             (lambda b: (b._on_ib_error(-1, 1100, "lost"),
+                         not b.quote("SOXL").ok)[1])(IBBroker(dry_run=True))),
         ]
     except ImportError:
         print("  [skip] band_lab/live not importable — package claims only")

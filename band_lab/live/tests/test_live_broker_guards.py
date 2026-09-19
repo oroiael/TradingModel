@@ -194,6 +194,90 @@ def test_a_subscription_error_on_one_sleeve_does_not_condemn_the_other():
     b.assert_live_data("SOXS")               # must not raise
 
 
+def test_the_nightly_reset_is_not_reported_as_a_cancelled_order():
+    """1100/1101/1102 fire on every healthy session — RUNBOOK §4.3 restarts TWS
+    at 23:00 and IBKR resets nightly. They sit outside ib_async's warning band,
+    so they used to reach the generic branch and announce that the trade had
+    been marked Cancelled, naming a trade that does not exist for a
+    connectivity notice. A daily error about orders that were never in danger
+    is §4.7's failure mode at its worst.
+    """
+    for code in (1100, 1101, 1102):
+        b, said = _broker_recording()
+        b._on_ib_error(-1, code, "connectivity message")
+        assert said, f"{code} must still be reported"
+        _, msg = said[-1]
+        assert "Cancelled" not in msg, f"{code} is not an order rejection"
+        assert str(code) in msg
+
+
+def test_1101_drops_the_subscriptions_so_the_next_read_re_requests():
+    """IBKR: "Your market data requests have been lost and need to be
+    re-submitted." Nothing in ib_async does it — IB._onError handles 1102 only,
+    and only for the account summary. Without this the Ticker objects survive
+    holding their last values and `quote` reports a frozen book as a live one.
+    """
+    b, said = _broker_recording()
+    b._tickers["SOXL"] = object()
+    b._tickers["SOXS"] = object()
+
+    b._on_ib_error(-1, 1101, "Connectivity restored - data lost")
+
+    assert b._tickers == {}, "the cache must be dropped so _ticker re-requests"
+    _, msg = said[-1]
+    assert "SOXL" in msg and "SOXS" in msg, "say which sleeves are re-subscribing"
+
+
+def test_1102_keeps_the_subscriptions_rather_than_orphaning_them():
+    """IBKR: "...recovered and there is no need for you to re-submit them."
+
+    Clearing here would make the next read call reqMktData for a line TWS still
+    holds, orphaning the old reqId against the ~100-line limit that `_ticker`
+    exists to protect.
+    """
+    b, _ = _broker_recording()
+    sentinel = object()
+    b._tickers["SOXL"] = sentinel
+    b._on_ib_error(-1, 1102, "Connectivity restored - data maintained")
+    assert b._tickers.get("SOXL") is sentinel, "1102 must not drop the cache"
+
+
+def test_1100_reports_no_quote_rather_than_a_stale_one():
+    """Between 1100 and the notice that resolves it, the cached book is stale.
+
+    `quote`'s one caller records it as the quote at the fill — §1's evidence
+    for whether IBKR filled a resting limit without the quote reaching it — so
+    a frozen book logged there corrupts the thing it exists to measure.
+    """
+    b, _ = _broker_recording()
+
+    class _T:                                    # a book frozen before the drop
+        bid, ask, last, bidSize, askSize = 10.0, 10.02, 10.01, 1, 1
+    b._tickers["SOXL"] = _T()
+    assert b.quote("SOXL").ok, "sanity: it reads while connected"
+
+    b._on_ib_error(-1, 1100, "Connectivity lost")
+    q = b.quote("SOXL")
+    assert not q.ok and (q.bid, q.ask, q.last) == (0.0, 0.0, 0.0)
+
+    # and it recovers, without having orphaned the line TWS kept
+    b._on_ib_error(-1, 1102, "Connectivity restored - data maintained")
+    assert b.quote("SOXL").ok, "1102 restores reading from the kept cache"
+
+
+def test_1100_does_not_permanently_stand_the_session_down():
+    """A nightly blip must not condemn the account the way 10197 does.
+
+    `_no_live_data` is sticky — nothing clears it — so putting a code that
+    fires every night into it would end each session at the first reset.
+    """
+    b, _ = _broker_recording()
+    b._on_ib_error(-1, 1100, "Connectivity lost")
+    assert b._no_live_data == set(), "1100 is connectivity, not entitlement"
+    b._on_ib_error(-1, 1101, "restored - data lost")
+    assert b._no_live_data == set()
+
+
 def test_a_competing_session_stands_the_whole_account_down():
     """10197 is a property of the login, not of a contract.
 
