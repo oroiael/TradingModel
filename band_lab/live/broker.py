@@ -42,7 +42,36 @@ MARKET_DATA_LIVE = 1
 #: These are the *reliable* signal — observed 2026-08-03, when TWS emitted 10089
 #: four times while `marketDataType` stayed silent. The `marketDataType` probe
 #: below is the backstop for a silent downgrade, not the primary detector.
-NO_LIVE_DATA_ERRORS = frozenset({354, 10089, 10090, 10167, 10168})
+NO_LIVE_DATA_ERRORS = frozenset({354, 10089, 10090, 10167, 10168, 10197})
+
+#: The subset of the above that is a property of the *session*, not of a
+#: contract. IBKR's message table on 10197 — "No market data during competing
+#: session" — reads: *"the user is logged into the paper account and live
+#: account simultaneously trying to request live market data using both the
+#: accounts. In such a scenario preference would be given to the live
+#: account."*
+#:
+#: That condition cannot be true of SOXL and false of SOXS. 10089 is the
+#: opposite and `test_a_subscription_error_on_one_sleeve_does_not_condemn_the
+#: _other` pins it that way on purpose: entitlements really are per contract,
+#: so one sleeve standing down must not condemn the other. A competing login
+#: is not an entitlement, so registering 10197 against whichever contract
+#: happened to be in flight would leave the other sleeve armed on a feed that
+#: has been demoted too.
+#:
+#: Registered against `"*"`, the wildcard `assert_live_data` already honours,
+#: so it stands the whole account down regardless of which contract — if any —
+#: IBKR attached to the message.
+#:
+#: **Verified** from IBKR's own message table, which is on disk at
+#: `TWS API/TWS Documentation - Copy Paste from Online.pdf`. **Not verified:**
+#: whether TWS attaches a contract to this message, or emits it once per
+#: request or once per session. No session here has produced a 10197 — the
+#: containerised paper Gateway in `deploy/` makes one likelier, since it runs
+#: while a live login may exist elsewhere. Treating it as account-wide is
+#: correct under either emission pattern, which is why it is safe to decide
+#: this from the message text rather than waiting for an observation.
+ACCOUNT_WIDE_NO_LIVE_DATA = frozenset({10197})
 
 #: `ib_async.Wrapper.error`'s own warning set, transcribed from the installed
 #: package and asserted against it by `test_the_warning_set_matches_ib_async`.
@@ -79,6 +108,40 @@ OCA_CANCEL_CODES = frozenset({201, 202})
 #: The engine and the watchdog each issue it through `ib_async`'s
 #: `connectAsync`, so whichever connects second can take it from the first.
 ACCOUNT_SUBSCRIPTION_ERRORS = frozenset({2100, 2101})
+
+
+#: Connectivity notices. **Not** order rejections and not entitlement problems,
+#: which is the whole reason they need their own branch: they are outside
+#: `ib_async`'s warning band, so without this they reach the generic handler and
+#: are announced as "ib_async has marked this trade Cancelled" — naming a trade
+#: that does not exist. IBKR's message table, quoted:
+#:
+#:   1100  "Connectivity between IB and the TWS has been lost." — "...an
+#:         internet connectivity issue, a **nightly reset of the IB servers**,
+#:         or a competing session."
+#:   1101  "Connectivity between IB and TWS has been restored- **data lost**."
+#:         — "Your market data requests have been lost and **need to be
+#:         re-submitted**."
+#:   1102  "...restored- **data maintained**." — "...recovered and there is no
+#:         need for you to re-submit them."
+#:
+#: The nightly reset means these fire on every healthy session (RUNBOOK §4.3
+#: restarts TWS at 23:00), so mis-reporting them is the §4.7 failure mode at
+#: its worst: a daily error message about orders that were never in danger.
+IB_CONNECTIVITY_CODES = frozenset({1100, 1101, 1102})
+
+
+def no_live_data_scope(code: int, symbol: Optional[str]) -> str:
+    """Which key a NO_LIVE_DATA code condemns: one symbol, or the account.
+
+    Shared by `IBBroker._on_ib_error` and `FakeIB.report_no_live_data` so the
+    double cannot disagree with the broker about scope. That divergence is the
+    one this codebase keeps paying for: FakeIB filtered working orders to
+    Submitted/PreSubmitted while IBBroker returned everything from
+    openTrades(), and the state that carried 524 shares overnight could not be
+    expressed in a test at all.
+    """
+    return "*" if code in ACCOUNT_WIDE_NO_LIVE_DATA else (symbol or "*")
 
 
 def is_warning(code: int) -> bool:
@@ -451,12 +514,20 @@ class IBBroker(Broker):
         self._contracts: dict[str, Any] = {}
         self._dry_seq = 0
         self._no_live_data: set = set()
+        #: symbol (or "*") -> the IBKR code that condemned it, so the refusal
+        #: at 11:00 names the actual cause instead of a hardcoded guess.
+        self._no_live_data_codes: dict = {}
         self._error_hooked = False
         #: Order ids currently resting as OCA bracket legs. A 201/202 naming
         #: one of these is the OCA doing its job — see `note_oca_legs`.
         self._oca_legs: set = set()
         #: One live market-data subscription per symbol. See `_ticker`.
         self._tickers: dict[str, Any] = {}
+        #: True between a 1100 and the 1101/1102 that resolves it. While set,
+        #: `quote` reports no quote rather than the last cached values: the one
+        #: consumer records the quote at fill time as §1 evidence, and a frozen
+        #: book logged as the price at the fill corrupts exactly that evidence.
+        self._connectivity_lost = False
 
     # ---------------------------------------------------------- lifecycle
     def connect(self) -> None:
@@ -546,6 +617,30 @@ class IBBroker(Broker):
                                f"IBKR {errorCode} req={reqId} {symbol}: "
                                f"{errorString} — the OCA cancelling a bracket "
                                f"leg, which is §6.3 working")
+            elif errorCode in IB_CONNECTIVITY_CODES:
+                pass          # reported by `_on_connectivity` below, which
+                              # knows which of the three arrived and what it
+                              # costs. Listed here only so the generic branch
+                              # does not claim an order was cancelled.
+            elif errorCode in NO_LIVE_DATA_ERRORS:
+                # A market-data condition, not an order rejection. The generic
+                # branch below would announce that ib_async "marked this trade
+                # Cancelled", which for a reqMktData reqId names a trade that
+                # does not exist — §4.7's rule again: a message that misreports
+                # the fault is worse than no message. What follows is what the
+                # operator can act on.
+                if errorCode in ACCOUNT_WIDE_NO_LIVE_DATA:
+                    detail = ("a competing session — this account is logged in "
+                              "somewhere else and IBKR gives the live login "
+                              "priority. EVERY sleeve stands down, not just "
+                              f"{symbol}. Log the other session out.")
+                else:
+                    detail = (f"no live subscription for {symbol}; it stands "
+                              f"down and the other sleeves are unaffected.")
+                self._on_event(
+                    "error",
+                    f"IBKR {errorCode} req={reqId} {symbol}: {errorString} "
+                    f"— {detail} §4 forbids trading on delayed data.")
             else:
                 self._on_event(
                     "error",
@@ -554,9 +649,69 @@ class IBBroker(Broker):
                     f"trade Cancelled locally. The order may still be live at "
                     f"IBKR; reconcile before believing it is gone.")
 
+        if errorCode in IB_CONNECTIVITY_CODES:
+            self._on_connectivity(errorCode, reqId, errorString)
+            return
+
         if errorCode not in NO_LIVE_DATA_ERRORS:
             return
-        self._no_live_data.add(symbol)
+        # An account-wide code condemns everything, not just whatever contract
+        # was in flight when it arrived. See ACCOUNT_WIDE_NO_LIVE_DATA.
+        scope = no_live_data_scope(errorCode, symbol)
+        self._no_live_data.add(scope)
+        self._no_live_data_codes[scope] = errorCode
+
+    def _on_connectivity(self, code: int, reqId, errorString: str) -> None:
+        """Handle 1100/1101/1102 — the nightly reset, and what it costs.
+
+        Whether the market-data subscriptions survived is **stated by IBKR**,
+        differently per code, and acting on the wrong one has a cost either
+        way. `ib_async` does not settle it: `IB._onError` handles 1102 alone
+        and only re-subscribes the **account summary** — verified from the
+        installed source. Nothing in the package re-requests market data after
+        a 1101.
+        """
+        if code == 1100:
+            # Not yet known whether the subscriptions will survive; the 1101 or
+            # 1102 that follows says. Until then the cached Tickers cannot be
+            # trusted, but they are NOT dropped: if 1102 follows, TWS still
+            # holds those lines and re-subscribing would orphan them against
+            # the ~100-line limit `_ticker` exists to protect.
+            self._connectivity_lost = True
+            self._on_event(
+                "error",
+                f"IBKR 1100: {errorString} — connectivity to IBKR is DOWN "
+                f"(nightly reset, a network fault, or a competing session). "
+                f"No order was cancelled by this. Quotes report empty until "
+                f"the 1101/1102 that resolves it.")
+            return
+
+        self._connectivity_lost = False
+        if code == 1101:
+            # "Your market data requests have been lost and need to be
+            # re-submitted." Dropping the cache is the re-submission: `_ticker`
+            # re-requests on the next read, with its warmup wait. Deliberately
+            # NOT cancelMktData first — IBKR has already discarded these, and
+            # asking about a subscription TWS does not have answers 300
+            # "Can't find EId", attributed to whatever step is running when it
+            # lands. Without this the Tickers survive holding their last values
+            # and `quote` reports a frozen book as a live one.
+            dropped = sorted(self._tickers)
+            self._tickers.clear()
+            self._on_event(
+                "warn",
+                f"IBKR 1101: {errorString} — reconnected, but IBKR DISCARDED "
+                f"the market-data subscriptions. Re-subscribing "
+                f"{', '.join(dropped) or 'nothing (none were open)'} on the "
+                f"next read. No order was cancelled by this.")
+        else:                                     # 1102
+            # "...recovered and there is no need for you to re-submit them."
+            # So the cache is still valid; clearing it here would orphan the
+            # lines TWS kept.
+            self._on_event(
+                "info",
+                f"IBKR 1102: {errorString} — reconnected with the market-data "
+                f"subscriptions intact. Nothing to do.")
 
     def disconnect(self) -> None:
         if self._ib is not None and self._ib.isConnected():
@@ -653,10 +808,22 @@ class IBBroker(Broker):
         def _refuse(why: str) -> None:
             raise NotLiveDataError(f"{symbol or 'account'}: {why}", symbol=symbol)
 
-        if "*" in self._no_live_data or (symbol and symbol in self._no_live_data):
-            _refuse("IBKR reported no live market-data subscription "
-                    "(see the 10089/354 error above); §4 forbids trading on "
-                    "delayed data")
+        blocked = ("*" if "*" in self._no_live_data
+                   else symbol if symbol and symbol in self._no_live_data
+                   else None)
+        if blocked is not None:
+            # Name the code that actually condemned this. The message used to
+            # read "see the 10089/354 error above" whatever had happened, so a
+            # stand-down caused by 10197 — a competing login, whose remedy is
+            # somewhere else entirely — would have sent the operator hunting
+            # for a subscription problem that was not there.
+            code = self._no_live_data_codes.get(blocked)
+            why = (f"IBKR {code} reported no live market data"
+                   if code else "IBKR reported no live market data")
+            if code in ACCOUNT_WIDE_NO_LIVE_DATA:
+                why += (" for this session — the account is logged in "
+                        "elsewhere and the live login has priority")
+            _refuse(f"{why}; §4 forbids trading on delayed data")
         if symbol is None:
             return
 
@@ -836,6 +1003,12 @@ class IBBroker(Broker):
         return t
 
     def quote(self, symbol: str) -> Quote:
+        if self._connectivity_lost:
+            # A 1100 with no 1101/1102 yet. The cached Ticker still holds the
+            # last values TWS sent before the drop; returning them would record
+            # a stale book as the quote at the fill. `Quote.ok` is False for
+            # zeros and the one caller already handles an empty quote.
+            return Quote(0.0, 0.0, 0.0)
         t = self._ticker(symbol)
         def _f(x):
             return float(x) if x is not None and x == x else 0.0
@@ -1094,6 +1267,9 @@ class FakeIB(Broker):
         self.bars: dict[str, list[Bar]] = {}
         self.sessions: dict[str, list[tuple]] = {}
         self.market_data_type = MARKET_DATA_LIVE
+        #: Symbols (or "*") condemned by a market-data error, mirroring
+        #: `IBBroker._no_live_data`. Populated via `report_no_live_data`.
+        self.no_live_data: set = set()
         self.global_cancels = 0
         #: Leave cancels in `PendingCancel` instead of confirming them,
         #: reproducing the 2026-08-10 stall. See `cancel`.
@@ -1128,7 +1304,21 @@ class FakeIB(Broker):
     def connected(self) -> bool:
         return self._connected
 
+    def report_no_live_data(self, code: int, symbol: Optional[str] = None) -> None:
+        """Model an IBKR market-data error condemning a symbol, or the account.
+
+        Without this the 10197 path was unreachable through the double: FakeIB
+        could only express a `marketDataType` downgrade, so "a competing login
+        stands BOTH sleeves down" could not be written as an engine test except
+        by monkeypatching the thing under test. Scope comes from
+        `no_live_data_scope`, the same call the real broker makes.
+        """
+        self.no_live_data.add(no_live_data_scope(code, symbol))
+
     def assert_live_data(self, symbol: Optional[str] = None) -> None:
+        if "*" in self.no_live_data or (symbol and symbol in self.no_live_data):
+            raise NotLiveDataError(
+                f"no live market data for {symbol or 'account'}", symbol=symbol)
         if self.market_data_type != MARKET_DATA_LIVE:
             raise NotLiveDataError(f"marketDataType={self.market_data_type}")
 

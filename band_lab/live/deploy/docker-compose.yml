@@ -1,0 +1,114 @@
+# IB Gateway (paper) for the band_lab live engine.
+#
+#   cp .env.example .env     # fill in TWS_USERID / TWS_PASSWORD
+#   docker compose up -d     # gateway only
+#   docker compose --profile engine up -d    # gateway + engine
+#
+# See README.md for what each setting is doing and why.
+
+name: bandlab
+
+services:
+  ib-gateway:
+    # Pinned by DIGEST, not by tag. `:stable` is a moving pointer — it was
+    # IB Gateway 10.45.1j + IBC 3.24.2 when this was written, and it will
+    # silently become something else. That matters more than usual here:
+    # IBC was RETIRED on 2026-09-01 and its repository archived, so the
+    # automation layer under this image is frozen software with no upstream
+    # left to fix it. An unattended `docker compose pull` that swaps in a
+    # build which cannot drive the login dialog fails at 09:30, not now.
+    # Resolved 2026-09-17; see README.md §Pinning to move it deliberately.
+    image: ghcr.io/gnzsnz/ib-gateway:stable@sha256:91165c0752ca534c0dad3c40683ae7c2745974d4d277651a90e90411ca609d8d
+    restart: unless-stopped
+    environment:
+      TWS_USERID: ${TWS_USERID:?set TWS_USERID in .env}
+      TWS_PASSWORD: ${TWS_PASSWORD:?set TWS_PASSWORD in .env}
+
+      # Paper. The engine refuses live ports without allow_live_account
+      # (config.py LIVE_PORTS), so this and that guard have to agree.
+      TRADING_MODE: paper
+
+      # REQUIRED for a sibling container. The engine does not connect from
+      # 127.0.0.1 any more, so it is not a trusted IP, and TWS raises an
+      # "Accept incoming connection attempt?" dialog. The image's default is
+      # `manual`, which on a headless container means that dialog sits there
+      # unanswered and the connection just hangs. `accept` answers it.
+      TWS_ACCEPT_INCOMING: accept
+
+      # RUNBOOK.md §4.1 — Read-Only API OFF. The engine places orders.
+      READ_ONLY_API: "no"
+
+      # Order-precaution dialogs, which would otherwise block a headless fill.
+      BYPASS_WARNING: "yes"
+
+      # RUNBOOK.md §4.3 — auto restart 23:00. IBC restarts without needing
+      # re-authentication, which is what makes unattended operation possible
+      # at all. The engine reconnects itself (§6.2).
+      AUTO_RESTART_TIME: "11:00 PM"
+
+      # The whole engine reasons in ET (§5 timetable, the 11:00 arm).
+      TIME_ZONE: America/New_York
+      TZ: America/New_York
+
+      # Paper login does not raise a 2FA prompt, so these are belt-and-braces
+      # for the live cutover rather than load-bearing today.
+      TWOFA_TIMEOUT_ACTION: restart
+      RELOGIN_AFTER_TWOFA_TIMEOUT: "yes"
+
+      # If a second session appears, keep this one primary rather than dying.
+      EXISTING_SESSION_DETECTED_ACTION: primary
+
+      # Persist Jts settings across restarts so the Gateway is not
+      # reconfiguring itself every morning.
+      TWS_SETTINGS_PATH: /home/ibgateway/Jts
+
+      # Uncomment (and set in .env) to attach a VNC viewer for debugging.
+      # VNC_SERVER_PASSWORD: ${VNC_SERVER_PASSWORD:-}
+    volumes:
+      - jts-settings:/home/ibgateway/Jts
+    ports:
+      # Host-side only, never 0.0.0.0. This is for an engine running on the
+      # HOST (config.host.json). An engine running as the sibling service
+      # below does NOT use this — it goes over the `trader` network instead.
+      #
+      # 4002 (host) -> 4004 (container). 4004 is socat's listener; the Gateway
+      # itself binds 127.0.0.1:4002 inside the container, which is not
+      # reachable across the network namespace.
+      - "127.0.0.1:4002:4004"
+    networks: [trader]
+    healthcheck:
+      # socat holding the paper port open is the closest thing to "the Gateway
+      # is actually accepting API connections" that costs nothing.
+      test: ["CMD-SHELL", "ss -ltn 2>/dev/null | grep -q ':4004' || netstat -ltn 2>/dev/null | grep -q ':4004'"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 180s      # cold login + IBC dialog handling is not fast
+
+  # Optional: the engine as a sibling container.
+  #   docker compose --profile engine up -d
+  # Omit the profile and you get the gateway alone, with the engine run from
+  # the host against 127.0.0.1:4002.
+  engine:
+    profiles: [engine]
+    image: python:3.12-slim
+    restart: unless-stopped
+    depends_on:
+      ib-gateway:
+        condition: service_healthy
+    working_dir: /repo/band_lab/live
+    environment:
+      TZ: America/New_York
+      PYTHONUNBUFFERED: "1"
+    volumes:
+      - ../../..:/repo                 # the repository, including LFS data
+    command: >
+      sh -c "pip install --quiet -r /repo/requirements.txt &&
+             python run.py --config /repo/band_lab/live/deploy/config.container.json"
+    networks: [trader]
+
+networks:
+  trader:
+
+volumes:
+  jts-settings:
