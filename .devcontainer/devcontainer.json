@@ -38,7 +38,12 @@
     // 38 modules import matplotlib. There is no display in a container, so
     // pick the file-writing backend before anything calls pyplot.
     "MPLBACKEND": "Agg",
-    "PYTHONDONTWRITEBYTECODE": "1"
+    "PYTHONDONTWRITEBYTECODE": "1",
+
+    // Makes `python3 retreat_lab/fetch_universe.py` reach the containerised
+    // Gateway with no flag. 4002 is what docker-compose.yml publishes; 7497
+    // is desktop TWS and is the default anywhere this is not set.
+    "IB_PORT": "4002"
   },
 
   // Surfaced in the Codespaces UI so these are set as encrypted Codespaces
@@ -51,6 +56,12 @@
     },
     "THETADATA_PASSWORD": {
       "description": "ThetaData account password. Never commit this to .env."
+    },
+    "TWS_USERID": {
+      "description": "IBKR PAPER username for the Gateway container. Use a SECOND paper user if a desktop TWS runs the live engine on the same account - IBKR allows one session per username and the container wins."
+    },
+    "TWS_PASSWORD": {
+      "description": "IBKR paper password. A Codespaces secret, never .env - scripts/fetch-universe.sh reads it from the environment."
     }
   },
 

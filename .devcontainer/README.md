@@ -75,10 +75,54 @@ scripts/fetch-data.sh SOXL_1min.csv
 python3 retreat_lab/cover_search.py 20
 ```
 
-Because stage 2 needs nothing from IBKR, the cleanest arrangement is to run
-stage 1 on the Windows box that already has TWS and the market-data
-entitlements, commit `retreat_lab/out/universe/*.csv`, and do stage 2 here.
-That avoids the session collision above entirely.
+### Running both stages here, with no TWS box
+
+```bash
+scripts/fetch-universe.sh              # Gateway up, fetch, Gateway down
+git add retreat_lab/out/universe/ && git commit -m "universe: refresh" && git push
+python3 retreat_lab/cover_search.py 20
+```
+
+`scripts/fetch-universe.sh` starts the paper Gateway, waits for it to accept
+API connections, runs the fetch against port 4002, and **takes the Gateway
+back down**. The teardown is the safety feature: while that container is up it
+owns the IBKR session, so leaving it running is how a desktop TWS gets dropped
+by accident. `--keep-gateway` opts out if you want it to stay.
+
+Set `TWS_USERID` and `TWS_PASSWORD` as **Codespaces secrets**
+(github.com/settings/codespaces), not in `.env` — they arrive as environment
+variables and the script reads them from there, so no file holds them.
+
+`devcontainer.json` sets `IB_PORT=4002`, so a bare
+`python3 retreat_lab/fetch_universe.py` finds the Gateway here while the same
+command on a TWS box still goes to 7497.
+
+**The one decision this forces.** IBKR allows one session per username. If a
+desktop TWS is still running the `overnight/` engine on the account you put in
+`TWS_USERID`, this Gateway takes the session from it. Either:
+
+- **use a second IBKR paper username** for the Gateway — clean, no scheduling,
+  and what to do if the engine keeps running anywhere; or
+- **run the fetch only when that desktop TWS is closed.** `fetch_universe.py`
+  already refuses inside the trading windows, but that guard does not know
+  about the Gateway, so the wrapper's teardown is what keeps the window short.
+
+The market-data entitlements are the account's, not the machine's, so a
+Codespace fetch sees exactly what the Windows box would.
+
+### What still cannot move off a local machine
+
+The **live engine** is not a Codespace workload, whatever the machine size. It
+has to hold 15:45 and 16:05 one day and 09:15 and 09:35 the next; a Codespace
+idles out at 30 minutes and is capped at 4 hours. Research fetching moves here
+cleanly. Retiring the trading box entirely means moving the engine to an
+always-on host, which is what `band_lab/live/deploy/` was built for — the same
+compose file, on a small cloud VM rather than in a Codespace.
+
+The tracked universe is the other half of not depending on one machine:
+`retreat_lab/out/universe/` is committed (plain git, ~14 MB, deliberately not
+LFS), so the 45-minute fetch and its IBKR pacing budget survive the Codespace
+being deleted.
 
 Two things to expect from stage 1:
 

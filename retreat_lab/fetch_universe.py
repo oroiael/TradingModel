@@ -89,9 +89,13 @@ def main(argv=None) -> int:
     ap.add_argument("--duration", default="5 Y")
     ap.add_argument("--host", default="127.0.0.1",
                     help="TWS/Gateway host (default 127.0.0.1)")
-    ap.add_argument("--port", type=int, default=7497,
-                    help="7497 desktop TWS paper (default), 4002 the "
-                         "containerised Gateway in a Codespace")
+    # $IB_PORT lets the environment pick the default: devcontainer.json sets
+    # it to 4002 so a Codespace needs no flag, while the Windows box, which
+    # sets nothing, keeps 7497. An explicit --port still beats both.
+    ap.add_argument("--port", type=int,
+                    default=int(os.environ.get("IB_PORT", 7497)),
+                    help="7497 desktop TWS paper, 4002 the containerised "
+                         "Gateway; default from $IB_PORT, else 7497")
     ap.add_argument("--client-id", type=int, default=22, dest="client_id")
     ap.add_argument("--force", action="store_true",
                     help="refetch symbols already on disk")
