@@ -28,4 +28,8 @@ band_lab/v2_dev/out/v23/paths.csv -filter -diff -merge text
 band_lab/v2_dev/data/*.csv -filter -diff -merge text
 ccp_lab/out/*.csv -filter -diff -merge text
 retreat_lab/out/*.csv -filter -diff -merge text
+# `*` does not cross a `/`, so the line above does NOT cover the universe
+# subdirectory. Without this one, 235 files fall under the global `*.csv`
+# LFS rule and `.lfsconfig` then hides them from every fresh clone.
+retreat_lab/out/universe/*.csv -filter -diff -merge text
 retreat_lab/fomc_dates.csv -filter -diff -merge text

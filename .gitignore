@@ -69,6 +69,13 @@ retreat_lab/out/xlu_sleeve.csv
 retreat_lab/out/scaled_*.csv
 retreat_lab/out/hedge_sleeve_*.csv
 
-# The 235-symbol screen universe: ~14MB of daily bars fetched by
-# fetch_universe.py, refetchable in 45 minutes and machine-local.
-retreat_lab/out/universe/
+# The 235-symbol screen universe WAS ignored here, on the reasoning that it is
+# "refetchable in 45 minutes and machine-local". That held while the fetch ran
+# on the Windows box, which keeps its disk. It inverts once the fetch runs in a
+# Codespace: a Codespace is ephemeral, so "machine-local" means "gone when the
+# container is deleted", and the 45 minutes is not the real cost -- the IBKR
+# pacing budget is. The universe is now TRACKED, ~14MB of plain git objects
+# (see .gitattributes: deliberately not LFS, so `.lfsconfig`'s fetchexclude
+# cannot leave a fresh clone holding pointer files that die in the CSV parser).
+#
+# Refetch with `--force` when the bars go stale; the diff is the whole point.
