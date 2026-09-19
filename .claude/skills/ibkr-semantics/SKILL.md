@@ -186,13 +186,51 @@ Two related codes are **not** in the set, deliberately or otherwise:
   connected from a different IP address. Or, No market data permissions."* The
   engine does not request tick-by-tick data, so it has never been seen. A remote
   Gateway makes the IP half of that message newly relevant; unresolved.
-- `1100` / `1101` / `1102` — connectivity, not entitlement. `1100` names "a
-  competing session" as one cause, and **`1101` means market-data subscriptions
-  were lost and must be re-requested.** None of the three is in
-  `IB_STATUS_CHATTER` or the warning band, so they currently reach the generic
-  branch and are reported as though an order had been marked `Cancelled`. That
-  is wrong, it will fire on every nightly reset, and nothing re-subscribes after
-  `1101`. **Open.**
+- `1100` / `1101` / `1102` — connectivity, not entitlement. Handled since
+  2026-09-19 in `IB_CONNECTIVITY_CODES`; see the next section.
+
+## The nightly reset: 1100, 1101, 1102
+
+These fire on **every healthy session** — IBKR resets nightly and RUNBOOK §4.3
+restarts TWS at 23:00 — so getting them wrong is §4.7 at its worst: a daily
+error message about orders that were never in danger. They sit outside
+ib_async's warning band, so until 2026-09-19 they reached the generic branch
+and announced that the trade had been marked `Cancelled`, naming a trade that
+does not exist for a connectivity notice.
+
+Whether the market-data subscriptions survived is **stated by IBKR, and differs
+per code**. Acting on the wrong one costs something either way:
+
+| code | IBKR says | what the engine does |
+|---|---|---|
+| `1100` | connectivity lost — "an internet connectivity issue, a **nightly reset**, or a competing session" | `quote` reports empty until this resolves. Cache **kept** — which of 1101/1102 follows is not yet known. |
+| `1101` | restored, "market data requests have been **lost and need to be re-submitted**" | cache **dropped**; `_ticker` re-requests on the next read |
+| `1102` | restored, "**recovered** and there is no need to re-submit" | cache **kept** |
+
+Two mistakes this layout avoids, both real:
+
+- **Dropping on 1102** would make the next read `reqMktData` for a line TWS
+  still holds, orphaning the old reqId against the ~100-line limit `_ticker`
+  exists to protect.
+- **Cancelling before dropping on 1101** would ask TWS about a subscription it
+  has already discarded, which answers `300 "Can't find EId"`, attributed to
+  whatever step happens to be running when it lands.
+
+`ib_async` does not settle any of this: **`IB._onError` handles 1102 alone, and
+only to re-subscribe the account summary** — verified from the installed
+source at `ib.py`. Nothing in the package re-requests market data after a 1101.
+
+None of the three is in `NO_LIVE_DATA_ERRORS`, and that is deliberate: that set
+is sticky — nothing clears it — so a code that fires every night would end each
+session at the first reset. Contrast `10197` above, which *is* sticky because a
+competing login does not resolve itself.
+
+Why `quote` reports empty during a 1100 rather than the cached book: its one
+caller records the quote at fill time as §1's evidence for whether IBKR fills a
+resting limit without the quote reaching it. A frozen book logged there
+corrupts exactly the measurement it exists for. `Quote.ok` is `False` for zeros
+and that caller already handles an empty quote, so nothing downstream had to
+change — **quotes never price an order.**
 
 ## Writing or changing FakeIB
 
@@ -228,7 +266,6 @@ These are inference, not verification, and each is marked at its use site:
 | `reqGlobalCancel` frees a stalled `PendingCancel` | `orders.py:ensure_flat` | a session where the escalation fires |
 | `1 D` historical inside RTH may reach into the prior session | `PHASE2_PLAN.md` §6.4 | compare a request's span against the session |
 | `10197` carries a contract, and fires per request not per session | `broker.py:ACCOUNT_WIDE_NO_LIVE_DATA` | a session with a competing login — read whether `contract` is set and how many arrive |
-| `1101` needs an explicit re-subscribe, and `1100/1101/1102` are mis-reported as order failures | `broker.py:_on_ib_error` | any nightly reset; the log will show which branch they took |
 
 When one of these is settled by a live session, move it out of this table and into
 the verified sections above, with the date and what was observed.

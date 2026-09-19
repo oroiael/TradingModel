@@ -110,6 +110,27 @@ OCA_CANCEL_CODES = frozenset({201, 202})
 ACCOUNT_SUBSCRIPTION_ERRORS = frozenset({2100, 2101})
 
 
+#: Connectivity notices. **Not** order rejections and not entitlement problems,
+#: which is the whole reason they need their own branch: they are outside
+#: `ib_async`'s warning band, so without this they reach the generic handler and
+#: are announced as "ib_async has marked this trade Cancelled" — naming a trade
+#: that does not exist. IBKR's message table, quoted:
+#:
+#:   1100  "Connectivity between IB and the TWS has been lost." — "...an
+#:         internet connectivity issue, a **nightly reset of the IB servers**,
+#:         or a competing session."
+#:   1101  "Connectivity between IB and TWS has been restored- **data lost**."
+#:         — "Your market data requests have been lost and **need to be
+#:         re-submitted**."
+#:   1102  "...restored- **data maintained**." — "...recovered and there is no
+#:         need for you to re-submit them."
+#:
+#: The nightly reset means these fire on every healthy session (RUNBOOK §4.3
+#: restarts TWS at 23:00), so mis-reporting them is the §4.7 failure mode at
+#: its worst: a daily error message about orders that were never in danger.
+IB_CONNECTIVITY_CODES = frozenset({1100, 1101, 1102})
+
+
 def no_live_data_scope(code: int, symbol: Optional[str]) -> str:
     """Which key a NO_LIVE_DATA code condemns: one symbol, or the account.
 
@@ -502,6 +523,11 @@ class IBBroker(Broker):
         self._oca_legs: set = set()
         #: One live market-data subscription per symbol. See `_ticker`.
         self._tickers: dict[str, Any] = {}
+        #: True between a 1100 and the 1101/1102 that resolves it. While set,
+        #: `quote` reports no quote rather than the last cached values: the one
+        #: consumer records the quote at fill time as §1 evidence, and a frozen
+        #: book logged as the price at the fill corrupts exactly that evidence.
+        self._connectivity_lost = False
 
     # ---------------------------------------------------------- lifecycle
     def connect(self) -> None:
@@ -591,6 +617,11 @@ class IBBroker(Broker):
                                f"IBKR {errorCode} req={reqId} {symbol}: "
                                f"{errorString} — the OCA cancelling a bracket "
                                f"leg, which is §6.3 working")
+            elif errorCode in IB_CONNECTIVITY_CODES:
+                pass          # reported by `_on_connectivity` below, which
+                              # knows which of the three arrived and what it
+                              # costs. Listed here only so the generic branch
+                              # does not claim an order was cancelled.
             elif errorCode in NO_LIVE_DATA_ERRORS:
                 # A market-data condition, not an order rejection. The generic
                 # branch below would announce that ib_async "marked this trade
@@ -618,6 +649,10 @@ class IBBroker(Broker):
                     f"trade Cancelled locally. The order may still be live at "
                     f"IBKR; reconcile before believing it is gone.")
 
+        if errorCode in IB_CONNECTIVITY_CODES:
+            self._on_connectivity(errorCode, reqId, errorString)
+            return
+
         if errorCode not in NO_LIVE_DATA_ERRORS:
             return
         # An account-wide code condemns everything, not just whatever contract
@@ -625,6 +660,58 @@ class IBBroker(Broker):
         scope = no_live_data_scope(errorCode, symbol)
         self._no_live_data.add(scope)
         self._no_live_data_codes[scope] = errorCode
+
+    def _on_connectivity(self, code: int, reqId, errorString: str) -> None:
+        """Handle 1100/1101/1102 — the nightly reset, and what it costs.
+
+        Whether the market-data subscriptions survived is **stated by IBKR**,
+        differently per code, and acting on the wrong one has a cost either
+        way. `ib_async` does not settle it: `IB._onError` handles 1102 alone
+        and only re-subscribes the **account summary** — verified from the
+        installed source. Nothing in the package re-requests market data after
+        a 1101.
+        """
+        if code == 1100:
+            # Not yet known whether the subscriptions will survive; the 1101 or
+            # 1102 that follows says. Until then the cached Tickers cannot be
+            # trusted, but they are NOT dropped: if 1102 follows, TWS still
+            # holds those lines and re-subscribing would orphan them against
+            # the ~100-line limit `_ticker` exists to protect.
+            self._connectivity_lost = True
+            self._on_event(
+                "error",
+                f"IBKR 1100: {errorString} — connectivity to IBKR is DOWN "
+                f"(nightly reset, a network fault, or a competing session). "
+                f"No order was cancelled by this. Quotes report empty until "
+                f"the 1101/1102 that resolves it.")
+            return
+
+        self._connectivity_lost = False
+        if code == 1101:
+            # "Your market data requests have been lost and need to be
+            # re-submitted." Dropping the cache is the re-submission: `_ticker`
+            # re-requests on the next read, with its warmup wait. Deliberately
+            # NOT cancelMktData first — IBKR has already discarded these, and
+            # asking about a subscription TWS does not have answers 300
+            # "Can't find EId", attributed to whatever step is running when it
+            # lands. Without this the Tickers survive holding their last values
+            # and `quote` reports a frozen book as a live one.
+            dropped = sorted(self._tickers)
+            self._tickers.clear()
+            self._on_event(
+                "warn",
+                f"IBKR 1101: {errorString} — reconnected, but IBKR DISCARDED "
+                f"the market-data subscriptions. Re-subscribing "
+                f"{', '.join(dropped) or 'nothing (none were open)'} on the "
+                f"next read. No order was cancelled by this.")
+        else:                                     # 1102
+            # "...recovered and there is no need for you to re-submit them."
+            # So the cache is still valid; clearing it here would orphan the
+            # lines TWS kept.
+            self._on_event(
+                "info",
+                f"IBKR 1102: {errorString} — reconnected with the market-data "
+                f"subscriptions intact. Nothing to do.")
 
     def disconnect(self) -> None:
         if self._ib is not None and self._ib.isConnected():
@@ -916,6 +1003,12 @@ class IBBroker(Broker):
         return t
 
     def quote(self, symbol: str) -> Quote:
+        if self._connectivity_lost:
+            # A 1100 with no 1101/1102 yet. The cached Ticker still holds the
+            # last values TWS sent before the drop; returning them would record
+            # a stale book as the quote at the fill. `Quote.ok` is False for
+            # zeros and the one caller already handles an empty quote.
+            return Quote(0.0, 0.0, 0.0)
         t = self._ticker(symbol)
         def _f(x):
             return float(x) if x is not None and x == x else 0.0
